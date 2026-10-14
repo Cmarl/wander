@@ -461,3 +461,70 @@ html, body {
 }
 .mute:hover { opacity: 0.95; }
 .mute.off { opacity: 0.35; text-decoration: line-through; }
+
+/* photo mode */
+#ui.hidden-for-photo > *:not(.photo) { opacity: 0 !important; pointer-events: none !important; }
+
+.photo {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 10px;
+  padding-bottom: max(26px, env(safe-area-inset-bottom));
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.25s;
+  z-index: 5;
+}
+.photo.on { opacity: 1; }
+.photo.on .photo-bar { pointer-events: auto; }
+
+/* A clean border, so the frame you compose is the frame you get. */
+.photo::before {
+  content: "";
+  position: absolute;
+  inset: 18px;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 4px;
+  pointer-events: none;
+}
+
+.photo-bar {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  padding: 10px 16px;
+  border-radius: 999px;
+  background: rgba(10, 14, 20, 0.5);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+}
+.photo-shutter {
+  width: 54px;
+  height: 54px;
+  border-radius: 50%;
+  border: 3px solid rgba(255, 255, 255, 0.85);
+  background: rgba(255, 255, 255, 0.2);
+  transition: transform 0.08s, background 0.12s;
+}
+.photo-shutter:active { transform: scale(0.9); background: rgba(255, 255, 255, 0.55); }
+.photo-btn {
+  border: 0;
+  background: none;
+  color: var(--ink);
+  font: inherit;
+  font-size: 12px;
+  letter-spacing: 0.1em;
+  opacity: 0.7;
+}
+.photo-btn:hover { opacity: 1; }
+.photo-hint {
+  font-size: 11px;
+  letter-spacing: 0.06em;
+  opacity: 0.45;
+  text-align: center;
+  padding: 0 20px;
+}

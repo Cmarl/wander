@@ -17,6 +17,7 @@ import { Environment } from "./game/environment";
 import { Player } from "./game/player";
 import { Controls } from "./input/controls";
 import { Hud } from "./ui/hud";
+import { Postcard } from "./ui/postcard";
 import { Soundscape } from "./audio/soundscape";
 import { Net, DEFAULT_WORLD } from "./net/net";
 import { PeerBodies } from "./net/peers";
@@ -65,7 +66,13 @@ const dust = new Dust();
 const birds = new Birds();
 scene.add(dust.mesh, birds.mesh);
 
-const spawn = findSpawn();
+const atParam = new URLSearchParams(location.search).get("at");
+const atMatch = atParam?.match(/^(-?\d+(?:\.\d+)?),(-?\d+(?:\.\d+)?)$/);
+// A shared postcard puts you exactly where the photographer stood. The world is
+// a pure function, so no lookup is needed — the coordinates ARE the place.
+const spawn = atMatch
+  ? new THREE.Vector2(Number(atMatch[1]), Number(atMatch[2]))
+  : findSpawn();
 const player = new Player(camera, spawn);
 scene.add(player.group);
 
@@ -114,6 +121,9 @@ const netFacade = {
 const hud = new Hud(controls, sound, netFacade);
 hud.onPinRequest = (id) => togglePin(id);
 
+const postcard = new Postcard(document.getElementById("ui")!);
+postcard.bindLink(() => ({ x: player.position.x, z: player.position.z }));
+
 net.onPeerLeave = (id) => peers.remove(id);
 if (localStorage.getItem("wander.solo") !== "1") {
   net.connect(myWorld, myName, colourFor(myName));
@@ -121,7 +131,7 @@ if (localStorage.getItem("wander.solo") !== "1") {
 
 // Live handle for tuning from the console: __wander.env.timeOfDay = 0.5, etc.
 (window as Window & { __wander?: unknown }).__wander = {
-  env, terrain, water, sky, grass, landmarks, found, dust, birds, player, camera, renderer, scene, sound, net, peers,
+  env, terrain, water, sky, grass, landmarks, found, dust, birds, postcard, player, camera, renderer, scene, sound, net, peers,
 };
 
 function resize() {
@@ -139,6 +149,8 @@ addEventListener("keydown", (e) => {
   if (e.code === "BracketRight") env.timeOfDay = (env.timeOfDay + 1 / 24) % 1;
   if (e.code === "BracketLeft") env.timeOfDay = (env.timeOfDay + 23 / 24) % 1;
   if (e.code === "KeyM") hud.setMuted(sound.toggleMute());
+  if (e.code === "KeyP") postcard.toggle();
+  if (e.code === "Escape" && postcard.active) postcard.toggle(false);
 });
 
 // --- wake: what the world does back ---------------------------------------
@@ -279,6 +291,7 @@ function frame(now: number) {
   fps += (1 / Math.max(dt, 1e-4) - fps) * 0.08;
 
   controls.beginFrame();
+  player.freeCamera = postcard.active;
   env.advance(dt);
   player.update(dt, controls);
 
@@ -386,6 +399,15 @@ function frame(now: number) {
   hud.setPresence(net.status, net.peers.size);
 
   renderer.render(scene, camera);
+  // Must read the buffer in the same frame as the draw, or it's already cleared.
+  if (postcard.pending) {
+    postcard.grab(renderer.domElement, {
+      x: player.position.x,
+      z: player.position.z,
+      biome: biomeNameAt(player.position.x, player.position.z),
+      clock: env.clockString(),
+    });
+  }
   controls.endFrame();
 
   // Adaptive resolution: give back pixels before we give up frames.

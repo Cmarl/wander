@@ -128,6 +128,8 @@ export class Player {
 
   /** Binoculars up. Slows the look, narrows the lens, moves to the eye. */
   glassing = false;
+  /** Photo mode — unlocks the orbit range. */
+  freeCamera = false;
 
   update(dt: number, input: Controls) {
     this.glassing = input.glass;
@@ -135,7 +137,9 @@ export class Player {
     const aim = this.glassing ? 0.22 : 1;
     this.camYaw += input.look.x * aim;
     this.camPitch = THREE.MathUtils.clamp(this.camPitch + input.look.y * aim, -1.1, 0.75);
-    this.camDist = THREE.MathUtils.clamp(this.camDist + input.zoom * 0.6, 3.5, 26);
+    // Photo mode opens the orbit right up; in play it stays a chase camera.
+    const far = this.freeCamera ? 90 : 26;
+    this.camDist = THREE.MathUtils.clamp(this.camDist + input.zoom * (this.freeCamera ? 1.6 : 0.6), 1.6, far);
 
     if (input.interact) {
       if (this.mode === "foot" && this.nearVehicle) {
