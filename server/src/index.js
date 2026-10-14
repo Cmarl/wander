@@ -15,6 +15,13 @@
 const MAX_PLAYERS = 16;
 /** Ignore anything faster than this per socket, so one client can't flood a room. */
 const MIN_MESSAGE_INTERVAL_MS = 35;
+/**
+ * A client that has gone quiet for this long is gone. Clients send a keepalive
+ * every 2 s even when standing still, so 20 s is many missed beats. Without
+ * this a socket whose browser died without a clean close sat in the room
+ * forever as a phantom player.
+ */
+const STALE_MS = 20000;
 const DEFAULT_WORLD = "overland";
 
 const sanitizeWorld = (raw) =>
@@ -31,6 +38,12 @@ export default {
 
     if (url.pathname === "/health") {
       return new Response("ok", { headers: { "access-control-allow-origin": "*" } });
+    }
+    // Operational visibility: who is actually in a world right now.
+    if (url.pathname === "/who") {
+      const world = sanitizeWorld(url.searchParams.get("world"));
+      const room = env.ROOMS.get(env.ROOMS.idFromName(world));
+      return room.fetch(new Request(`https://room/who?world=${world}`, request));
     }
     if (url.pathname !== "/ws") {
       return new Response("wander-net", { status: 404 });
@@ -58,6 +71,28 @@ export class WorldRoom {
   }
 
   async fetch(request) {
+    const url0 = new URL(request.url);
+    if (url0.pathname === "/who") {
+      this.sweep();
+      const now = Date.now();
+      const players = this.state.getWebSockets().map((ws) => {
+        const a = ws.deserializeAttachment();
+        const seen = a ? this.lastSeen.get(a.id) : undefined;
+        const pos = a ? this.live.get(a.id) : undefined;
+        return {
+          id: a?.id ?? null,
+          name: a?.name ?? "?",
+          quietFor: seen === undefined ? null : Math.round((now - seen) / 1000),
+          at: pos ? [Math.round(pos[0]), Math.round(pos[2])] : null,
+          readyState: ws.readyState,
+        };
+      });
+      return new Response(JSON.stringify({ world: url0.searchParams.get("world"), count: players.length, players }, null, 1), {
+        headers: { "content-type": "application/json", "access-control-allow-origin": "*" },
+      });
+    }
+
+    this.sweep();
     const existing = this.state.getWebSockets();
     if (existing.length >= MAX_PLAYERS) {
       return new Response("world full", { status: 503 });
@@ -105,7 +140,38 @@ export class WorldRoom {
 
     const st = [num(m[1]), num(m[2]), num(m[3]), num(m[4]), m[5] === 1 ? 1 : 0, num(m[6])];
     this.live.set(a.id, st);
+    this.sweep();
     this.broadcast(JSON.stringify(["s", a.id, ...st]), ws);
+  }
+
+  /**
+   * Evict sockets whose client has stopped talking.
+   *
+   * A socket with no in-memory last-seen has only just come back from
+   * hibernation — we genuinely cannot know how long it has been quiet, so it
+   * gets a fresh grace rather than being killed on a guess.
+   */
+  sweep() {
+    const now = Date.now();
+    for (const ws of this.state.getWebSockets()) {
+      const a = ws.deserializeAttachment();
+      if (!a) continue;
+      const seen = this.lastSeen.get(a.id);
+      if (seen === undefined) {
+        this.lastSeen.set(a.id, now);
+        continue;
+      }
+      if (now - seen > STALE_MS) {
+        this.live.delete(a.id);
+        this.lastSeen.delete(a.id);
+        this.broadcast(JSON.stringify(["l", a.id]), ws);
+        try {
+          ws.close(1001, "stale");
+        } catch {
+          // Already gone; the close handler will tidy up.
+        }
+      }
+    }
   }
 
   webSocketClose(ws) {

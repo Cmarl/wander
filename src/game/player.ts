@@ -168,6 +168,13 @@ export class Player {
   campCamera: { pos: THREE.Vector3; look: THREE.Vector3 } | null = null;
   /** The fire, while camped. Movement is softly held around it. */
   campAnchor: THREE.Vector3 | null = null;
+  /**
+   * Settled into a place — soaking, sitting, up a lookout. While this is set
+   * the character doesn't walk at all: they're put exactly where the feature
+   * wants them, which is the difference between being somewhere and standing
+   * near it.
+   */
+  featureHold: THREE.Vector3 | null = null;
   /** True once the tether is noticeably resisting — the HUD explains the door. */
   heldByCamp = false;
 
@@ -210,6 +217,16 @@ export class Player {
   // --- on foot ---------------------------------------------------------------
 
   private updateOnFoot(dt: number, input: Controls) {
+    if (this.featureHold) {
+      this.position.copy(this.featureHold);
+      this.speed = 0;
+      this.character.root.position.copy(this.position);
+      this.character.root.rotation.y = this.heading;
+      this.character.animate(dt, 0, false);
+      this.placeVehicle(dt, 0, false);
+      return;
+    }
+
     const fx = -Math.sin(this.camYaw);
     const fz = -Math.cos(this.camYaw);
     const rx = Math.cos(this.camYaw);

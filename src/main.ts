@@ -7,9 +7,11 @@ import { Sky } from "./world/sky";
 import { Scatter } from "./world/scatter";
 import { Grass } from "./world/grass";
 import { LandmarkField } from "./world/landmarkRender";
-import { landmarkSolids, LANDMARK_NAMES } from "./world/landmarks";
+import { landmarkSolids } from "./world/landmarks";
 import { Discoveries } from "./game/discovery";
 import { Camp } from "./game/camp";
+import { Features, ACTIONS } from "./game/features";
+import { PAINTS } from "./game/paint";
 import { Dust, Birds } from "./world/particles";
 import { Wildlife } from "./world/wildlife";
 import { surfaceAt, moistureAt, treeDensityAt, slopeAt } from "./world/field";
@@ -67,6 +69,7 @@ scene.fog = new THREE.FogExp2(0x9fb4c8, 0.0001);
 const landmarks = new LandmarkField();
 scene.add(landmarks.group);
 const found = new Discoveries();
+const features = new Features();
 const camp = new Camp();
 scene.add(camp.group);
 const wildlife = new Wildlife();
@@ -153,7 +156,7 @@ if (localStorage.getItem("wander.solo") !== "1") {
 
 // Live handle for tuning from the console: __wander.env.timeOfDay = 0.5, etc.
 (window as Window & { __wander?: unknown }).__wander = {
-  env, terrain, water, sky, grass, landmarks, wildlife, found, camp, dust, birds, postcard, journal, garage, player, camera, renderer, scene, sound, net, peers,
+  env, terrain, water, sky, grass, landmarks, wildlife, found, camp, features, dust, birds, postcard, journal, garage, player, camera, renderer, scene, sound, net, peers,
 };
 
 function resize() {
@@ -261,7 +264,7 @@ function togglePin(id: string) {
   const at = pins.findIndex((p) => p.id === id);
   if (at >= 0) pins.splice(at, 1);
   else {
-    pins.push({ id, name: LANDMARK_NAMES[lm.kind], x: lm.x, z: lm.z });
+    pins.push({ id, name: lm.name, x: lm.x, z: lm.z });
     if (pins.length > MAX_PINS) pins.shift();
   }
   savePins();
@@ -293,7 +296,7 @@ function glassing() {
 
     marks.push({
       id: lm.id,
-      name: LANDMARK_NAMES[lm.kind],
+      name: lm.name,
       sx,
       sy,
       km: d / 1000,
@@ -337,6 +340,24 @@ function stampJournal() {
   if (km >= 25) mark(`km:${km}`, "feat", `${km} km travelled`);
 }
 
+/** A badge is a memory of having done something, not a score. */
+function awardBadge(lm: { id: string; name: string; x: number; z: number }, badge: string) {
+  if (
+    found.add({
+      id: `badge:${lm.id}`,
+      kind: "badge",
+      name: `${badge} — ${lm.name}`,
+      x: Math.round(lm.x),
+      z: Math.round(lm.z),
+      at: Date.now(),
+      tod: env.timeOfDay,
+    })
+  ) {
+    hud.announce(badge);
+    haptics.discover();
+  }
+}
+
 const campPos = new THREE.Vector3();
 const campLook = new THREE.Vector3();
 const emberTint = new THREE.Color();
@@ -375,7 +396,7 @@ function frame(now: number) {
       for (const c of landmarkSolids(lm)) solids.push({ x: c.x, z: c.z, radius: c.r });
     }
     if (d2 < 55 * 55 && (!nearest || d2 < nearest.d2)) {
-      nearest = { name: LANDMARK_NAMES[lm.kind], id: lm.id, kind: lm.kind, x: lm.x, z: lm.z, d2 };
+      nearest = { name: lm.name, id: lm.id, kind: lm.kind, x: lm.x, z: lm.z, d2 };
     }
   }
   player.landmarkSolids = solids;
@@ -441,6 +462,43 @@ function frame(now: number) {
   });
   peers.update(dt, net, camera);
 
+  // --- what this place offers ---------------------------------------------
+  const offer = camp.active || player.mode === "drive" ? null : features.candidate(landmarks.loaded, player.position.x, player.position.z);
+
+  if (controls.act) {
+    if (features.held) {
+      // Press again to get out. Nothing ever traps you somewhere.
+      features.release();
+      player.featureHold = null;
+    } else if (offer) {
+      const spec = ACTIONS[offer.kind];
+      awardBadge(offer, spec.badge);
+      const sustained = features.begin(offer, player.position);
+      if (sustained) {
+        player.featureHold = features.holdPosition(new THREE.Vector3());
+        player.heading = Math.atan2(offer.x - player.position.x, offer.z - player.position.z);
+      } else if (offer.kind === "mast") {
+        // The one landmark that changes how the game sounds.
+        sound.moment();
+        hud.announce("tuned in");
+      } else if (offer.kind === "wreck") {
+        // Something off the wreck for your own truck.
+        const paint = PAINTS[Math.floor(Math.random() * PAINTS.length)];
+        player.vehicle.setPaint(paint.hex);
+        hud.announce(`salvaged ${paint.name} paint`);
+      }
+    }
+  }
+  features.update(dt);
+
+  // Driving through an arch is the action — asking permission first would
+  // spoil the only landmark you ever meet at speed.
+  for (const lm of landmarks.loaded) {
+    if (lm.kind !== "arch") continue;
+    if (Math.hypot(lm.x - player.position.x, lm.z - player.position.z) > 9 * lm.scale) continue;
+    awardBadge(lm, ACTIONS.arch.badge);
+  }
+
   // --- camp ---------------------------------------------------------------
   if (controls.camp) {
     if (camp.active) camp.strike();
@@ -452,7 +510,7 @@ function frame(now: number) {
       // fire rather than standing in it.
       const fx = player.position.x + Math.sin(player.heading) * 1.6;
       const fz = player.position.z + Math.cos(player.heading) * 1.6;
-      camp.pitch(fx, fz, near ? LANDMARK_NAMES[near.kind] : null);
+      camp.pitch(fx, fz, near ? near.name : null);
       // A camp is a player-made mark, stored in exactly the shape a landmark
       // is, so shared traces later need no new format.
       found.add({
@@ -474,7 +532,11 @@ function frame(now: number) {
   // Getting in the truck is leaving — pack up rather than driving off camped.
   if (camp.active && player.mode === "drive") camp.strike();
 
-  if (camp.active) {
+  if (features.held && features.held.spec.camera === "orbit") {
+    features.cameraTarget(campPos, campLook);
+    player.campCamera = { pos: campPos, look: campLook };
+    player.campAnchor = null;
+  } else if (camp.active) {
     camp.cameraTarget(campPos, campLook);
     player.campCamera = { pos: campPos, look: campLook };
     player.campAnchor = camp.site;
@@ -543,7 +605,11 @@ function frame(now: number) {
     fps,
     headingDeg,
     prompt:
-      camp.active
+      features.held
+        ? controls.isTouch ? `⦿  ${features.held.spec.note || "stay a while"}` : `R  ${features.held.spec.note || "stay a while"}`
+        : offer
+          ? controls.isTouch ? `⦿  ${ACTIONS[offer.kind].verb}` : `R  ${ACTIONS[offer.kind].verb}`
+        : camp.active
         ? null
         : player.canCamp && !player.nearVehicle
           ? controls.isTouch ? "CAMP  make camp" : "C  make camp"

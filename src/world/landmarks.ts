@@ -20,12 +20,55 @@ const OCCUPANCY = 0.54;
 
 export type LandmarkKind = "lookout" | "arch" | "mast" | "spring" | "lonetree" | "wreck";
 
+/**
+ * Naming.
+ *
+ * Every instance gets its own name so finding a second hot spring is finding a
+ * different place, not the same label again. Built as
+ * [bearing or flavour] + [the country it stands in] + [what it is], all drawn
+ * from the same cell hash the landmark itself came from — so the name is
+ * stable for every player forever, and nothing has to be stored.
+ *
+ * The word lists are authored rather than generated. Random syllables read as
+ * garbage; a small hand-picked table reads as a map.
+ */
+const BEARINGS = [
+  "Northern", "Northeastern", "Eastern", "Southeastern",
+  "Southern", "Southwestern", "Western", "Northwestern",
+];
+
+const FLAVOURS = [
+  "Hidden", "Upper", "Lower", "Lonely", "Quiet", "Old", "High", "Far",
+  "Silver", "Amber", "Still", "Windward", "Sunken", "Pale", "Long", "Crooked",
+  "Bright", "Shaded", "Weathered", "Narrow", "Broad", "Cold", "Glad", "Wander",
+  "Tern", "Hollowed", "Frostbit", "Sunlit", "Grey", "Gilded",
+];
+
+/**
+ * Local landforms. The terrain word alone is nearly constant inside a region —
+ * everything near a forest is "Forest" — so names collided badly. Mixing in a
+ * landform widens the space about tenfold without reading as noise.
+ */
+const LANDFORMS = [
+  "Hollow", "Ridge", "Bend", "Basin", "Gap", "Flats", "Rise", "Draw", "Bluff", "Vale",
+];
+
+function terrainWord(y: number, slope: number, temp: number, moist: number): string {
+  if (y < 6) return "Shore";
+  if (slope > 0.5) return "Scree";
+  if (temp < 0.3) return "Tundra";
+  if (y > 1500) return "Highland";
+  if (moist > 0.66) return "Forest";
+  if (moist > 0.46) return "Meadow";
+  return "Steppe";
+}
+
 export const LANDMARK_NAMES: Record<LandmarkKind, string> = {
   lookout: "Fire Lookout",
   arch: "Stone Arch",
   mast: "Radio Mast",
   spring: "Hot Spring",
-  lonetree: "The Lone Tree",
+  lonetree: "Lone Tree",
   wreck: "Abandoned Truck",
 };
 
@@ -55,6 +98,8 @@ export const LANDMARK_SOLIDS: Record<LandmarkKind, { dx: number; dz: number; r: 
 export interface Landmark {
   /** Stable across sessions and players — it's just the cell. */
   id: string;
+  /** This instance's own name, e.g. "Western Forest Hot Spring". */
+  name: string;
   kind: LandmarkKind;
   x: number;
   z: number;
@@ -95,8 +140,25 @@ export function landmarkInCell(gx: number, gz: number): Landmark | null {
   if (!options.length) return null;
 
   const kind = options[Math.min(options.length - 1, Math.floor(pick * options.length))];
+
+  // Roughly half the places are named for where they lie, the rest for how
+  // they look. A map that was all compass points would read as a spreadsheet.
+  const wordPick = slotRandom(gx, gz, 971);
+  const octant = Math.round((((Math.atan2(x, -z) * 4) / Math.PI + 8) % 8)) % 8;
+  const lead =
+    wordPick < 0.22
+      ? BEARINGS[octant]
+      : FLAVOURS[Math.min(FLAVOURS.length - 1, Math.floor(slotRandom(gx, gz, 977) * FLAVOURS.length))];
+  const middlePick = slotRandom(gx, gz, 983);
+  const middle =
+    middlePick < 0.55
+      ? terrainWord(y, slopeAt(x, z, 14), temp, moist)
+      : LANDFORMS[Math.min(LANDFORMS.length - 1, Math.floor(slotRandom(gx, gz, 991) * LANDFORMS.length))];
+  const name = `${lead} ${middle} ${LANDMARK_NAMES[kind]}`;
+
   return {
     id: `${gx},${gz}`,
+    name,
     kind,
     x,
     z,
