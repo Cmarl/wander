@@ -93,6 +93,7 @@ sound.attachUnlock();
 player.onLand = () => sound.land();
 player.onMount = () => sound.mount();
 player.onDismount = () => sound.dismount();
+player.onSummon = () => hud.announce("truck on its way");
 player.onCrash = (f) => {
   sound.crash(f);
   haptics.crash(f);
@@ -611,6 +612,8 @@ function frame(now: number) {
           ? controls.isTouch ? `⦿  ${ACTIONS[offer.kind].verb}` : `R  ${ACTIONS[offer.kind].verb}`
         : camp.active
         ? null
+        : player.canSummon
+          ? controls.isTouch ? "⏎  call the truck" : "E  call the truck"
         : player.canCamp && !player.nearVehicle
           ? controls.isTouch ? "CAMP  make camp" : "C  make camp"
           : player.mode === "drive"

@@ -1,5 +1,5 @@
 import * as THREE from "three";
-import { heightAt, normalAt } from "../world/field";
+import { heightAt, normalAt, slopeAt } from "../world/field";
 import { PropQuery } from "../world/props";
 import { DynamicShadow } from "../world/shadows";
 import { makeCharacter, makeVehicle, type Character, type Vehicle } from "./models";
@@ -20,6 +20,10 @@ const DRIVE_BRAKE = 30;
 const DRIVE_DRAG = 0.5; // 27 / 0.5 = 54 > DRIVE_TOP
 
 const MOUNT_RANGE = 4.5;
+/** Far enough that walking back would be a chore rather than a stroll. */
+const SUMMON_MIN = 40;
+/** Inside MOUNT_RANGE so you can step straight in, clear of the body itself. */
+const SUMMON_RANGE = 4.2;
 
 /**
  * How fast the camera eases round behind a walker. Movement is camera-relative,
@@ -79,6 +83,7 @@ export class Player {
   onDismount?: () => void;
   /** Fired on a real impact. `force` is 0..1. */
   onCrash?: (force: number) => void;
+  onSummon?: () => void;
   onVehicleLand?: (force: number) => void;
 
   /** Shadows fade out with the sun. */
@@ -148,6 +153,11 @@ export class Player {
     };
   }
 
+  /** On foot and far enough from the truck that calling it is reasonable. */
+  get canSummon(): boolean {
+    return this.mode === "foot" && this.position.distanceTo(this.vehPos) > SUMMON_MIN;
+  }
+
   /** Camp wants you stopped and out of the truck. */
   get canCamp(): boolean {
     return this.mode === "foot" && this.grounded && this.speed < 0.2;
@@ -196,6 +206,10 @@ export class Player {
         this.onMount?.();
       } else if (this.mode === "drive") {
         this.dismount();
+      } else if (this.canSummon) {
+        // E is simply "deal with the truck": step in if it's here, call it if
+        // it isn't. No extra control to learn.
+        this.summon();
       }
     }
 
@@ -223,7 +237,7 @@ export class Player {
       this.character.root.position.copy(this.position);
       this.character.root.rotation.y = this.heading;
       this.character.animate(dt, 0, false);
-      this.placeVehicle(dt, 0, false);
+      this.placeVehicle(dt, 0, true);
       return;
     }
 
@@ -297,7 +311,7 @@ export class Player {
     this.character.root.rotation.y = this.heading;
     this.character.animate(dt, moveSpeed, !this.grounded);
 
-    this.placeVehicle(dt, 0, false);
+    this.placeVehicle(dt, 0, true);
   }
 
   /**
@@ -484,6 +498,57 @@ export class Player {
       pos.x += (dx / d) * (min - d);
       pos.z += (dz / d) * (min - d);
     }
+  }
+
+  /**
+   * Call the truck over. It drops in beside you rather than appearing, which
+   * is both nicer to watch and free: the jump physics already handle a vehicle
+   * falling and landing with a thump.
+   *
+   * The spot is checked for slope and for anything solid, and tried at eight
+   * bearings starting behind you so it doesn't land in your view.
+   */
+  private summon() {
+    const px = this.position.x;
+    const pz = this.position.z;
+    let bestX = px + Math.sin(this.heading + Math.PI) * SUMMON_RANGE;
+    let bestZ = pz + Math.cos(this.heading + Math.PI) * SUMMON_RANGE;
+    let bestScore = -Infinity;
+
+    for (let i = 0; i < 8; i++) {
+      const a = this.heading + Math.PI + (i / 8) * Math.PI * 2;
+      const x = px + Math.sin(a) * SUMMON_RANGE;
+      const z = pz + Math.cos(a) * SUMMON_RANGE;
+      if (heightAt(x, z) < 1) continue; // not in the sea
+
+      const slope = slopeAt(x, z, 3);
+      if (slope > 0.34) continue;
+
+      let blocked = false;
+      for (const q of this.props.solidNear(x, z)) {
+        if (Math.hypot(q.x - x, q.z - z) < q.radius + 3.2) blocked = true;
+      }
+      for (const q of this.landmarkSolids) {
+        if (Math.hypot(q.x - x, q.z - z) < q.radius + 3.2) blocked = true;
+      }
+      if (blocked) continue;
+
+      // Flattest wins, with a nudge toward the first bearing tried.
+      const score = -slope - i * 0.01;
+      if (score > bestScore) {
+        bestScore = score;
+        bestX = x;
+        bestZ = z;
+      }
+    }
+
+    this.vehPos.set(bestX, heightAt(bestX, bestZ) + 9, bestZ);
+    this.vehHeading = this.heading + Math.PI * 0.5;
+    this.vehSpeed = 0;
+    this.vehVelY = 0;
+    this.vehAir = true;
+    this.warmedUp = false; // settle straight onto the local slope
+    this.onSummon?.();
   }
 
   /** Sit the truck on the ground, averaging the four contact patches. */
