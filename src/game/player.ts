@@ -20,6 +20,17 @@ const DRIVE_BRAKE = 30;
 const DRIVE_DRAG = 0.5; // 27 / 0.5 = 54 > DRIVE_TOP
 
 const MOUNT_RANGE = 4.5;
+
+/**
+ * How fast the camera eases round behind a walker. Movement is camera-relative,
+ * so this is a feedback loop by construction: hold the stick left and you arc
+ * left as the camera follows. That IS the wanted behaviour — changing direction
+ * brings the camera round — so the rate is what matters. At 0.7 a full-strafe
+ * arc takes about six seconds, which reads as a turn rather than a spin.
+ */
+const FOLLOW_RATE = 0.7;
+/** Grace after the player last touched the look, so it never fights them. */
+const FOLLOW_GRACE = 0.35;
 /** ~5x magnification against the default 62 degree view. */
 const GLASS_FOV = 13;
 
@@ -209,13 +220,15 @@ export class Player {
     const len = Math.hypot(dx, dz);
 
     let moveSpeed = 0;
+    let faceX = 0;
+    let faceZ = 0;
     if (len > 0.001) {
       dx /= len;
       dz /= len;
       // Face where you're pushing even if the tether is holding you, so leaning
       // against it reads as leaning rather than as a glitch.
-      const faceX = dx;
-      const faceZ = dz;
+      faceX = dx;
+      faceZ = dz;
 
       const n = normalAt(this.position.x, this.position.z, 1.5);
       // Climbing costs you; a 45° face is barely walkable.
@@ -261,11 +274,37 @@ export class Player {
     }
 
     this.pushOutOfProps(this.position, FOOT_R);
+    this.followOnFoot(dt, input, moveSpeed, faceX, faceZ);
+
     this.character.root.position.copy(this.position);
     this.character.root.rotation.y = this.heading;
     this.character.animate(dt, moveSpeed, !this.grounded);
 
     this.placeVehicle(dt, 0, false);
+  }
+
+  /**
+   * Ease the camera round behind the walker, so changing direction doesn't need
+   * a second thumb.
+   *
+   * The rate is scaled by how far from the camera you're heading. Walking
+   * straight out follows fully; strafing arcs gently; backing toward the camera
+   * doesn't follow at all, because swinging 180 degrees to get behind someone
+   * walking at the lens is exactly the whip this is supposed to avoid.
+   */
+  private followOnFoot(dt: number, input: Controls, speed: number, faceX: number, faceZ: number) {
+    this.lookIdle = input.look.x !== 0 ? 0 : this.lookIdle + dt;
+    if (this.freeCamera || this.glassing || this.campAnchor) return;
+    if (this.lookIdle < FOLLOW_GRACE || speed < 0.4) return;
+
+    const camFwdX = -Math.sin(this.camYaw);
+    const camFwdZ = -Math.cos(this.camYaw);
+    const awayness = faceX * camFwdX + faceZ * camFwdZ; // 1 = straight out, -1 = at the lens
+    const weight = Math.min(1, Math.max(0, awayness + 0.35));
+    if (weight <= 0) return;
+
+    const rate = dt * FOLLOW_RATE * weight * Math.min(1, speed / WALK);
+    this.camYaw = this.approachAngle(this.camYaw, this.heading + Math.PI, rate);
   }
 
   // --- driving ---------------------------------------------------------------
