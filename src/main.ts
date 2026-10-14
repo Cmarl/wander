@@ -19,6 +19,7 @@ import { Player } from "./game/player";
 import { Controls } from "./input/controls";
 import { Hud } from "./ui/hud";
 import { Postcard } from "./ui/postcard";
+import { Journal } from "./ui/journal";
 import { Soundscape } from "./audio/soundscape";
 import { Net, DEFAULT_WORLD } from "./net/net";
 import { PeerBodies } from "./net/peers";
@@ -125,7 +126,9 @@ const hud = new Hud(controls, sound, netFacade);
 hud.onPinRequest = (id) => togglePin(id);
 hud.onRest = (t) => camp.rest(t, env.timeOfDay);
 hud.onStrikeCamp = () => camp.strike();
+hud.onJournal = () => journal.toggle();
 
+const journal = new Journal(found, (x, z) => biomeNameAt(x, z));
 const postcard = new Postcard(document.getElementById("ui")!);
 postcard.bindLink(() => ({ x: player.position.x, z: player.position.z }));
 
@@ -136,7 +139,7 @@ if (localStorage.getItem("wander.solo") !== "1") {
 
 // Live handle for tuning from the console: __wander.env.timeOfDay = 0.5, etc.
 (window as Window & { __wander?: unknown }).__wander = {
-  env, terrain, water, sky, grass, landmarks, found, camp, dust, birds, postcard, player, camera, renderer, scene, sound, net, peers,
+  env, terrain, water, sky, grass, landmarks, found, camp, dust, birds, postcard, journal, player, camera, renderer, scene, sound, net, peers,
 };
 
 function resize() {
@@ -155,6 +158,8 @@ addEventListener("keydown", (e) => {
   if (e.code === "BracketLeft") env.timeOfDay = (env.timeOfDay + 23 / 24) % 1;
   if (e.code === "KeyM") hud.setMuted(sound.toggleMute());
   if (e.code === "KeyP") postcard.toggle();
+  if (e.code === "KeyJ") journal.toggle();
+  if (e.code === "Escape" && journal.open) journal.toggle(false);
   if (e.code === "Escape" && postcard.active) postcard.toggle(false);
 });
 
@@ -283,6 +288,31 @@ function glassing() {
   if (controls.pin && centreId && centreBest < innerWidth * 0.25) togglePin(centreId);
 }
 
+/**
+ * Entries that come from simply travelling. Each is keyed so it can only ever
+ * land once; `add` is a no-op after that, so calling this every frame is free.
+ */
+let lastBiome = "";
+function stampJournal() {
+  const x = player.position.x;
+  const z = player.position.z;
+  const biome = biomeNameAt(x, z);
+  const mark = (id: string, kind: string, name: string) =>
+    found.add({ id, kind, name, x: Math.round(x), z: Math.round(z), at: Date.now(), tod: env.timeOfDay });
+
+  if (biome !== lastBiome && biome !== "Open Water") {
+    lastBiome = biome;
+    mark(`biome:${biome}`, "biome", biome);
+  }
+  const elev = heightAt(x, z);
+  if (elev > 2000) mark("alt:2000", "feat", "Above 2,000 m");
+  if (elev > 2600) mark("alt:2600", "feat", "Above 2,600 m");
+
+  // Milestones every 25 km, so a long drive is worth something by itself.
+  const km = Math.floor(player.distanceTravelled / 25000) * 25;
+  if (km >= 25) mark(`km:${km}`, "feat", `${km} km travelled`);
+}
+
 const campPos = new THREE.Vector3();
 const campLook = new THREE.Vector3();
 const emberTint = new THREE.Color();
@@ -325,7 +355,15 @@ function frame(now: number) {
   }
   player.landmarkSolids = solids;
   if (nearest && !found.has(nearest.id)) {
-    found.add({ id: nearest.id, kind: nearest.kind, name: nearest.name, x: Math.round(nearest.x), z: Math.round(nearest.z), at: Date.now() });
+    found.add({
+      id: nearest.id,
+      kind: nearest.kind,
+      name: nearest.name,
+      x: Math.round(nearest.x),
+      z: Math.round(nearest.z),
+      at: Date.now(),
+      tod: env.timeOfDay,
+    });
     hud.announce(nearest.name);
   }
   grass.update(camera.position.x, camera.position.z, env.elapsed);
@@ -390,6 +428,7 @@ function frame(now: number) {
         x: Math.round(camp.site.x),
         z: Math.round(camp.site.z),
         at: Date.now(),
+        tod: env.timeOfDay,
       });
     }
   }
@@ -419,6 +458,7 @@ function frame(now: number) {
     })
   );
 
+  stampJournal();
   camera.getWorldDirection(dir);
   hud.update({
     clock: env.clockString(),

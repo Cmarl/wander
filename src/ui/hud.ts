@@ -25,6 +25,7 @@ const DESK_KEYS: [string, string][] = [
   ["Q", "raise binoculars"],
   ["F", "pin what you are looking at"],
   ["C", "make or break camp"],
+  ["J", "field journal"],
   ["H", "show these controls"],
 ];
 
@@ -36,6 +37,7 @@ const TOUCH_KEYS: [string, string][] = [
   ["⏎", "get in / out of the truck"],
   ["LOOK", "binoculars — tap a marker to pin it"],
   ["CAMP", "stop somewhere and light a fire"],
+  ["journal", "everywhere you have been"],
   ["pinch-free", "the whole left half is the stick"],
 ];
 
@@ -75,6 +77,7 @@ export class Hud {
   /** Called when the player taps a marker through the glass. */
   onPinRequest?: (id: string) => void;
   onRest?: (target: "dawn" | "dusk") => void;
+  onJournal?: () => void;
   onStrikeCamp?: () => void;
   private campEl!: HTMLElement;
   private campWhereEl!: HTMLElement;
@@ -127,6 +130,7 @@ export class Hud {
           : ``
       }
       <button class="help-btn" id="h-help">controls</button>
+      <button class="journal-btn" id="h-journal">journal</button>
       <button class="world-btn" id="h-world"><span class="dot" id="h-dot"></span><span id="h-online">solo</span></button>
       <div class="sheet" id="h-world-sheet">
         <div class="sheet-card">
@@ -179,6 +183,7 @@ export class Hud {
         e.stopPropagation();
         fn();
       });
+    tap("h-journal", () => this.onJournal?.());
     tap("h-rest-dawn", () => this.onRest?.("dawn"));
     tap("h-rest-dusk", () => this.onRest?.("dusk"));
     tap("h-strike", () => this.onStrikeCamp?.());

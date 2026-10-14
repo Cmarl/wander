@@ -21,6 +21,8 @@ export interface Found {
   z: number;
   /** Real-world timestamp, for the journal. */
   at: number;
+  /** In-game time of day when it was found, 0..1. Optional for older saves. */
+  tod?: number;
 }
 
 export class Discoveries {
