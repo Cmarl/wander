@@ -13,8 +13,20 @@ import { heightAt, slopeAt, treeDensityAt, slotRandom, moistureAt, temperatureAt
 
 export const CELL = 40;
 const SLOTS = 3;
-/** Horizontal scale at or above which a tree is solid. Below it, it bends. */
+/**
+ * Horizontal scale at or above which a tree is SOLID. This governs collision
+ * only — every tree bends regardless of size; big ones are simply stiffer.
+ */
 const SAPLING_MAX = 1.08;
+
+/**
+ * How far something gives when you drive past, 0..1.
+ *
+ * Continuous in size rather than gated, so there is no boundary to notice: a
+ * whip-thin sapling folds right over, a full-grown pine barely leans. Gating it
+ * made half the forest rigid and half rubbery, with a visible line between.
+ */
+const whippiness = (sx: number) => Math.min(1, Math.max(0.3, 1.25 - sx * 0.5));
 
 export type PropKind = "pine" | "broadleaf" | "dead" | "shrub" | "rock";
 
@@ -33,8 +45,8 @@ export interface Prop {
   shade: number;
   /** Collision radius in metres. 0 means you pass straight through it. */
   radius: number;
-  /** Whippy enough to be pushed aside by something driving past. */
-  bends?: boolean;
+  /** How far it leans out of your way, 0..1. 0 is rigid. */
+  bend?: number;
 }
 
 const clamp01 = (x: number) => (x < 0 ? 0 : x > 1 ? 1 : x);
@@ -71,9 +83,10 @@ export function propsInCell(gx: number, gz: number, out: Prop[]): void {
       // Between trunk and canopy: a truck clips the lower branches too, but the
       // full canopy width would stop you a metre short of anything.
       const grab = kind === "dead" ? 0.32 : kind === "broadleaf" ? 0.8 : 0.7;
-      // A sapling is not an obstacle. Below this it has no collision at all and
-      // bends out of the way instead — stopping a truck dead on a whip-thin
-      // trunk is the single most annoying thing open country can do to you.
+      // A sapling is not an obstacle. Below this it has no collision at all —
+      // stopping a truck dead on a whip-thin trunk is the single most annoying
+      // thing open country can do to you. Bigger trees stay solid, because
+      // hitting something that hits back is the good part.
       const solid = sx >= SAPLING_MAX;
       out.push({
         kind,
@@ -86,7 +99,7 @@ export function propsInCell(gx: number, gz: number, out: Prop[]): void {
         tint: r1,
         shade: r3,
         radius: solid ? grab * sx : 0,
-        bends: !solid,
+        bend: whippiness(sx),
       });
       continue;
     }
@@ -106,7 +119,7 @@ export function propsInCell(gx: number, gz: number, out: Prop[]): void {
         tint: r0,
         shade: r4,
         radius: 0, // you brush through scrub, you don't crash into it
-        bends: true,
+        bend: 1,
       });
       continue;
     }

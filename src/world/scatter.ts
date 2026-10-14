@@ -142,8 +142,8 @@ const GEOMETRY: Record<PropKind, () => THREE.BufferGeometry> = {
  * Shrink instances at the scatter edge, and lean the whippy ones away from
  * anything that has just driven past.
  *
- * `aBend` is per-instance, so a species keeps a single draw call while solid
- * trees stay rigid and saplings in the same mesh bend.
+ * `aBend` is per-instance give, so a species keeps a single draw call while a
+ * full-grown pine and a sapling in the same mesh lean by different amounts.
  *
  * This is Lambert, which three compiles as GLSL1 even on WebGL2, so there is
  * no inverse() available. The instance matrix here is a Y rotation times a
@@ -173,7 +173,7 @@ function addWakeResponse(mat: THREE.Material, fadeEnd: number, bendHeight: numbe
            float d = distance(instOrigin, cameraPosition);
            transformed *= 1.0 - smoothstep(uFadeEnd - 110.0, uFadeEnd, d);
 
-           if (aBend > 0.5) {
+           if (aBend > 0.01) {
              vec3 push = vec3(0.0);
              for (int i = 0; i < ${CRUSH_POINTS}; i++) {
                float s = uCrush[i].w;
@@ -187,7 +187,9 @@ function addWakeResponse(mat: THREE.Material, fadeEnd: number, bendHeight: numbe
                push.xz += (away / max(dist, 0.001)) * infl;
              }
              float lean = clamp(position.y / uBendHeight, 0.0, 1.0);
-             vec3 off = push * lean * lean * 1.35;
+             // Scaled by the instance's own give, so a pine barely nods while
+             // a sapling folds right over.
+             vec3 off = push * lean * lean * 1.35 * aBend;
              vec3 c0 = instanceMatrix[0].xyz;
              vec3 c2 = instanceMatrix[2].xyz;
              float s2 = max(dot(c0, c0), 1e-5);
@@ -347,7 +349,7 @@ export class Scatter {
     const n = Math.min(slots.length, mesh.instanceMatrix.count);
     for (let i = 0; i < n; i++) {
       const p = slots[i];
-      if (bend) bend.setX(i, p.bends ? 1 : 0);
+      if (bend) bend.setX(i, p.bend ?? 0);
       pos.set(p.x, p.y, p.z);
       q.setFromAxisAngle(up, p.rot);
       scl.set(p.sx, p.sy, p.sx);
