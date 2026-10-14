@@ -122,6 +122,11 @@ export class Player {
     };
   }
 
+  /** Camp wants you stopped and out of the truck. */
+  get canCamp(): boolean {
+    return this.mode === "foot" && this.grounded && this.speed < 0.2;
+  }
+
   get nearVehicle(): boolean {
     return this.mode === "foot" && this.position.distanceTo(this.vehPos) < MOUNT_RANGE;
   }
@@ -130,6 +135,11 @@ export class Player {
   glassing = false;
   /** Photo mode — unlocks the orbit range. */
   freeCamera = false;
+  /**
+   * While camped the camera leaves the player alone and orbits the fire.
+   * Set by main each frame from the Camp.
+   */
+  campCamera: { pos: THREE.Vector3; look: THREE.Vector3 } | null = null;
 
   update(dt: number, input: Controls) {
     this.glassing = input.glass;
@@ -419,6 +429,17 @@ export class Player {
 
   private updateCamera(dt: number) {
     if (this.glassing) return this.updateGlassCamera(dt);
+    if (this.campCamera) {
+      this.camera.fov += (this.baseFov - this.camera.fov) * Math.min(1, dt * 9);
+      this.camera.updateProjectionMatrix();
+      // Ease in so striking camp doesn't snap the view.
+      const k = this.camInit ? 1 - Math.pow(0.02, dt) : 1;
+      this.camInit = true;
+      this.camPos.lerp(this.campCamera.pos, k);
+      this.camera.position.copy(this.camPos);
+      this.camera.lookAt(this.campCamera.look);
+      return;
+    }
     this.camera.fov += (this.baseFov - this.camera.fov) * Math.min(1, dt * 9);
     this.camera.updateProjectionMatrix();
     const driving = this.mode === "drive";

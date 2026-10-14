@@ -26,7 +26,11 @@ export class Ambience {
   private rustle!: GainNode;
   private surf!: GainNode;
   private crickets!: GainNode;
+  private fire!: GainNode;
   private duck!: GainNode;
+  private nextCrackle = 0;
+  /** 0..1, set by the camp. */
+  fireLevel = 0;
 
   private nextBird = 3;
   private built = false;
@@ -84,6 +88,20 @@ export class Ambience {
       .connect(this.crickets)
       .connect(this.duck);
     crSrc.start(0, Math.random() * 3);
+
+    // --- campfire ----------------------------------------------------------
+    // Broadband roar through a lowpass; the crackles are scheduled separately
+    // because a fire is mostly silence punctuated by sharp little events.
+    const fireSrc = this.e.noise();
+    const fireFilt = this.e.filter("lowpass", 760, 0.8);
+    this.fire = this.e.gain(0);
+    fireSrc
+      .connect(fireFilt)
+      .connect(this.e.tremolo(0.9, 0.35))
+      .connect(this.e.tremolo(3.7, 0.22))
+      .connect(this.fire)
+      .connect(this.e.ambientBus);
+    fireSrc.start(0, Math.random() * 3);
   }
 
   update(dt: number, c: AmbienceContext) {
@@ -101,7 +119,29 @@ export class Ambience {
     // Inside the cab, the world goes muffled and distant.
     ease(this.duck.gain, c.inVehicle ? 0.4 : 1, 0.5);
 
+    // The fire sits outside the duck: when you're at camp it IS the ambience.
+    ease(this.fire.gain, this.fireLevel * 0.085, 0.8);
+    if (this.fireLevel > 0.1) this.crackle(dt);
+
     this.birds(dt, c);
+  }
+
+  /** Sharp little pops, sparse and irregular. */
+  private crackle(dt: number) {
+    this.nextCrackle -= dt;
+    if (this.nextCrackle > 0) return;
+    this.nextCrackle = 0.12 + Math.random() * 0.75;
+    const level = (0.012 + Math.random() * 0.03) * this.fireLevel;
+    this.e.burst({
+      dest: this.e.ambientBus,
+      freq: 900 + Math.random() * 2800,
+      q: 3 + Math.random() * 9,
+      level,
+      decay: 0.03 + Math.random() * 0.08,
+    });
+    if (Math.random() > 0.72) {
+      this.e.tone({ dest: this.e.ambientBus, from: 180 + Math.random() * 160, to: 70, level: level * 0.8, decay: 0.09 });
+    }
   }
 
   /** Sparse, melodic, and therefore worth scheduling individually. */

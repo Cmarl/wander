@@ -9,6 +9,7 @@ import { Grass } from "./world/grass";
 import { LandmarkField } from "./world/landmarkRender";
 import { landmarkSolids, LANDMARK_NAMES } from "./world/landmarks";
 import { Discoveries } from "./game/discovery";
+import { Camp } from "./game/camp";
 import { Dust, Birds } from "./world/particles";
 import { surfaceAt, moistureAt, treeDensityAt, slopeAt } from "./world/field";
 import { findSpawn } from "./world/spawn";
@@ -62,6 +63,8 @@ scene.fog = new THREE.FogExp2(0x9fb4c8, 0.0001);
 const landmarks = new LandmarkField();
 scene.add(landmarks.group);
 const found = new Discoveries();
+const camp = new Camp();
+scene.add(camp.group);
 const dust = new Dust();
 const birds = new Birds();
 scene.add(dust.mesh, birds.mesh);
@@ -120,6 +123,8 @@ const netFacade = {
 
 const hud = new Hud(controls, sound, netFacade);
 hud.onPinRequest = (id) => togglePin(id);
+hud.onRest = (t) => camp.rest(t, env.timeOfDay);
+hud.onStrikeCamp = () => camp.strike();
 
 const postcard = new Postcard(document.getElementById("ui")!);
 postcard.bindLink(() => ({ x: player.position.x, z: player.position.z }));
@@ -131,7 +136,7 @@ if (localStorage.getItem("wander.solo") !== "1") {
 
 // Live handle for tuning from the console: __wander.env.timeOfDay = 0.5, etc.
 (window as Window & { __wander?: unknown }).__wander = {
-  env, terrain, water, sky, grass, landmarks, found, dust, birds, postcard, player, camera, renderer, scene, sound, net, peers,
+  env, terrain, water, sky, grass, landmarks, found, camp, dust, birds, postcard, player, camera, renderer, scene, sound, net, peers,
 };
 
 function resize() {
@@ -278,6 +283,9 @@ function glassing() {
   if (controls.pin && centreId && centreBest < innerWidth * 0.25) togglePin(centreId);
 }
 
+const campPos = new THREE.Vector3();
+const campLook = new THREE.Vector3();
+const emberTint = new THREE.Color();
 const dir = new THREE.Vector3();
 let last = performance.now();
 let fps = 60;
@@ -361,6 +369,43 @@ function frame(now: number) {
   });
   peers.update(dt, net, camera);
 
+  // --- camp ---------------------------------------------------------------
+  if (controls.camp) {
+    if (camp.active) camp.strike();
+    else if (player.canCamp) {
+      const near = landmarks.loaded.find(
+        (l) => Math.hypot(l.x - player.position.x, l.z - player.position.z) < 70
+      );
+      // A step in front of where you stopped, so you end up sitting beside the
+      // fire rather than standing in it.
+      const fx = player.position.x + Math.sin(player.heading) * 1.6;
+      const fz = player.position.z + Math.cos(player.heading) * 1.6;
+      camp.pitch(fx, fz, near ? LANDMARK_NAMES[near.kind] : null);
+      // A camp is a player-made mark, stored in exactly the shape a landmark
+      // is, so shared traces later need no new format.
+      found.add({
+        id: `camp:${Math.round(camp.site.x)},${Math.round(camp.site.z)}`,
+        kind: "camp",
+        name: camp.nearby ? `Camp at ${camp.nearby}` : "Camp",
+        x: Math.round(camp.site.x),
+        z: Math.round(camp.site.z),
+        at: Date.now(),
+      });
+    }
+  }
+  const fire = camp.update(dt, env, (x, y, z) => {
+    emberTint.setHSL(0.07 + Math.random() * 0.05, 0.9, 0.55 + Math.random() * 0.2);
+    dust.emit(x, y, z, 2, emberTint, false);
+  });
+  sound.setFire(fire);
+  if (camp.active) {
+    camp.cameraTarget(campPos, campLook);
+    player.campCamera = { pos: campPos, look: campLook };
+  } else {
+    player.campCamera = null;
+  }
+  hud.setCamp(camp.active, camp.nearby, camp.resting);
+
   glassing();
   hud.setPins(
     pins.map((p) => {
@@ -385,7 +430,11 @@ function frame(now: number) {
     fps,
     headingDeg: (((Math.atan2(dir.x, -dir.z) * 180) / Math.PI) % 360 + 360) % 360,
     prompt:
-      player.mode === "drive"
+      camp.active
+        ? null
+        : player.canCamp && !player.nearVehicle
+          ? controls.isTouch ? "CAMP  make camp" : "C  make camp"
+          : player.mode === "drive"
         ? controls.isTouch
           ? "⏎  step out"
           : "E  step out"

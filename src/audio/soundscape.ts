@@ -109,6 +109,11 @@ export class Soundscape {
     if (this.engine.ready) this.sfx.landing(this.surface);
   }
 
+  /** 0 = no fire, 1 = sitting right beside it. */
+  setFire(level: number) {
+    (this.ambience as unknown as { fireLevel: number }).fireLevel = level;
+  }
+
   crash(force: number) {
     // Anything with trees around it probably was one.
     this.sfx.crash(force, this.ctx.treeCover > 0.12);

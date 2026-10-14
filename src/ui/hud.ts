@@ -24,6 +24,7 @@ const DESK_KEYS: [string, string][] = [
   ["M", "mute"],
   ["Q", "raise binoculars"],
   ["F", "pin what you are looking at"],
+  ["C", "make or break camp"],
   ["H", "show these controls"],
 ];
 
@@ -34,6 +35,7 @@ const TOUCH_KEYS: [string, string][] = [
   ["⤴", "jump — the truck jumps too"],
   ["⏎", "get in / out of the truck"],
   ["LOOK", "binoculars — tap a marker to pin it"],
+  ["CAMP", "stop somewhere and light a fire"],
   ["pinch-free", "the whole left half is the stick"],
 ];
 
@@ -72,6 +74,10 @@ export class Hud {
   private pinEls: HTMLElement[] = [];
   /** Called when the player taps a marker through the glass. */
   onPinRequest?: (id: string) => void;
+  onRest?: (target: "dawn" | "dusk") => void;
+  onStrikeCamp?: () => void;
+  private campEl!: HTMLElement;
+  private campWhereEl!: HTMLElement;
   private dotEl!: HTMLElement;
 
   constructor(
@@ -97,6 +103,14 @@ export class Hud {
       </div>
       <div class="compass"><div class="compass-tape" id="h-compass"></div><div class="compass-needle"></div></div>
       <div class="prompt" id="h-prompt"></div>
+      <div class="camp" id="h-camp">
+        <div class="camp-where" id="h-camp-where"></div>
+        <div class="camp-acts">
+          <button class="camp-btn" id="h-rest-dawn">rest until dawn</button>
+          <button class="camp-btn" id="h-rest-dusk">rest until dusk</button>
+          <button class="camp-btn ghost" id="h-strike">break camp</button>
+        </div>
+      </div>
       <div class="glass" id="h-glass"><div class="glass-recticle"></div></div>
       <div class="marks" id="h-marks"></div>
       <div class="toast" id="h-toast"><span class="toast-kicker">found</span><span id="h-toast-name"></span></div>
@@ -108,6 +122,7 @@ export class Hud {
                <button class="btn" id="b-jump">⤴</button>
                <button class="btn small" id="b-sprint">RUN</button>
                <button class="btn small" id="b-glass">LOOK</button>
+               <button class="btn small" id="b-camp">CAMP</button>
              </div>`
           : ``
       }
@@ -156,6 +171,17 @@ export class Hud {
       .concat(CARDINALS.map(([d, n]) => [d - 360, n] as [number, string]))
       .map(([d, n]) => `<span style="left:${d * 2}px">${n}</span>`)
       .join("");
+
+    this.campEl = document.getElementById("h-camp")!;
+    this.campWhereEl = document.getElementById("h-camp-where")!;
+    const tap = (id: string, fn: () => void) =>
+      document.getElementById(id)!.addEventListener("pointerdown", (e) => {
+        e.stopPropagation();
+        fn();
+      });
+    tap("h-rest-dawn", () => this.onRest?.("dawn"));
+    tap("h-rest-dusk", () => this.onRest?.("dusk"));
+    tap("h-strike", () => this.onStrikeCamp?.());
 
     this.glassEl = document.getElementById("h-glass")!;
     this.marksEl = document.getElementById("h-marks")!;
@@ -220,6 +246,7 @@ export class Hud {
       controls.bindButton(document.getElementById("b-interact")!, "interact");
       controls.bindButton(document.getElementById("b-sprint")!, "sprint");
       controls.bindButton(document.getElementById("b-glass")!, "glass");
+      controls.bindButton(document.getElementById("b-camp")!, "camp");
     }
   }
 
@@ -238,6 +265,12 @@ export class Hud {
     this.toastEl.classList.add("on");
     clearTimeout(this.toastTimer);
     this.toastTimer = window.setTimeout(() => this.toastEl.classList.remove("on"), 4200);
+  }
+
+  setCamp(on: boolean, where: string | null, resting: boolean) {
+    this.campEl.classList.toggle("on", on);
+    this.campEl.classList.toggle("resting", resting);
+    this.campWhereEl.textContent = where ? `camped at ${where}` : "camped";
   }
 
   setGlassing(on: boolean) {

@@ -190,6 +190,44 @@ html, body {
   white-space: nowrap;
 }
 
+.camp {
+  position: absolute;
+  left: 50%;
+  bottom: 13%;
+  transform: translateX(-50%) translateY(10px);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.5s ease, transform 0.5s ease;
+}
+.camp.on { opacity: 1; transform: translateX(-50%) translateY(0); pointer-events: auto; }
+.camp.resting { opacity: 0; pointer-events: none; }
+.camp-where {
+  font-size: 11px;
+  letter-spacing: 0.24em;
+  text-transform: uppercase;
+  opacity: 0.55;
+}
+.camp-acts { display: flex; gap: 10px; flex-wrap: wrap; justify-content: center; }
+.camp-btn {
+  padding: 9px 16px;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.22);
+  background: rgba(12, 16, 24, 0.5);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  color: var(--ink);
+  font: inherit;
+  font-size: 12px;
+  letter-spacing: 0.08em;
+  transition: background 0.14s;
+}
+.camp-btn:hover { background: rgba(255, 255, 255, 0.16); }
+.camp-btn.ghost { opacity: 0.6; }
+
 /* controls sheet */
 .help-btn {
   position: absolute;

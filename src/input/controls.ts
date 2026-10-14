@@ -18,6 +18,8 @@ export class Controls {
   glass = false;
   /** Edge: pin whatever is nearest the centre of the view. */
   pin = false;
+  /** Edge: make or break camp. */
+  camp = false;
 
   readonly isTouch = matchMedia("(hover: none)").matches || "ontouchstart" in window;
 
@@ -35,6 +37,7 @@ export class Controls {
       if (e.code === "Space") this.jump = true;
       if (e.code === "KeyE" || e.code === "Enter") this.interact = true;
       if (e.code === "KeyF") this.pin = true;
+      if (e.code === "KeyC") this.camp = true;
       if (e.code === "Space" || e.code.startsWith("Arrow")) e.preventDefault();
     });
     addEventListener("keyup", (e) => this.keys.delete(e.code));
@@ -63,7 +66,7 @@ export class Controls {
   }
 
   /** Wire HUD buttons up without Controls needing to know about the DOM layout. */
-  bindButton(el: HTMLElement, action: "jump" | "interact" | "sprint" | "glass" | "pin") {
+  bindButton(el: HTMLElement, action: "jump" | "interact" | "sprint" | "glass" | "pin" | "camp") {
     const down = (e: Event) => {
       e.preventDefault();
       el.classList.add("held");
@@ -161,5 +164,6 @@ export class Controls {
     this.jump = false;
     this.interact = false;
     this.pin = false;
+    this.camp = false;
   }
 }
