@@ -20,6 +20,8 @@ const DRIVE_BRAKE = 30;
 const DRIVE_DRAG = 0.5; // 27 / 0.5 = 54 > DRIVE_TOP
 
 const MOUNT_RANGE = 4.5;
+/** ~5x magnification against the default 62 degree view. */
+const GLASS_FOV = 13;
 
 const VEH_GRAVITY = 26;
 const VEH_JUMP = 10.5;
@@ -86,11 +88,14 @@ export class Player {
   private camInit = false;
   private warmedUp = false;
   private lookIdle = 0;
+  private glassTime = 0;
+  private baseFov: number;
 
   private footShadow = new DynamicShadow(0.62, 0.62);
   private vehShadow = new DynamicShadow(1.5, 2.6);
 
   constructor(private camera: THREE.PerspectiveCamera, spawn: THREE.Vector2) {
+    this.baseFov = camera.fov;
     this.character = makeCharacter();
     this.vehicle = makeVehicle();
     this.group.add(
@@ -121,9 +126,15 @@ export class Player {
     return this.mode === "foot" && this.position.distanceTo(this.vehPos) < MOUNT_RANGE;
   }
 
+  /** Binoculars up. Slows the look, narrows the lens, moves to the eye. */
+  glassing = false;
+
   update(dt: number, input: Controls) {
-    this.camYaw += input.look.x;
-    this.camPitch = THREE.MathUtils.clamp(this.camPitch + input.look.y, -1.1, 0.75);
+    this.glassing = input.glass;
+    // Fine aim at 5x — full sensitivity through a long lens is unusable.
+    const aim = this.glassing ? 0.22 : 1;
+    this.camYaw += input.look.x * aim;
+    this.camPitch = THREE.MathUtils.clamp(this.camPitch + input.look.y * aim, -1.1, 0.75);
     this.camDist = THREE.MathUtils.clamp(this.camDist + input.zoom * 0.6, 3.5, 26);
 
     if (input.interact) {
@@ -403,6 +414,9 @@ export class Player {
   // --- camera ----------------------------------------------------------------
 
   private updateCamera(dt: number) {
+    if (this.glassing) return this.updateGlassCamera(dt);
+    this.camera.fov += (this.baseFov - this.camera.fov) * Math.min(1, dt * 9);
+    this.camera.updateProjectionMatrix();
     const driving = this.mode === "drive";
     const dist = driving ? this.camDist * 1.25 : this.camDist;
     const height = driving ? 2.2 : EYE;
@@ -435,6 +449,35 @@ export class Player {
     } else {
       this.shake = 0;
     }
+    this.camera.lookAt(this.camTarget);
+  }
+
+  /**
+   * Glassing puts the camera at the player's eye and narrows the lens, with a
+   * slow unsteadiness so a distant shape never sits perfectly still — which is
+   * what makes a long lens feel long.
+   */
+  private updateGlassCamera(dt: number) {
+    this.glassTime += dt;
+    this.camera.fov += (GLASS_FOV - this.camera.fov) * Math.min(1, dt * 7);
+    this.camera.updateProjectionMatrix();
+
+    const eye = this.mode === "drive" ? 2.0 : EYE;
+    this.camera.position.set(this.position.x, this.position.y + eye, this.position.z);
+    this.camPos.copy(this.camera.position);
+
+    const t = this.glassTime;
+    const wobbleY = Math.sin(t * 0.9) * 0.0026 + Math.sin(t * 2.3) * 0.0011;
+    const wobbleP = Math.cos(t * 1.1) * 0.0022 + Math.sin(t * 3.1) * 0.0008;
+    const yaw = this.camYaw + wobbleY;
+    const pitch = this.camPitch + wobbleP;
+
+    const cp = Math.cos(pitch);
+    this.camTarget.set(
+      this.camera.position.x - Math.sin(yaw) * cp,
+      this.camera.position.y + Math.sin(pitch),
+      this.camera.position.z - Math.cos(yaw) * cp
+    );
     this.camera.lookAt(this.camTarget);
   }
 

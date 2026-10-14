@@ -120,6 +120,76 @@ html, body {
   letter-spacing: 0.06em;
 }
 
+.glass {
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  transition: opacity 0.22s;
+  pointer-events: none;
+  background:
+    radial-gradient(circle at 50% 50%, transparent 32%, rgba(4, 7, 12, 0.55) 56%, rgba(2, 4, 8, 0.96) 76%);
+}
+.glass.on { opacity: 1; }
+.glass-recticle {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 46px;
+  height: 46px;
+  margin: -23px 0 0 -23px;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  border-radius: 50%;
+}
+.glass-recticle::before,
+.glass-recticle::after {
+  content: "";
+  position: absolute;
+  background: rgba(255, 255, 255, 0.22);
+}
+.glass-recticle::before { left: 50%; top: -14px; width: 1px; height: 12px; }
+.glass-recticle::after { top: 50%; left: -14px; height: 1px; width: 12px; }
+
+.marks { position: absolute; inset: 0; opacity: 0; transition: opacity 0.22s; pointer-events: none; }
+.marks.on { opacity: 1; pointer-events: auto; }
+.mark {
+  position: absolute;
+  left: 0;
+  top: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  padding: 4px 8px;
+  margin: -34px 0 0 -46px;
+  min-width: 92px;
+  border: 0;
+  border-radius: 8px;
+  background: none;
+  color: var(--ink);
+  font: inherit;
+  pointer-events: auto;
+}
+.mark i {
+  width: 9px;
+  height: 9px;
+  border: 1.5px solid rgba(255, 255, 255, 0.75);
+  border-radius: 50%;
+}
+.mark b { font-size: 11px; font-weight: 600; letter-spacing: 0.06em; opacity: 0.9; }
+.mark s { font-size: 10px; text-decoration: none; opacity: 0.5; }
+.mark.pinned i { background: #e2c069; border-color: #e2c069; }
+
+.pin {
+  position: absolute;
+  transform: translateX(-50%);
+  top: 13px;
+  font-size: 9.5px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  color: #e2c069;
+  white-space: nowrap;
+}
+
 /* controls sheet */
 .help-btn {
   position: absolute;

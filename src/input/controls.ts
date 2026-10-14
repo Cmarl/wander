@@ -14,6 +14,10 @@ export class Controls {
   sprint = false;
   jump = false;
   interact = false;
+  /** Held: raise the binoculars. */
+  glass = false;
+  /** Edge: pin whatever is nearest the centre of the view. */
+  pin = false;
 
   readonly isTouch = matchMedia("(hover: none)").matches || "ontouchstart" in window;
 
@@ -30,6 +34,7 @@ export class Controls {
       this.keys.add(e.code);
       if (e.code === "Space") this.jump = true;
       if (e.code === "KeyE" || e.code === "Enter") this.interact = true;
+      if (e.code === "KeyF") this.pin = true;
       if (e.code === "Space" || e.code.startsWith("Arrow")) e.preventDefault();
     });
     addEventListener("keyup", (e) => this.keys.delete(e.code));
@@ -58,13 +63,17 @@ export class Controls {
   }
 
   /** Wire HUD buttons up without Controls needing to know about the DOM layout. */
-  bindButton(el: HTMLElement, action: "jump" | "interact" | "sprint") {
+  bindButton(el: HTMLElement, action: "jump" | "interact" | "sprint" | "glass" | "pin") {
     const down = (e: Event) => {
       e.preventDefault();
       el.classList.add("held");
       if (action === "sprint") {
         this.sprint = !this.sprint;
         el.classList.toggle("on", this.sprint);
+      } else if (action === "glass") {
+        // Toggle on touch — nobody wants to hold a button and steer.
+        this.glass = !this.glass;
+        el.classList.toggle("on", this.glass);
       } else {
         this[action] = true;
       }
@@ -141,6 +150,7 @@ export class Controls {
     this.move.x = x / len;
     this.move.y = y / len;
     this.sprint = k.has("ShiftLeft") || k.has("ShiftRight");
+    this.glass = k.has("KeyQ");
   }
 
   /** Clear one-shot inputs and accumulated deltas. Call at the end of the frame. */
@@ -150,5 +160,6 @@ export class Controls {
     this.zoom = 0;
     this.jump = false;
     this.interact = false;
+    this.pin = false;
   }
 }

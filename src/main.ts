@@ -112,6 +112,7 @@ const netFacade = {
 };
 
 const hud = new Hud(controls, sound, netFacade);
+hud.onPinRequest = (id) => togglePin(id);
 
 net.onPeerLeave = (id) => peers.remove(id);
 if (localStorage.getItem("wander.solo") !== "1") {
@@ -195,6 +196,76 @@ function wake(dt: number) {
   birds.update(dt);
 }
 
+// --- glassing: looking as a verb -------------------------------------------
+/** Deliberately few. Pins are intentions, not a to-do list. */
+const MAX_PINS = 3;
+const GLASS_RANGE = 9000;
+
+interface Pin { id: string; name: string; x: number; z: number }
+let pins: Pin[] = [];
+try {
+  pins = JSON.parse(localStorage.getItem("wander.pins") || "[]");
+} catch {
+  pins = [];
+}
+const savePins = () => localStorage.setItem("wander.pins", JSON.stringify(pins));
+
+function togglePin(id: string) {
+  const lm = landmarks.loaded.find((l) => l.id === id);
+  if (!lm) return;
+  const at = pins.findIndex((p) => p.id === id);
+  if (at >= 0) pins.splice(at, 1);
+  else {
+    pins.push({ id, name: LANDMARK_NAMES[lm.kind], x: lm.x, z: lm.z });
+    if (pins.length > MAX_PINS) pins.shift();
+  }
+  savePins();
+}
+
+const projected = new THREE.Vector3();
+
+function glassing() {
+  hud.setGlassing(player.glassing);
+  if (!player.glassing) {
+    hud.setMarks([]);
+    return;
+  }
+  const marks: { id: string; name: string; sx: number; sy: number; km: number; pinned: boolean }[] = [];
+  let centreBest = Infinity;
+  let centreId: string | null = null;
+
+  for (const lm of landmarks.loaded) {
+    const dx = lm.x - camera.position.x;
+    const dz = lm.z - camera.position.z;
+    const d = Math.hypot(dx, dz);
+    if (d > GLASS_RANGE || d < 30) continue;
+
+    projected.set(lm.x, lm.y + 18, lm.z).project(camera);
+    if (projected.z > 1) continue; // behind the lens
+    const sx = (projected.x * 0.5 + 0.5) * innerWidth;
+    const sy = (-projected.y * 0.5 + 0.5) * innerHeight;
+    if (sx < 0 || sx > innerWidth || sy < 0 || sy > innerHeight) continue;
+
+    marks.push({
+      id: lm.id,
+      name: LANDMARK_NAMES[lm.kind],
+      sx,
+      sy,
+      km: d / 1000,
+      pinned: pins.some((p) => p.id === lm.id),
+    });
+
+    // F pins whatever is nearest the reticle.
+    const off = Math.hypot(sx - innerWidth / 2, sy - innerHeight / 2);
+    if (off < centreBest) {
+      centreBest = off;
+      centreId = lm.id;
+    }
+  }
+  hud.setMarks(marks);
+  if (controls.pin && centreId && centreBest < innerWidth * 0.25) togglePin(centreId);
+}
+
 const dir = new THREE.Vector3();
 let last = performance.now();
 let fps = 60;
@@ -276,6 +347,19 @@ function frame(now: number) {
     speed: player.speed,
   });
   peers.update(dt, net, camera);
+
+  glassing();
+  hud.setPins(
+    pins.map((p) => {
+      const dx = p.x - player.position.x;
+      const dz = p.z - player.position.z;
+      return {
+        name: p.name,
+        bearing: ((Math.atan2(dx, -dz) * 180) / Math.PI + 360) % 360,
+        km: Math.hypot(dx, dz) / 1000,
+      };
+    })
+  );
 
   camera.getWorldDirection(dir);
   hud.update({

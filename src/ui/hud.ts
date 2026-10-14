@@ -22,6 +22,8 @@ const DESK_KEYS: [string, string][] = [
   ["scroll", "zoom the camera"],
   ["[  ]", "wind the clock back / forward an hour"],
   ["M", "mute"],
+  ["Q", "raise binoculars"],
+  ["F", "pin what you are looking at"],
   ["H", "show these controls"],
 ];
 
@@ -31,6 +33,7 @@ const TOUCH_KEYS: [string, string][] = [
   ["RUN", "hold a run"],
   ["⤴", "jump — the truck jumps too"],
   ["⏎", "get in / out of the truck"],
+  ["LOOK", "binoculars — tap a marker to pin it"],
   ["pinch-free", "the whole left half is the stick"],
 ];
 
@@ -63,6 +66,12 @@ export class Hud {
   private toastEl!: HTMLElement;
   private toastNameEl!: HTMLElement;
   private toastTimer = 0;
+  private glassEl!: HTMLElement;
+  private marksEl!: HTMLElement;
+  private markPool: HTMLElement[] = [];
+  private pinEls: HTMLElement[] = [];
+  /** Called when the player taps a marker through the glass. */
+  onPinRequest?: (id: string) => void;
   private dotEl!: HTMLElement;
 
   constructor(
@@ -88,6 +97,8 @@ export class Hud {
       </div>
       <div class="compass"><div class="compass-tape" id="h-compass"></div><div class="compass-needle"></div></div>
       <div class="prompt" id="h-prompt"></div>
+      <div class="glass" id="h-glass"><div class="glass-recticle"></div></div>
+      <div class="marks" id="h-marks"></div>
       <div class="toast" id="h-toast"><span class="toast-kicker">found</span><span id="h-toast-name"></span></div>
       ${
         controls.isTouch
@@ -96,6 +107,7 @@ export class Hud {
                <button class="btn" id="b-interact">⏎</button>
                <button class="btn" id="b-jump">⤴</button>
                <button class="btn small" id="b-sprint">RUN</button>
+               <button class="btn small" id="b-glass">LOOK</button>
              </div>`
           : ``
       }
@@ -145,6 +157,8 @@ export class Hud {
       .map(([d, n]) => `<span style="left:${d * 2}px">${n}</span>`)
       .join("");
 
+    this.glassEl = document.getElementById("h-glass")!;
+    this.marksEl = document.getElementById("h-marks")!;
     this.toastEl = document.getElementById("h-toast")!;
     this.toastNameEl = document.getElementById("h-toast-name")!;
     this.onlineEl = document.getElementById("h-online")!;
@@ -205,6 +219,7 @@ export class Hud {
       controls.bindButton(document.getElementById("b-jump")!, "jump");
       controls.bindButton(document.getElementById("b-interact")!, "interact");
       controls.bindButton(document.getElementById("b-sprint")!, "sprint");
+      controls.bindButton(document.getElementById("b-glass")!, "glass");
     }
   }
 
@@ -223,6 +238,65 @@ export class Hud {
     this.toastEl.classList.add("on");
     clearTimeout(this.toastTimer);
     this.toastTimer = window.setTimeout(() => this.toastEl.classList.remove("on"), 4200);
+  }
+
+  setGlassing(on: boolean) {
+    this.glassEl.classList.toggle("on", on);
+    this.marksEl.classList.toggle("on", on);
+  }
+
+  /**
+   * Markers for what's visible through the glass. Pooled, because this runs
+   * every frame while glassing and churning DOM nodes would stutter the view.
+   */
+  setMarks(marks: { id: string; name: string; sx: number; sy: number; km: number; pinned: boolean }[]) {
+    while (this.markPool.length < marks.length) {
+      const el = document.createElement("button");
+      el.className = "mark";
+      el.innerHTML = `<i></i><b></b><s></s>`;
+      el.addEventListener("pointerdown", (e) => {
+        e.stopPropagation();
+        const id = el.dataset.id;
+        if (id) this.onPinRequest?.(id);
+      });
+      this.marksEl.appendChild(el);
+      this.markPool.push(el);
+    }
+    for (let i = 0; i < this.markPool.length; i++) {
+      const el = this.markPool[i];
+      const m = marks[i];
+      if (!m) {
+        el.style.display = "none";
+        continue;
+      }
+      el.style.display = "";
+      el.style.transform = `translate(${m.sx}px, ${m.sy}px)`;
+      el.dataset.id = m.id;
+      el.classList.toggle("pinned", m.pinned);
+      el.querySelector("b")!.textContent = m.name;
+      el.querySelector("s")!.textContent = `${m.km.toFixed(1)} km`;
+    }
+  }
+
+  /** Soft chevrons on the compass, for places the player chose to remember. */
+  setPins(pins: { name: string; bearing: number; km: number }[]) {
+    while (this.pinEls.length < pins.length) {
+      const el = document.createElement("span");
+      el.className = "pin";
+      this.compassEl.appendChild(el);
+      this.pinEls.push(el);
+    }
+    for (let i = 0; i < this.pinEls.length; i++) {
+      const el = this.pinEls[i];
+      const p = pins[i];
+      if (!p) {
+        el.style.display = "none";
+        continue;
+      }
+      el.style.display = "";
+      el.style.left = `${p.bearing * 2}px`;
+      el.textContent = `${p.name} ${p.km.toFixed(1)}km`;
+    }
   }
 
   setMuted(muted: boolean) {
