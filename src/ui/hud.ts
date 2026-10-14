@@ -77,6 +77,7 @@ export class Hud {
   private marksEl!: HTMLElement;
   private markPool: HTMLElement[] = [];
   private pinEls: HTMLElement[] = [];
+  private pinLeadEl!: HTMLElement;
   /** Called when the player taps a marker through the glass. */
   onPinRequest?: (id: string) => void;
   onRest?: (target: "dawn" | "dusk") => void;
@@ -108,6 +109,7 @@ export class Hud {
         </div>
       </div>
       <div class="compass"><div class="compass-tape" id="h-compass"></div><div class="compass-needle"></div></div>
+      <div class="pin-lead" id="h-pin-lead"></div>
       <div class="prompt" id="h-prompt"></div>
       <div class="camp" id="h-camp">
         <div class="camp-where" id="h-camp-where"></div>
@@ -164,6 +166,7 @@ export class Hud {
     this.kmEl = document.getElementById("h-km")!;
     this.fpsEl = document.getElementById("h-fps")!;
     this.compassEl = document.getElementById("h-compass")!;
+    this.pinLeadEl = document.getElementById("h-pin-lead")!;
     this.promptEl = document.getElementById("h-prompt")!;
     this.muteEl = document.getElementById("h-mute")!;
     this.muteEl.addEventListener("pointerdown", (e) => {
@@ -326,14 +329,28 @@ export class Hud {
     }
   }
 
-  /** Soft chevrons on the compass, for places the player chose to remember. */
-  setPins(pins: { name: string; bearing: number; km: number }[]) {
+  /**
+   * Pins on the compass.
+   *
+   * Position and identity are deliberately separated. Only a narrow chevron
+   * and a range ride the tape — a full name is wide enough that, centred on
+   * its bearing inside a 230 px compass whose outer fifth is masked away, most
+   * of it gets clipped the moment the bearing is off-centre. The name instead
+   * goes on its own line below the compass, outside the clipping box, for
+   * whichever pin you're actually facing.
+   */
+  setPins(pins: { name: string; bearing: number; km: number }[], headingDeg: number) {
     while (this.pinEls.length < pins.length) {
       const el = document.createElement("span");
       el.className = "pin";
+      el.innerHTML = `<i>▾</i><s></s>`;
       this.compassEl.appendChild(el);
       this.pinEls.push(el);
     }
+
+    let lead: { name: string; km: number } | null = null;
+    let leadOff = 999;
+
     for (let i = 0; i < this.pinEls.length; i++) {
       const el = this.pinEls[i];
       const p = pins[i];
@@ -343,8 +360,19 @@ export class Hud {
       }
       el.style.display = "";
       el.style.left = `${p.bearing * 2}px`;
-      el.textContent = `${p.name} ${p.km.toFixed(1)}km`;
+      el.querySelector("s")!.textContent = `${p.km.toFixed(1)}km`;
+
+      // Signed shortest angle, so wrapping past north doesn't pick the wrong pin.
+      const off = Math.abs((((p.bearing - headingDeg) % 360) + 540) % 360 - 180);
+      if (off < leadOff) {
+        leadOff = off;
+        lead = p;
+      }
     }
+
+    const show = lead !== null && leadOff < 32;
+    this.pinLeadEl.textContent = show && lead ? `${lead.name} · ${lead.km.toFixed(1)} km` : "";
+    this.pinLeadEl.classList.toggle("on", show);
   }
 
   setMuted(muted: boolean) {

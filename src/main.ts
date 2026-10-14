@@ -485,6 +485,8 @@ function frame(now: number) {
   hud.setCamp(camp.active, camp.nearby, camp.resting, player.heldByCamp);
 
   glassing();
+  camera.getWorldDirection(dir);
+  const headingDeg = ((((Math.atan2(dir.x, -dir.z) * 180) / Math.PI) % 360) + 360) % 360;
   hud.setPins(
     pins.map((p) => {
       const dx = p.x - player.position.x;
@@ -494,7 +496,8 @@ function frame(now: number) {
         bearing: ((Math.atan2(dx, -dz) * 180) / Math.PI + 360) % 360,
         km: Math.hypot(dx, dz) / 1000,
       };
-    })
+    }),
+    headingDeg
   );
 
   // Sunrise and sunset each get a phrase, once per crossing.
@@ -538,7 +541,7 @@ function frame(now: number) {
     z: player.position.z,
     km: player.distanceTravelled / 1000,
     fps,
-    headingDeg: (((Math.atan2(dir.x, -dir.z) * 180) / Math.PI) % 360 + 360) % 360,
+    headingDeg,
     prompt:
       camp.active
         ? null
