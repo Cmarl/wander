@@ -293,6 +293,7 @@ function glassing() {
  * land once; `add` is a no-op after that, so calling this every frame is free.
  */
 let lastBiome = "";
+let lastPhase = 0;
 function stampJournal() {
   const x = player.position.x;
   const z = player.position.z;
@@ -365,6 +366,7 @@ function frame(now: number) {
       tod: env.timeOfDay,
     });
     hud.announce(nearest.name);
+    sound.moment();
   }
   grass.update(camera.position.x, camera.position.z, env.elapsed);
   wake(dt);
@@ -390,6 +392,8 @@ function frame(now: number) {
   sound.update(dt, {
     x: player.position.x,
     z: player.position.z,
+    biome: biomeNameAt(player.position.x, player.position.z),
+    musicDuck: camp.active ? 1 : 0,
     onFoot: player.mode === "foot",
     speed: player.speed,
     grounded: player.grounded,
@@ -457,6 +461,12 @@ function frame(now: number) {
       };
     })
   );
+
+  // Sunrise and sunset each get a phrase, once per crossing.
+  const dayPhase = env.timeOfDay;
+  if (lastPhase < 0.25 && dayPhase >= 0.25) sound.moment();
+  if (lastPhase < 0.78 && dayPhase >= 0.78) sound.moment();
+  lastPhase = dayPhase;
 
   stampJournal();
   camera.getWorldDirection(dir);

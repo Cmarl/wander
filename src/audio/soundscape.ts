@@ -1,6 +1,7 @@
 import { AudioEngine } from "./engine";
 import { Ambience, type AmbienceContext } from "./ambience";
 import { Sfx, VehicleAudio } from "./sfx";
+import { Drift, moodFor } from "./drift";
 import { heightAt, slopeAt, temperatureAt, treeDensityAt, surfaceAt, type Surface } from "../world/field";
 
 const clamp01 = (x: number) => (x < 0 ? 0 : x > 1 ? 1 : x);
@@ -8,6 +9,9 @@ const clamp01 = (x: number) => (x < 0 ? 0 : x > 1 ? 1 : x);
 export interface SoundscapeState {
   x: number;
   z: number;
+  biome: string;
+  /** 0 = music at full, 1 = pulled down so the fire carries the scene. */
+  musicDuck: number;
   onFoot: boolean;
   speed: number;
   grounded: boolean;
@@ -25,6 +29,7 @@ export class Soundscape {
   private ambience = new Ambience(this.engine);
   readonly sfx = new Sfx(this.engine);
   private vehicle = new VehicleAudio(this.engine, this.sfx);
+  private drift = new Drift(this.engine);
 
   private sampleTimer = 0;
   private stepAccum = 0;
@@ -44,6 +49,7 @@ export class Soundscape {
       if (this.engine.start()) {
         this.ambience.build();
         this.vehicle.build();
+        this.drift.build();
         removeEvents();
       }
     };
@@ -80,6 +86,8 @@ export class Soundscape {
       this.sampleTimer = 0.25;
       this.sampleWorld(s.x, s.z);
     }
+    this.drift.setMood(moodFor(s.biome));
+    this.drift.update(dt, s.speed, s.musicDuck);
     this.ctx.night = s.night;
     this.ctx.inVehicle = !s.onFoot;
     this.ambience.update(dt, this.ctx);
@@ -112,6 +120,11 @@ export class Soundscape {
   /** 0 = no fire, 1 = sitting right beside it. */
   setFire(level: number) {
     (this.ambience as unknown as { fireLevel: number }).fireLevel = level;
+  }
+
+  /** Mark a moment musically: an arrival, a summit, first light. */
+  moment() {
+    this.drift.motif();
   }
 
   crash(force: number) {

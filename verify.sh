@@ -51,7 +51,11 @@ ROOT=$(curl -s -o /dev/null -w '%{http_code}' -L https://clydemarl.me/)
 echo "3. HTTP $ROOT  https://clydemarl.me/  (site must stay up)"
 [ "$ROOT" = 200 ] || { echo "FAIL: site root returned $ROOT"; exit 1; }
 
-# 4. content assertions against the proven-real bundle
+# 4. content assertions against the proven-real bundle.
+#    NOTE: pass STRING LITERALS, not identifiers. Minification renames every
+#    function, class and const name, so asserting on a symbol like `moodFor`
+#    reports MISSING even when the code is live. Use user-visible text, GLSL
+#    kept in template strings, storage keys, or literal data like [0,7,14].
 FAIL=0
 for needle in "$@"; do
   if grep -q -- "$needle" /tmp/wander-verify.js; then
