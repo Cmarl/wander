@@ -162,8 +162,10 @@ export class Player {
 
   update(dt: number, input: Controls) {
     this.glassing = input.glass;
-    // Fine aim at 5x — full sensitivity through a long lens is unusable.
-    const aim = this.glassing ? 0.22 : 1;
+    // Damped, not locked. 1/4.8 would be true 1:1 screen motion at this
+    // magnification, but it reads as stuck — this is looser while still far
+    // steadier than hip-fire, so you can sweep a horizon without swinging.
+    const aim = this.glassing ? 0.42 : 1;
     this.camYaw += input.look.x * aim;
     this.camPitch = THREE.MathUtils.clamp(this.camPitch + input.look.y * aim, -1.1, 0.75);
     // Photo mode opens the orbit right up; in play it stays a chase camera.

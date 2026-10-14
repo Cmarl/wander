@@ -149,8 +149,11 @@ html, body {
 .glass-recticle::before { left: 50%; top: -14px; width: 1px; height: 12px; }
 .glass-recticle::after { top: 50%; left: -14px; height: 1px; width: 12px; }
 
+/* Full-screen container: it must NEVER take pointer events, or it swallows
+   every drag before the canvas sees it and looking around dies entirely while
+   the glass is up. The .mark buttons inside carry their own pointer-events. */
 .marks { position: absolute; inset: 0; opacity: 0; transition: opacity 0.22s; pointer-events: none; }
-.marks.on { opacity: 1; pointer-events: auto; }
+.marks.on { opacity: 1; }
 .mark {
   position: absolute;
   left: 0;
