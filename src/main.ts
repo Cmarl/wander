@@ -11,6 +11,7 @@ import { landmarkSolids, LANDMARK_NAMES } from "./world/landmarks";
 import { Discoveries } from "./game/discovery";
 import { Camp } from "./game/camp";
 import { Dust, Birds } from "./world/particles";
+import { Wildlife } from "./world/wildlife";
 import { surfaceAt, moistureAt, treeDensityAt, slopeAt } from "./world/field";
 import { findSpawn } from "./world/spawn";
 import { heightAt, biomeNameAt } from "./world/field";
@@ -68,6 +69,8 @@ scene.add(landmarks.group);
 const found = new Discoveries();
 const camp = new Camp();
 scene.add(camp.group);
+const wildlife = new Wildlife();
+scene.add(wildlife.group);
 const dust = new Dust();
 const birds = new Birds();
 scene.add(dust.mesh, birds.mesh);
@@ -150,7 +153,7 @@ if (localStorage.getItem("wander.solo") !== "1") {
 
 // Live handle for tuning from the console: __wander.env.timeOfDay = 0.5, etc.
 (window as Window & { __wander?: unknown }).__wander = {
-  env, terrain, water, sky, grass, landmarks, found, camp, dust, birds, postcard, journal, garage, player, camera, renderer, scene, sound, net, peers,
+  env, terrain, water, sky, grass, landmarks, wildlife, found, camp, dust, birds, postcard, journal, garage, player, camera, renderer, scene, sound, net, peers,
 };
 
 function resize() {
@@ -358,6 +361,7 @@ function frame(now: number) {
   water.update(camera.position.x, camera.position.z);
   scatter.update(player.position.x, player.position.z);
   landmarks.update(player.position.x, player.position.z, env.elapsed, camera);
+  wildlife.update(dt, player.position.x, player.position.z, env.sunDir.y);
 
   // Only landmarks you could actually touch take part in collision, and only
   // the nearest is a candidate for discovery.
@@ -500,6 +504,18 @@ function frame(now: number) {
       id: `sky:${new Date().toISOString().slice(0, 10)}`,
       kind: "feat",
       name: "A vivid sky",
+      x: Math.round(player.position.x),
+      z: Math.round(player.position.z),
+      at: Date.now(),
+      tod: env.timeOfDay,
+    });
+  }
+
+  if (wildlife.watching > 0) {
+    found.add({
+      id: "feat:watched",
+      kind: "feat",
+      name: "Something looked up",
       x: Math.round(player.position.x),
       z: Math.round(player.position.z),
       at: Date.now(),
