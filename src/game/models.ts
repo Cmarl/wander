@@ -134,6 +134,12 @@ export interface Vehicle {
   /** Spin the wheels and turn the fronts. */
   animate(dt: number, speed: number, steer: number): void;
   setPaint(hex: number): void;
+  /**
+   * Knock a panel out of true. Purely cosmetic and never repaired — the truck
+   * ends up wearing a record of your driving, with no damage model, no penalty
+   * and nothing to fix.
+   */
+  dent(force: number): void;
 }
 
 export function makeVehicle(paint = 0xd8c04a): Vehicle {
@@ -234,8 +240,23 @@ export function makeVehicle(paint = 0xd8c04a): Vehicle {
     if (isFront) fronts.push(steerPivot);
   }
 
+  const panels = [chassis, cab, bed, bumper, rearBumper, rails];
+  let dents = 0;
+
   return {
     root,
+    dent(force) {
+      if (dents > 14) return; // a wreck, not a sculpture
+      dents++;
+      const panel = panels[Math.floor(Math.random() * panels.length)];
+      const k = 0.02 + force * 0.07;
+      panel.position.x += (Math.random() - 0.5) * k * 2;
+      panel.position.y += (Math.random() - 0.5) * k;
+      panel.rotation.z += (Math.random() - 0.5) * k * 0.9;
+      panel.rotation.x += (Math.random() - 0.5) * k * 0.6;
+      // Scuffed paint goes a little duller each time.
+      body.color.offsetHSL(0, -0.012 * force, -0.008 * force);
+    },
     animate(dt, speed, steer) {
       const spin = (speed / 0.52) * dt;
       for (const w of wheels) w.rotation.x -= spin;

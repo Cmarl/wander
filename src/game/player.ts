@@ -309,6 +309,7 @@ export class Player {
       const force = Math.min((worst - CRASH_SPEED) / 18, 1);
       this.vehSpeed = -worst * 0.07; // a short bounce back off the trunk
       this.shake = Math.max(this.shake, 0.35 + force * 0.65);
+      this.vehicle.dent(force);
       this.onCrash?.(force);
     }
   }

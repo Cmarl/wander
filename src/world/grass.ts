@@ -40,8 +40,17 @@ function tuftGeometry(blades: number): THREE.InstancedBufferGeometry {
   return g;
 }
 
+/**
+ * How many recent crush points the shader tracks. Each is a vec4 (xyz + how
+ * fresh it is), and they decay slowly enough that the flattened trail behind
+ * the truck reads as tyre tracks for a few seconds.
+ */
+export const CRUSH_POINTS = 16;
+
 const VERT = /* glsl */ `
+#define CRUSH_POINTS ${CRUSH_POINTS}
 in vec2 aCell;
+uniform vec4 uCrush[CRUSH_POINTS];
 uniform vec2 uOrigin;
 uniform float uSpacing;
 uniform float uRadius;
@@ -84,12 +93,29 @@ void main() {
   local.xz *= (0.55 + j2 * 0.45) * (1.0 + dist * 0.045);
   local.y *= height;
 
+  // Anything that has driven past recently pushes the blades over and holds
+  // them down. They spring back as the crush point fades.
+  vec2 shove = vec2(0.0);
+  float flatten = 0.0;
+  for (int i = 0; i < CRUSH_POINTS; i++) {
+    float strength = uCrush[i].w;
+    if (strength <= 0.001) continue;
+    vec2 away = wp - uCrush[i].xz;
+    float d = length(away);
+    float infl = strength * (1.0 - smoothstep(0.0, 2.6, d));
+    if (infl <= 0.0) continue;
+    shove += (away / max(d, 0.001)) * infl;
+    flatten = max(flatten, infl);
+  }
+  local.y *= 1.0 - flatten * 0.82;
+
   // Bend from the tip, not the root.
   float tip = clamp(position.y, 0.0, 1.0);
   float sway = sin(uTime * 1.6 + base.x * 0.11 + base.y * 0.08) * 0.55
              + sin(uTime * 3.3 + base.y * 0.19) * 0.22;
   local.x += sway * tip * tip * uWind;
   local.z += sway * 0.6 * tip * tip * uWind;
+  local.xz += shove * tip * 0.75;
 
   vec3 world = vec3(wp.x + local.x, y + local.y, wp.y + local.z);
   vRel = world - cameraPosition;
@@ -154,6 +180,7 @@ export class Grass {
         uRadius: { value: radius },
         uTime: { value: 0 },
         uWind: { value: 0.1 },
+        uCrush: { value: Array.from({ length: CRUSH_POINTS }, () => new THREE.Vector4(0, 0, 0, 0)) },
         uSunDir: { value: new THREE.Vector3(0, 1, 0) },
         uSunColor: { value: new THREE.Color(1, 1, 1) },
         uSkyAmbient: { value: new THREE.Color(0.3, 0.4, 0.55) },
@@ -166,6 +193,28 @@ export class Grass {
     this.mesh = new THREE.Mesh(geo, this.material);
     this.mesh.frustumCulled = false;
     this.mesh.renderOrder = 5;
+  }
+
+  /**
+   * Lay down a crush point at `(x, z)` and age the rest.
+   *
+   * A ring buffer rather than a trail texture: 16 points at speed is roughly
+   * 60 m of visible track, which is enough to feel like you left a mark without
+   * needing a render target and the bookkeeping that comes with it.
+   */
+  private crushNext = 0;
+  private crushTimer = 0;
+
+  crush(dt: number, x: number, y: number, z: number, moving: boolean) {
+    const pts = this.material.uniforms.uCrush.value as THREE.Vector4[];
+    for (const p of pts) p.w = Math.max(0, p.w - dt * 0.14);
+
+    this.crushTimer -= dt;
+    if (!moving || this.crushTimer > 0) return;
+    this.crushTimer = 0.07;
+    const p = pts[this.crushNext];
+    this.crushNext = (this.crushNext + 1) % pts.length;
+    p.set(x, y, z, 1);
   }
 
   update(camX: number, camZ: number, time: number) {

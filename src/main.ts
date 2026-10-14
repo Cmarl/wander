@@ -9,6 +9,8 @@ import { Grass } from "./world/grass";
 import { LandmarkField } from "./world/landmarkRender";
 import { landmarkSolids, LANDMARK_NAMES } from "./world/landmarks";
 import { Discoveries } from "./game/discovery";
+import { Dust, Birds } from "./world/particles";
+import { surfaceAt, moistureAt, treeDensityAt, slopeAt } from "./world/field";
 import { findSpawn } from "./world/spawn";
 import { heightAt, biomeNameAt } from "./world/field";
 import { Environment } from "./game/environment";
@@ -59,6 +61,9 @@ scene.fog = new THREE.FogExp2(0x9fb4c8, 0.0001);
 const landmarks = new LandmarkField();
 scene.add(landmarks.group);
 const found = new Discoveries();
+const dust = new Dust();
+const birds = new Birds();
+scene.add(dust.mesh, birds.mesh);
 
 const spawn = findSpawn();
 const player = new Player(camera, spawn);
@@ -115,7 +120,7 @@ if (localStorage.getItem("wander.solo") !== "1") {
 
 // Live handle for tuning from the console: __wander.env.timeOfDay = 0.5, etc.
 (window as Window & { __wander?: unknown }).__wander = {
-  env, terrain, water, sky, grass, landmarks, found, player, camera, renderer, scene, sound, net, peers,
+  env, terrain, water, sky, grass, landmarks, found, dust, birds, player, camera, renderer, scene, sound, net, peers,
 };
 
 function resize() {
@@ -134,6 +139,61 @@ addEventListener("keydown", (e) => {
   if (e.code === "BracketLeft") env.timeOfDay = (env.timeOfDay + 23 / 24) % 1;
   if (e.code === "KeyM") hud.setMuted(sound.toggleMute());
 });
+
+// --- wake: what the world does back ---------------------------------------
+const SPRAY: Record<string, { tint: THREE.Color; heavy: boolean; rate: number } | null> = {
+  grass: { tint: new THREE.Color(0.44, 0.41, 0.27), heavy: false, rate: 15 },
+  sand: { tint: new THREE.Color(0.80, 0.72, 0.53), heavy: true, rate: 40 },
+  snow: { tint: new THREE.Color(0.94, 0.96, 1.0), heavy: true, rate: 44 },
+  water: { tint: new THREE.Color(0.78, 0.88, 0.92), heavy: true, rate: 48 },
+  rock: null, // nothing to kick up off bare stone
+};
+let sprayDebt = 0;
+let birdCooldown = 0;
+const tintScratch = new THREE.Color();
+
+function wake(dt: number) {
+  const driving = player.mode === "drive";
+  // While driving, player.position tracks the cab, so its xz is the truck's.
+  const px = player.position.x;
+  const pz = player.position.z;
+  const speed = player.speed;
+
+  // Grass remembers where you just drove, which doubles as a tyre track.
+  grass.crush(dt, px, heightAt(px, pz), pz, speed > 1.2);
+
+  birdCooldown -= dt;
+  if (speed < 3) {
+    sprayDebt = 0;
+  } else {
+    const surface = surfaceAt(px, pz);
+    const spec = SPRAY[surface];
+    if (spec) {
+      const ground = heightAt(px, pz);
+      sprayDebt += dt * spec.rate * Math.min(speed / 24, 1.4) * (driving ? 1 : 0.35);
+      while (sprayDebt >= 1) {
+        sprayDebt -= 1;
+        // Shade the spray toward the ground it came off.
+        tintScratch.copy(spec.tint).offsetHSL(0, 0, (Math.random() - 0.5) * 0.1);
+        dust.emit(px, ground, pz, speed, tintScratch, spec.heavy);
+      }
+    }
+
+    // Driving fast through thick cover puts birds up.
+    if (driving && speed > 12 && birdCooldown <= 0) {
+      const ground = heightAt(px, pz);
+      const cover = treeDensityAt(px, pz, ground, slopeAt(px, pz, 4)) + moistureAt(px, pz) * 0.4;
+      if (cover > 0.45 && Math.random() < dt * 1.6) {
+        birdCooldown = 4 + Math.random() * 7;
+        const h = player.heading;
+        birds.flush(px + Math.sin(h) * 14, ground, pz + Math.cos(h) * 14, Math.sin(h), Math.cos(h));
+      }
+    }
+  }
+
+  dust.update(dt, camera);
+  birds.update(dt);
+}
 
 const dir = new THREE.Vector3();
 let last = performance.now();
@@ -177,6 +237,7 @@ function frame(now: number) {
     hud.announce(nearest.name);
   }
   grass.update(camera.position.x, camera.position.z, env.elapsed);
+  wake(dt);
 
   // One environment, pushed into every shader that cares.
   for (const u of [terrain.material.uniforms, water.material.uniforms, grass.material.uniforms]) {
