@@ -471,13 +471,18 @@ function frame(now: number) {
     dust.emit(x, y, z, 2, emberTint, false);
   });
   sound.setFire(fire);
+  // Getting in the truck is leaving — pack up rather than driving off camped.
+  if (camp.active && player.mode === "drive") camp.strike();
+
   if (camp.active) {
     camp.cameraTarget(campPos, campLook);
     player.campCamera = { pos: campPos, look: campLook };
+    player.campAnchor = camp.site;
   } else {
     player.campCamera = null;
+    player.campAnchor = null;
   }
-  hud.setCamp(camp.active, camp.nearby, camp.resting);
+  hud.setCamp(camp.active, camp.nearby, camp.resting, player.heldByCamp);
 
   glassing();
   hud.setPins(

@@ -277,10 +277,15 @@ export class Hud {
     this.toastTimer = window.setTimeout(() => this.toastEl.classList.remove("on"), 4200);
   }
 
-  setCamp(on: boolean, where: string | null, resting: boolean) {
+  setCamp(on: boolean, where: string | null, resting: boolean, held = false) {
     this.campEl.classList.toggle("on", on);
     this.campEl.classList.toggle("resting", resting);
-    this.campWhereEl.textContent = where ? `camped at ${where}` : "camped";
+    // Leaning on the tether explains the way out, rather than just stopping you.
+    this.campWhereEl.textContent = held
+      ? "break camp to move on"
+      : where
+        ? `camped at ${where}`
+        : "camped";
   }
 
   setGlassing(on: boolean) {

@@ -32,6 +32,21 @@ const BODY_R = 1.15;
 const BODY_OFFSET = 1.25;
 const FOOT_R = 0.42;
 
+/**
+ * The camp tether.
+ *
+ * Inside CAMP_FREE nothing happens at all. Past it, only the component of your
+ * movement pointing AWAY from the fire is damped — movement across the circle
+ * is never touched, so you can always walk around the fire at full speed. That
+ * is the difference between being held somewhere and being penned in: a wall
+ * stops you whichever way you face, this only resists the one direction that
+ * would end the camp without you saying so.
+ *
+ * To actually leave, you break camp. That's the door, and it's always open.
+ */
+const CAMP_FREE = 3.2;
+const CAMP_REACH = 6.6;
+
 export type Mode = "foot" | "drive";
 
 /** Player, vehicle and the chase camera — they're one coupled system. */
@@ -140,6 +155,10 @@ export class Player {
    * Set by main each frame from the Camp.
    */
   campCamera: { pos: THREE.Vector3; look: THREE.Vector3 } | null = null;
+  /** The fire, while camped. Movement is softly held around it. */
+  campAnchor: THREE.Vector3 | null = null;
+  /** True once the tether is noticeably resisting — the HUD explains the door. */
+  heldByCamp = false;
 
   update(dt: number, input: Controls) {
     this.glassing = input.glass;
@@ -191,17 +210,32 @@ export class Player {
     if (len > 0.001) {
       dx /= len;
       dz /= len;
+      // Face where you're pushing even if the tether is holding you, so leaning
+      // against it reads as leaning rather than as a glitch.
+      const faceX = dx;
+      const faceZ = dz;
+
       const n = normalAt(this.position.x, this.position.z, 1.5);
       // Climbing costs you; a 45° face is barely walkable.
       const grade = -(n.x * dx + n.z * dz) / Math.max(n.y, 0.2);
       const effort = THREE.MathUtils.clamp(1 - Math.max(0, grade) * 0.85, 0.22, 1.12);
-      moveSpeed = (input.sprint ? RUN : WALK) * Math.min(len, 1) * effort;
 
-      this.position.x += dx * moveSpeed * dt;
-      this.position.z += dz * moveSpeed * dt;
-      this.distanceTravelled += moveSpeed * dt;
-      this.heading = this.approachAngle(this.heading, Math.atan2(dx, dz), dt * 9);
+      const held = this.campTether(dx, dz);
+      dx = held.x;
+      dz = held.z;
+      const mag = Math.hypot(dx, dz);
+      moveSpeed = (input.sprint ? RUN : WALK) * Math.min(len, 1) * effort * mag;
+      if (mag > 1e-4) {
+        dx /= mag;
+        dz /= mag;
+        this.position.x += dx * moveSpeed * dt;
+        this.position.z += dz * moveSpeed * dt;
+        this.distanceTravelled += moveSpeed * dt;
+      }
+      this.heading = this.approachAngle(this.heading, Math.atan2(faceX, faceZ), dt * 9);
     }
+
+    this.settleToCamp(dt);
     this.speed = moveSpeed;
 
     const ground = heightAt(this.position.x, this.position.z);
@@ -339,6 +373,44 @@ export class Player {
       this.vehicle.dent(force);
       this.onCrash?.(force);
     }
+  }
+
+  /**
+   * Damp only the outward half of a movement. Returns the adjusted vector;
+   * magnitude below 1 means the tether is taking some of it.
+   */
+  private campTether(dx: number, dz: number): { x: number; z: number } {
+    this.heldByCamp = false;
+    if (!this.campAnchor) return { x: dx, z: dz };
+
+    const ax = this.position.x - this.campAnchor.x;
+    const az = this.position.z - this.campAnchor.z;
+    const dist = Math.hypot(ax, az);
+    if (dist <= CAMP_FREE || dist < 1e-4) return { x: dx, z: dz };
+
+    const ox = ax / dist;
+    const oz = az / dist;
+    const outward = dx * ox + dz * oz;
+    if (outward <= 0) return { x: dx, z: dz }; // heading back in — never resisted
+
+    // Quadratic, so the hold arrives gradually instead of as a step.
+    const t = Math.min(1, (dist - CAMP_FREE) / (CAMP_REACH - CAMP_FREE));
+    const remove = outward * t * t;
+    this.heldByCamp = t > 0.45;
+    return { x: dx - ox * remove, z: dz - oz * remove };
+  }
+
+  /** A slow drift back if anything ever put you outside the circle. */
+  private settleToCamp(dt: number) {
+    if (!this.campAnchor) return;
+    const ax = this.position.x - this.campAnchor.x;
+    const az = this.position.z - this.campAnchor.z;
+    const dist = Math.hypot(ax, az);
+    if (dist <= CAMP_REACH || dist < 1e-4) return;
+    const pull = (dist - CAMP_REACH) * Math.min(1, dt * 1.8);
+    this.position.x -= (ax / dist) * pull;
+    this.position.z -= (az / dist) * pull;
+    this.heldByCamp = true;
   }
 
   /** Slide a walker out of any solid prop they've wandered into. */
