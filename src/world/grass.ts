@@ -185,6 +185,7 @@ export class Grass {
         uSunColor: { value: new THREE.Color(1, 1, 1) },
         uSkyAmbient: { value: new THREE.Color(0.3, 0.4, 0.55) },
         uFogDensity: { value: 0.000085 },
+        uSunsetBoost: { value: 1 },
       },
       vertexShader: NOISE_GLSL + TERRAIN_GLSL + VERT,
       fragmentShader: NOISE_GLSL + SKY_GLSL + COMMON_GLSL + FRAG,

@@ -22,6 +22,32 @@ const HOR_DAY = new THREE.Color(0.735, 0.805, 0.88);
  * the time of day. Everything else is derived, so day/night stays coherent
  * across terrain, water, sky and the instanced props at once.
  */
+/**
+ * Today's weather, seeded from the real calendar date.
+ *
+ * Everyone sees the same sky today and a different one tomorrow, and no amount
+ * of play can hurry it. A reason to come back that costs nothing, can't be
+ * grinded, and is genuinely shared — "did you see it today" works because it
+ * is literally the same sky.
+ */
+function todaySeed(d = new Date()): { cloud: number; haze: number; sunset: number; name: string } {
+  const key = d.getFullYear() * 10000 + (d.getMonth() + 1) * 100 + d.getDate();
+  let h = Math.imul(key, 2654435761) >>> 0;
+  const next = () => {
+    h = (h ^ (h >>> 15)) >>> 0;
+    h = Math.imul(h, 2246822519) >>> 0;
+    h = (h ^ (h >>> 13)) >>> 0;
+    return (h >>> 8) / 16777216;
+  };
+  const cloud = 0.26 + next() * 0.46;
+  const haze = 0.78 + next() * 0.55;
+  const vivid = next();
+  const sunset = vivid > 0.8 ? 1.5 + vivid : 1;
+  const name =
+    sunset > 1 ? "a vivid sky" : cloud > 0.6 ? "an overcast day" : haze > 1.15 ? "a hazy day" : "a clear day";
+  return { cloud, haze, sunset, name };
+}
+
 export class Environment {
   /** Seconds since world start, scaled. */
   elapsed = 0;
@@ -36,6 +62,9 @@ export class Environment {
   readonly horizonColor = new THREE.Color();
   fogDensity = 0.000085;
   cloudCover = 0.5;
+  /** Extra warmth in the horizon glow on vivid days. */
+  sunsetBoost = 1;
+  readonly today = todaySeed();
 
   readonly sunLight = new THREE.DirectionalLight(0xffffff, 1);
   readonly hemiLight = new THREE.HemisphereLight(0xffffff, 0x444433, 1);
@@ -105,7 +134,10 @@ export class Environment {
             // the sun reads as a black silhouette against bright ground.
     this.hemiLight.intensity = 1.7;
 
-    // Weather drifts over hours, not minutes.
-    this.cloudCover = 0.46 + 0.16 * Math.sin(this.elapsed / 900) + 0.08 * Math.sin(this.elapsed / 311);
+    // Weather drifts over hours, around whatever today happens to be.
+    this.cloudCover = this.today.cloud + 0.11 * Math.sin(this.elapsed / 900) + 0.06 * Math.sin(this.elapsed / 311);
+    this.fogDensity = 0.000085 * this.today.haze;
+    // Vivid days only pay off near the horizon, at the ends of the day.
+    this.sunsetBoost = 1 + (this.today.sunset - 1) * (1 - Math.min(Math.abs(e) / 0.3, 1));
   }
 }

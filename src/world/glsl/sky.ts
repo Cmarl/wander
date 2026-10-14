@@ -7,6 +7,8 @@
  * aerial perspective automatically goes amber at sunset and blue at noon.
  */
 export const SKY_GLSL = /* glsl */ `
+uniform float uSunsetBoost;
+
 vec3 skyBase(vec3 dir, vec3 sunDir) {
   float t = clamp(sunDir.y, -1.0, 1.0);
 
@@ -30,7 +32,7 @@ vec3 skyBase(vec3 dir, vec3 sunDir) {
   // Forward scattering around the sun: the wide warm bloom at sunrise/sunset.
   float cd = max(dot(d, sunDir), 0.0);
   vec3 glow = mix(vec3(1.00, 0.45, 0.18), vec3(1.00, 0.86, 0.64), day);
-  c += glow * (pow(cd, 6.0) * 0.45 + pow(cd, 1.6) * 0.12) * smoothstep(-0.26, 0.08, t);
+  c += glow * (pow(cd, 6.0) * 0.45 + pow(cd, 1.6) * 0.12) * smoothstep(-0.26, 0.08, t) * uSunsetBoost;
 
   // Below the horizon line, darken slightly so distant land reads as grounded.
   c = mix(c, c * 0.82, smoothstep(0.0, -0.14, d.y));

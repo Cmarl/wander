@@ -140,6 +140,8 @@ export interface Vehicle {
    * and nothing to fix.
    */
   dent(force: number): void;
+  /** The light bar on the roof. Off by day, worth having after dusk. */
+  setLights(on: boolean): void;
 }
 
 export function makeVehicle(paint = 0xd8c04a): Vehicle {
@@ -240,11 +242,32 @@ export function makeVehicle(paint = 0xd8c04a): Vehicle {
     if (isFront) fronts.push(steerPivot);
   }
 
+  // Two beams from the roof bar. Narrow and long, so they pick out the ground
+  // ahead without lighting the whole hillside.
+  const beams: THREE.SpotLight[] = [];
+  const aim = new THREE.Object3D();
+  aim.position.set(0, -2, 34);
+  root.add(aim);
+  for (const x of [-0.42, 0.42]) {
+    const beam = new THREE.SpotLight(0xfff0cc, 0, 90, 0.42, 0.55, 1.2);
+    beam.position.set(x, 2.08, 0.7);
+    beam.target = aim;
+    root.add(beam);
+    beams.push(beam);
+  }
+  let lightsOn = false;
+
   const panels = [chassis, cab, bed, bumper, rearBumper, rails];
   let dents = 0;
 
   return {
     root,
+    setLights(on) {
+      if (on === lightsOn) return;
+      lightsOn = on;
+      for (const beam of beams) beam.intensity = on ? 90 : 0;
+      lamp.color.setHex(on ? 0xfff6dd : 0x8e8873);
+    },
     dent(force) {
       if (dents > 14) return; // a wreck, not a sculpture
       dents++;

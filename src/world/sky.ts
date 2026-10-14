@@ -40,6 +40,7 @@ export class Sky {
         uMoonDir: { value: new THREE.Vector3(0, -1, 0) },
         uTime: { value: 0 },
         uCloudCover: { value: 0.52 },
+        uSunsetBoost: { value: 1 },
       },
       vertexShader: NOISE_GLSL + VERT,
       fragmentShader: NOISE_GLSL + SKY_GLSL + COMMON_GLSL + FRAG,

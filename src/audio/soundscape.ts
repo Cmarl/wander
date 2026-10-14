@@ -127,6 +127,10 @@ export class Soundscape {
     this.drift.motif();
   }
 
+  horn() {
+    this.sfx.horn();
+  }
+
   crash(force: number) {
     // Anything with trees around it probably was one.
     this.sfx.crash(force, this.ctx.treeCover > 0.12);

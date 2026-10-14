@@ -70,6 +70,7 @@ export class Water {
         uSunColor: { value: new THREE.Color(1, 1, 1) },
         uSkyAmbient: { value: new THREE.Color(0.3, 0.4, 0.55) },
         uFogDensity: { value: 0.00009 },
+        uSunsetBoost: { value: 1 },
         uTime: { value: 0 },
       },
       vertexShader: NOISE_GLSL + VERT,

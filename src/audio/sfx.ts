@@ -94,6 +94,15 @@ export class Sfx {
     }
   }
 
+  /** Two detuned tones, because one is a beep and two is a horn. */
+  horn() {
+    if (!this.e.ready) return;
+    const dest = this.e.vehicleBus;
+    for (const [f, lvl] of [[372, 0.085], [442, 0.07], [186, 0.05]] as [number, number][]) {
+      this.e.tone({ dest, type: "sawtooth", from: f, level: lvl, attack: 0.02, decay: 0.42 });
+    }
+  }
+
   /** Suspension hitting a rut. Level scales with how hard the hit was. */
   thump(force: number) {
     if (!this.e.ready) return;

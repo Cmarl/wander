@@ -114,6 +114,7 @@ export class Terrain {
         uSkyAmbient: { value: new THREE.Color(0.3, 0.4, 0.55) },
         uGroundAmbient: { value: new THREE.Color(0.1, 0.1, 0.09) },
         uFogDensity: { value: 0.00009 },
+        uSunsetBoost: { value: 1 },
         uDebug: { value: 0 },
       },
       vertexShader: NOISE_GLSL + TERRAIN_GLSL + VERT,

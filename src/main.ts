@@ -21,6 +21,7 @@ import { Hud } from "./ui/hud";
 import { Postcard } from "./ui/postcard";
 import { Journal } from "./ui/journal";
 import { haptics } from "./ui/haptics";
+import { Garage } from "./game/paint";
 import { Soundscape } from "./audio/soundscape";
 import { Net, DEFAULT_WORLD } from "./net/net";
 import { PeerBodies } from "./net/peers";
@@ -135,6 +136,9 @@ hud.onRest = (t) => camp.rest(t, env.timeOfDay);
 hud.onStrikeCamp = () => camp.strike();
 hud.onJournal = () => journal.toggle();
 
+const garage = new Garage();
+// Whatever you were driving last time, you're still driving.
+player.vehicle.setPaint(garage.current(player.distanceTravelled / 1000).hex);
 const journal = new Journal(found, (x, z) => biomeNameAt(x, z));
 const postcard = new Postcard(document.getElementById("ui")!);
 postcard.bindLink(() => ({ x: player.position.x, z: player.position.z }));
@@ -146,7 +150,7 @@ if (localStorage.getItem("wander.solo") !== "1") {
 
 // Live handle for tuning from the console: __wander.env.timeOfDay = 0.5, etc.
 (window as Window & { __wander?: unknown }).__wander = {
-  env, terrain, water, sky, grass, landmarks, found, camp, dust, birds, postcard, journal, player, camera, renderer, scene, sound, net, peers,
+  env, terrain, water, sky, grass, landmarks, found, camp, dust, birds, postcard, journal, garage, player, camera, renderer, scene, sound, net, peers,
 };
 
 function resize() {
@@ -169,6 +173,12 @@ addEventListener("keydown", (e) => {
   if (e.code === "KeyM") hud.setMuted(sound.toggleMute());
   if (e.code === "KeyP") postcard.toggle();
   if (e.code === "KeyJ") journal.toggle();
+  if (e.code === "KeyB" && player.mode === "drive") sound.horn();
+  if (e.code === "KeyK") {
+    const paint = garage.cycle(player.distanceTravelled / 1000);
+    player.vehicle.setPaint(paint.hex);
+    hud.announce(paint.name);
+  }
   if (e.code === "Escape" && journal.open) journal.toggle(false);
   if (e.code === "Escape" && postcard.active) postcard.toggle(false);
 });
@@ -395,6 +405,11 @@ function frame(now: number) {
   sky.material.uniforms.uMoonDir.value.copy(env.moonDir);
   sky.material.uniforms.uTime.value = env.elapsed;
   sky.material.uniforms.uCloudCover.value = env.cloudCover;
+  for (const u of [terrain.material.uniforms, water.material.uniforms, grass.material.uniforms, sky.material.uniforms]) {
+    u.uSunsetBoost.value = env.sunsetBoost;
+  }
+  // Lights come on as the sun goes down, without the player thinking about it.
+  player.vehicle.setLights(env.sunDir.y < 0.04);
   (scene.fog as THREE.FogExp2).color.copy(env.horizonColor);
   env.sunLight.target.position.copy(camera.position);
   scatter.setSunElevation(env.sunDir.y);
@@ -478,6 +493,19 @@ function frame(now: number) {
   if (lastPhase < 0.25 && dayPhase >= 0.25) sound.moment();
   if (lastPhase < 0.78 && dayPhase >= 0.78) sound.moment();
   lastPhase = dayPhase;
+
+  // A vivid sky is worth remembering, and it only happens on some days.
+  if (env.today.sunset > 1 && env.sunDir.y < 0.12 && env.sunDir.y > -0.1) {
+    found.add({
+      id: `sky:${new Date().toISOString().slice(0, 10)}`,
+      kind: "feat",
+      name: "A vivid sky",
+      x: Math.round(player.position.x),
+      z: Math.round(player.position.z),
+      at: Date.now(),
+      tod: env.timeOfDay,
+    });
+  }
 
   stampJournal();
   camera.getWorldDirection(dir);
