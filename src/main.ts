@@ -13,6 +13,8 @@ import { Player } from "./game/player";
 import { Controls } from "./input/controls";
 import { Hud } from "./ui/hud";
 import { Soundscape } from "./audio/soundscape";
+import { Net, DEFAULT_WORLD } from "./net/net";
+import { PeerBodies } from "./net/peers";
 
 const canvas = document.getElementById("view") as HTMLCanvasElement;
 const controls = new Controls(canvas);
@@ -61,11 +63,50 @@ player.onDismount = () => sound.dismount();
 player.onCrash = (f) => sound.crash(f);
 player.onVehicleLand = (f) => sound.vehicleLand(f);
 
-const hud = new Hud(controls, sound);
+// --- multiplayer -----------------------------------------------------------
+// Connect by default. "See each other" is the point, and a lobby gate between
+// the player and the world is friction for a game you open in a browser tab.
+const stored = (k: string, fallback: string) => localStorage.getItem(k) || fallback;
+const net = new Net();
+const peers = new PeerBodies();
+scene.add(peers.group);
+
+let myName = stored("wander.name", `wanderer-${Math.floor(1000 + Math.random() * 9000)}`);
+let myWorld = stored("wander.world", new URLSearchParams(location.search).get("world") || DEFAULT_WORLD);
+// A stable colour per name, so your truck looks like yours to everyone.
+const colourFor = (s: string) => {
+  let h = 0;
+  for (let i = 0; i < s.length; i++) h = (Math.imul(h, 31) + s.charCodeAt(i)) | 0;
+  return new THREE.Color().setHSL(((h >>> 0) % 360) / 360, 0.55, 0.52).getHex();
+};
+
+const netFacade = {
+  get name() { return myName; },
+  get world() { return myWorld; },
+  join(name: string, world: string) {
+    myName = (name || "").trim().slice(0, 16) || myName;
+    myWorld = (world || "").trim().toLowerCase().slice(0, 24) || DEFAULT_WORLD;
+    localStorage.setItem("wander.name", myName);
+    localStorage.setItem("wander.world", myWorld);
+    localStorage.removeItem("wander.solo");
+    net.connect(myWorld, myName, colourFor(myName));
+  },
+  solo() {
+    localStorage.setItem("wander.solo", "1");
+    net.disconnect();
+  },
+};
+
+const hud = new Hud(controls, sound, netFacade);
+
+net.onPeerLeave = (id) => peers.remove(id);
+if (localStorage.getItem("wander.solo") !== "1") {
+  net.connect(myWorld, myName, colourFor(myName));
+}
 
 // Live handle for tuning from the console: __wander.env.timeOfDay = 0.5, etc.
 (window as Window & { __wander?: unknown }).__wander = {
-  env, terrain, water, sky, grass, player, camera, renderer, scene, sound,
+  env, terrain, water, sky, grass, player, camera, renderer, scene, sound, net, peers,
 };
 
 function resize() {
@@ -134,6 +175,16 @@ function frame(now: number) {
     vehicle: player.mode === "drive" ? player.vehicleState : null,
   });
 
+  net.update(dt, {
+    x: player.position.x,
+    y: player.position.y,
+    z: player.position.z,
+    h: player.heading,
+    driving: player.mode === "drive",
+    speed: player.speed,
+  });
+  peers.update(dt, net, camera);
+
   camera.getWorldDirection(dir);
   hud.update({
     clock: env.clockString(),
@@ -156,6 +207,7 @@ function frame(now: number) {
           : null,
     driving: player.mode === "drive",
   });
+  hud.setPresence(net.status, net.peers.size);
 
   renderer.render(scene, camera);
   controls.endFrame();

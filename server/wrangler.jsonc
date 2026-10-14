@@ -1,0 +1,17 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "wander-net",
+  "main": "src/index.js",
+  "compatibility_date": "2026-08-18",
+
+  // Deliberately NOT part of the clydemarl.me Worker. That one is assets-only;
+  // giving it a script would mean a bad game deploy could take the site down.
+  "durable_objects": {
+    "bindings": [{ "name": "ROOMS", "class_name": "WorldRoom" }]
+  },
+
+  // SQLite-backed classes are the ones available on the Workers free plan.
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["WorldRoom"] }],
+
+  "observability": { "enabled": true }
+}

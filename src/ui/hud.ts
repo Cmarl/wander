@@ -59,8 +59,14 @@ export class Hud {
   private muteEl!: HTMLElement;
   /** Open/close the controls sheet. Also driven by H, ? and Escape. */
   toggleHelp: (show?: boolean) => void = () => {};
+  private onlineEl!: HTMLElement;
+  private dotEl!: HTMLElement;
 
-  constructor(controls: Controls, audio: { toggleMute(): boolean; setVolume(v: number): void; volume: number; muted: boolean }) {
+  constructor(
+    controls: Controls,
+    audio: { toggleMute(): boolean; setVolume(v: number): void; volume: number; muted: boolean },
+    net: { name: string; world: string; join(name: string, world: string): void; solo(): void }
+  ) {
     this.root = document.getElementById("ui")!;
     this.root.innerHTML = `
       <div class="panel panel-left">
@@ -90,6 +96,17 @@ export class Hud {
           : ``
       }
       <button class="help-btn" id="h-help">controls</button>
+      <button class="world-btn" id="h-world"><span class="dot" id="h-dot"></span><span id="h-online">solo</span></button>
+      <div class="sheet" id="h-world-sheet">
+        <div class="sheet-card">
+          <h2>World</h2>
+          <label class="field"><span>Your name</span><input id="h-name" maxlength="16" autocomplete="off" spellcheck="false"></label>
+          <label class="field"><span>World code</span><input id="h-code" maxlength="24" autocomplete="off" spellcheck="false"></label>
+          <p class="note">Anyone who enters the same world code roams the same map and can see you. The map itself is identical for everybody — only players are shared.</p>
+          <button class="sheet-close" id="h-join">join world</button>
+          <button class="sheet-close ghost" id="h-solo">play solo</button>
+        </div>
+      </div>
       <div class="sheet" id="h-sheet">
         <div class="sheet-card">
           <h2>Controls</h2>
@@ -124,6 +141,40 @@ export class Hud {
       .map(([d, n]) => `<span style="left:${d * 2}px">${n}</span>`)
       .join("");
 
+    this.onlineEl = document.getElementById("h-online")!;
+    this.dotEl = document.getElementById("h-dot")!;
+
+    const worldSheet = document.getElementById("h-world-sheet")!;
+    const nameInput = document.getElementById("h-name") as HTMLInputElement;
+    const codeInput = document.getElementById("h-code") as HTMLInputElement;
+    const showWorld = (on: boolean) => {
+      if (on) {
+        nameInput.value = net.name;
+        codeInput.value = net.world;
+      }
+      worldSheet.classList.toggle("open", on);
+    };
+    document.getElementById("h-world")!.addEventListener("pointerdown", (e) => {
+      e.stopPropagation();
+      showWorld(!worldSheet.classList.contains("open"));
+    });
+    document.getElementById("h-join")!.addEventListener("pointerdown", (e) => {
+      e.stopPropagation();
+      net.join(nameInput.value, codeInput.value);
+      showWorld(false);
+    });
+    document.getElementById("h-solo")!.addEventListener("pointerdown", (e) => {
+      e.stopPropagation();
+      net.solo();
+      showWorld(false);
+    });
+    worldSheet.addEventListener("pointerdown", (e) => {
+      if (e.target === worldSheet) showWorld(false);
+    });
+    for (const el of [nameInput, codeInput]) {
+      for (const ev of ["pointerdown", "keydown"]) el.addEventListener(ev, (e) => e.stopPropagation());
+    }
+
     const sheet = document.getElementById("h-sheet")!;
     const toggle = (show?: boolean) => {
       const on = show ?? !sheet.classList.contains("open");
@@ -149,6 +200,15 @@ export class Hud {
       controls.bindButton(document.getElementById("b-interact")!, "interact");
       controls.bindButton(document.getElementById("b-sprint")!, "sprint");
     }
+  }
+
+  /** `count` excludes you. */
+  setPresence(status: "offline" | "connecting" | "online", count: number) {
+    this.dotEl.className = `dot ${status}`;
+    this.onlineEl.textContent =
+      status === "online" ? (count === 0 ? "alone here" : `${count + 1} here`)
+      : status === "connecting" ? "connecting"
+      : "solo";
   }
 
   setMuted(muted: boolean) {
