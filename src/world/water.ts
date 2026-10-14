@@ -1,0 +1,90 @@
+import * as THREE from "three";
+import { NOISE_GLSL } from "./glsl/noise";
+import { TERRAIN_GLSL } from "./glsl/terrain";
+import { SKY_GLSL } from "./glsl/sky";
+import { COMMON_GLSL } from "./glsl/common";
+
+const VERT = /* glsl */ `
+out vec3 vWorld;
+out vec3 vRel;
+void main() {
+  vec3 wp = (modelMatrix * vec4(position, 1.0)).xyz;
+  vWorld = wp;
+  vRel = wp - cameraPosition;
+  gl_Position = projectionMatrix * viewMatrix * vec4(wp, 1.0);
+}
+`;
+
+const FRAG = /* glsl */ `
+in vec3 vWorld;
+in vec3 vRel;
+uniform vec3 uSunDir;
+uniform vec3 uSunColor;
+uniform vec3 uSkyAmbient;
+uniform float uFogDensity;
+uniform float uTime;
+
+void main() {
+  // Depth comes straight from the world function — no depth buffer read needed.
+  float depth = max(0.0, -terrainHeight(vWorld.xz));
+
+  const vec3 SHALLOW = SRGB(0.34, 0.60, 0.60);
+  const vec3 DEEP    = SRGB(0.07, 0.17, 0.30);
+  vec3 body = mix(SHALLOW, DEEP, smoothstep(0.0, 38.0, depth));
+
+  float dist = length(vRel);
+  vec3 viewDir = -vRel / dist;
+
+  // Ripples fade with distance so the far water doesn't alias into noise.
+  float rip = exp(-dist * 0.0014);
+  vec2 p = vWorld.xz;
+  float n1 = wFbm(p * 0.035 + vec2(uTime * 0.090, uTime * 0.052), 3, 301u) - 0.5;
+  float n2 = wFbm(p * 0.011 - vec2(uTime * 0.038, uTime * 0.071), 3, 307u) - 0.5;
+  vec3 n = normalize(vec3(n1 * 0.9 * rip, 1.0, n2 * 0.9 * rip));
+
+  float fres = 0.02 + 0.98 * pow(1.0 - max(dot(viewDir, n), 0.0), 5.0);
+  vec3 refl = skyBase(reflect(-viewDir, n), uSunDir);
+
+  vec3 col = mix(body * (uSkyAmbient + uSunColor * 0.22), refl, fres);
+  col += uSunColor * pow(max(dot(reflect(-viewDir, n), uSunDir), 0.0), 380.0) * 2.6;
+
+  // Shoreline foam, pushed in and out by a slow swell.
+  float swell = 0.55 + 0.45 * sin(uTime * 0.5 + wFbm(p * 0.02, 2, 311u) * 9.0);
+  float foam = smoothstep(1.7 * swell + 0.35, 0.0, depth) * smoothstep(-0.6, 0.1, depth);
+  col = mix(col, SRGB(0.94, 0.97, 0.98) * (uSkyAmbient + uSunColor * 0.6), foam * 0.75);
+
+  col = applyHaze(col, vRel, uSunDir, uFogDensity);
+  fragColor = vec4(toDisplay(col), 1.0);
+}
+`;
+
+export class Water {
+  readonly mesh: THREE.Mesh;
+  readonly material: THREE.ShaderMaterial;
+
+  constructor(extent: number) {
+    this.material = new THREE.ShaderMaterial({
+      glslVersion: THREE.GLSL3,
+      uniforms: {
+        uSunDir: { value: new THREE.Vector3(0, 1, 0) },
+        uSunColor: { value: new THREE.Color(1, 1, 1) },
+        uSkyAmbient: { value: new THREE.Color(0.3, 0.4, 0.55) },
+        uFogDensity: { value: 0.00009 },
+        uTime: { value: 0 },
+      },
+      vertexShader: NOISE_GLSL + VERT,
+      fragmentShader: NOISE_GLSL + TERRAIN_GLSL + SKY_GLSL + COMMON_GLSL + FRAG,
+    });
+
+    const g = new THREE.PlaneGeometry(extent * 2, extent * 2, 1, 1);
+    g.rotateX(-Math.PI / 2);
+    this.mesh = new THREE.Mesh(g, this.material);
+    this.mesh.frustumCulled = false;
+    this.mesh.renderOrder = 20; // after terrain
+  }
+
+  update(camX: number, camZ: number) {
+    this.mesh.position.set(camX, 0, camZ);
+    this.mesh.updateMatrixWorld();
+  }
+}

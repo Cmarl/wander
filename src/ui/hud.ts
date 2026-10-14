@@ -1,0 +1,170 @@
+import type { Controls } from "../input/controls";
+
+export interface HudState {
+  clock: string;
+  biome: string;
+  elevation: number;
+  x: number;
+  z: number;
+  km: number;
+  fps: number;
+  headingDeg: number;
+  prompt: string | null;
+  driving: boolean;
+}
+
+const DESK_KEYS: [string, string][] = [
+  ["W A S D", "move"],
+  ["drag mouse", "look around"],
+  ["Shift", "run"],
+  ["Space", "jump — the truck jumps too"],
+  ["E", "get in / out of the truck"],
+  ["scroll", "zoom the camera"],
+  ["[  ]", "wind the clock back / forward an hour"],
+  ["M", "mute"],
+  ["H", "show these controls"],
+];
+
+const TOUCH_KEYS: [string, string][] = [
+  ["left thumb", "move — the stick appears where you touch"],
+  ["right thumb", "look around"],
+  ["RUN", "hold a run"],
+  ["⤴", "jump — the truck jumps too"],
+  ["⏎", "get in / out of the truck"],
+  ["pinch-free", "the whole left half is the stick"],
+];
+
+const CARDINALS: [number, string][] = [
+  [0, "N"],
+  [45, "NE"],
+  [90, "E"],
+  [135, "SE"],
+  [180, "S"],
+  [225, "SW"],
+  [270, "W"],
+  [315, "NW"],
+];
+
+export class Hud {
+  private root: HTMLElement;
+  private clockEl!: HTMLElement;
+  private biomeEl!: HTMLElement;
+  private elevEl!: HTMLElement;
+  private coordEl!: HTMLElement;
+  private kmEl!: HTMLElement;
+  private fpsEl!: HTMLElement;
+  private compassEl!: HTMLElement;
+  private promptEl!: HTMLElement;
+
+  private muteEl!: HTMLElement;
+  /** Open/close the controls sheet. Also driven by H, ? and Escape. */
+  toggleHelp: (show?: boolean) => void = () => {};
+
+  constructor(controls: Controls, audio: { toggleMute(): boolean; setVolume(v: number): void; volume: number; muted: boolean }) {
+    this.root = document.getElementById("ui")!;
+    this.root.innerHTML = `
+      <div class="panel panel-left">
+        <div class="clock" id="h-clock">00:00</div>
+        <div class="sub" id="h-biome">—</div>
+        <div class="sub" id="h-elev">—</div>
+      </div>
+      <div class="panel panel-right">
+        <div class="sub" id="h-coord">—</div>
+        <div class="sub" id="h-km">—</div>
+        <div class="sub dim" id="h-fps">—</div>
+        <div class="audio">
+          <input type="range" class="vol" id="h-vol" min="0" max="100" value="${Math.round(audio.volume * 100)}" aria-label="volume">
+          <button class="mute" id="h-mute">${audio.muted ? "muted" : "sound"}</button>
+        </div>
+      </div>
+      <div class="compass"><div class="compass-tape" id="h-compass"></div><div class="compass-needle"></div></div>
+      <div class="prompt" id="h-prompt"></div>
+      ${
+        controls.isTouch
+          ? `<div class="stick" id="h-stick"><div class="knob" id="h-knob"></div></div>
+             <div class="buttons">
+               <button class="btn" id="b-interact">⏎</button>
+               <button class="btn" id="b-jump">⤴</button>
+               <button class="btn small" id="b-sprint">RUN</button>
+             </div>`
+          : ``
+      }
+      <button class="help-btn" id="h-help">controls</button>
+      <div class="sheet" id="h-sheet">
+        <div class="sheet-card">
+          <h2>Controls</h2>
+          <dl>${(controls.isTouch ? TOUCH_KEYS : DESK_KEYS)
+            .map(([k, v]) => `<dt>${k}</dt><dd>${v}</dd>`)
+            .join("")}</dl>
+          <button class="sheet-close" id="h-sheet-close">close</button>
+        </div>
+      </div>
+    `;
+
+    this.clockEl = document.getElementById("h-clock")!;
+    this.biomeEl = document.getElementById("h-biome")!;
+    this.elevEl = document.getElementById("h-elev")!;
+    this.coordEl = document.getElementById("h-coord")!;
+    this.kmEl = document.getElementById("h-km")!;
+    this.fpsEl = document.getElementById("h-fps")!;
+    this.compassEl = document.getElementById("h-compass")!;
+    this.promptEl = document.getElementById("h-prompt")!;
+    this.muteEl = document.getElementById("h-mute")!;
+    this.muteEl.addEventListener("pointerdown", (e) => {
+      e.stopPropagation();
+      this.setMuted(audio.toggleMute());
+    });
+    const vol = document.getElementById("h-vol") as HTMLInputElement;
+    // Stop drags on the slider from also spinning the camera.
+    for (const ev of ["pointerdown", "pointermove"]) vol.addEventListener(ev, (e) => e.stopPropagation());
+    vol.addEventListener("input", () => audio.setVolume(Number(vol.value) / 100));
+
+    this.compassEl.innerHTML = CARDINALS.concat(CARDINALS.map(([d, n]) => [d + 360, n] as [number, string]))
+      .concat(CARDINALS.map(([d, n]) => [d - 360, n] as [number, string]))
+      .map(([d, n]) => `<span style="left:${d * 2}px">${n}</span>`)
+      .join("");
+
+    const sheet = document.getElementById("h-sheet")!;
+    const toggle = (show?: boolean) => {
+      const on = show ?? !sheet.classList.contains("open");
+      sheet.classList.toggle("open", on);
+    };
+    this.toggleHelp = toggle;
+    for (const id of ["h-help", "h-sheet-close"]) {
+      document.getElementById(id)!.addEventListener("pointerdown", (e) => {
+        e.stopPropagation();
+        toggle();
+      });
+    }
+    sheet.addEventListener("pointerdown", (e) => {
+      if (e.target === sheet) toggle(false);
+    });
+    addEventListener("keydown", (e) => {
+      if (e.code === "KeyH" || e.key === "?") toggle();
+      if (e.code === "Escape") toggle(false);
+    });
+    if (controls.isTouch) {
+      controls.bindStick(document.getElementById("h-stick")!, document.getElementById("h-knob")!);
+      controls.bindButton(document.getElementById("b-jump")!, "jump");
+      controls.bindButton(document.getElementById("b-interact")!, "interact");
+      controls.bindButton(document.getElementById("b-sprint")!, "sprint");
+    }
+  }
+
+  setMuted(muted: boolean) {
+    this.muteEl.textContent = muted ? "muted" : "sound";
+    this.muteEl.classList.toggle("off", muted);
+  }
+
+  update(s: HudState) {
+    this.clockEl.textContent = s.clock;
+    this.biomeEl.textContent = s.biome;
+    this.elevEl.textContent = `${Math.round(s.elevation)} m`;
+    this.coordEl.textContent = `${Math.round(s.x)}, ${Math.round(s.z)}`;
+    this.kmEl.textContent = `${s.km.toFixed(2)} km travelled`;
+    this.fpsEl.textContent = `${Math.round(s.fps)} fps`;
+    this.compassEl.style.transform = `translateX(${-s.headingDeg * 2}px)`;
+    this.promptEl.textContent = s.prompt ?? "";
+    this.promptEl.classList.toggle("on", !!s.prompt);
+  }
+}
