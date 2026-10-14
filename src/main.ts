@@ -6,6 +6,9 @@ import { Water } from "./world/water";
 import { Sky } from "./world/sky";
 import { Scatter } from "./world/scatter";
 import { Grass } from "./world/grass";
+import { LandmarkField } from "./world/landmarkRender";
+import { landmarkSolids, LANDMARK_NAMES } from "./world/landmarks";
+import { Discoveries } from "./game/discovery";
 import { findSpawn } from "./world/spawn";
 import { heightAt, biomeNameAt } from "./world/field";
 import { Environment } from "./game/environment";
@@ -49,7 +52,13 @@ const grass = new Grass(
 );
 
 scene.add(terrain.group, water.mesh, grass.mesh, scatter.group, env.sunLight, env.sunLight.target, env.hemiLight);
-scene.fog = new THREE.FogExp2(0x9fb4c8, 0.00022);
+// Tuned so distant landmarks fade at roughly the same rate as the terrain
+// shader hazes the hills behind them.
+scene.fog = new THREE.FogExp2(0x9fb4c8, 0.0001);
+
+const landmarks = new LandmarkField();
+scene.add(landmarks.group);
+const found = new Discoveries();
 
 const spawn = findSpawn();
 const player = new Player(camera, spawn);
@@ -106,7 +115,7 @@ if (localStorage.getItem("wander.solo") !== "1") {
 
 // Live handle for tuning from the console: __wander.env.timeOfDay = 0.5, etc.
 (window as Window & { __wander?: unknown }).__wander = {
-  env, terrain, water, sky, grass, player, camera, renderer, scene, sound, net, peers,
+  env, terrain, water, sky, grass, landmarks, found, player, camera, renderer, scene, sound, net, peers,
 };
 
 function resize() {
@@ -145,6 +154,28 @@ function frame(now: number) {
   terrain.update(camera.position.x, camera.position.z);
   water.update(camera.position.x, camera.position.z);
   scatter.update(player.position.x, player.position.z);
+  landmarks.update(player.position.x, player.position.z, env.elapsed, camera);
+
+  // Only landmarks you could actually touch take part in collision, and only
+  // the nearest is a candidate for discovery.
+  const solids: { x: number; z: number; radius: number }[] = [];
+  let nearest: { name: string; id: string; kind: string; x: number; z: number; d2: number } | null = null;
+  for (const lm of landmarks.loaded) {
+    const dx = lm.x - player.position.x;
+    const dz = lm.z - player.position.z;
+    const d2 = dx * dx + dz * dz;
+    if (d2 < 160 * 160) {
+      for (const c of landmarkSolids(lm)) solids.push({ x: c.x, z: c.z, radius: c.r });
+    }
+    if (d2 < 55 * 55 && (!nearest || d2 < nearest.d2)) {
+      nearest = { name: LANDMARK_NAMES[lm.kind], id: lm.id, kind: lm.kind, x: lm.x, z: lm.z, d2 };
+    }
+  }
+  player.landmarkSolids = solids;
+  if (nearest && !found.has(nearest.id)) {
+    found.add({ id: nearest.id, kind: nearest.kind, name: nearest.name, x: Math.round(nearest.x), z: Math.round(nearest.z), at: Date.now() });
+    hud.announce(nearest.name);
+  }
   grass.update(camera.position.x, camera.position.z, env.elapsed);
 
   // One environment, pushed into every shader that cares.

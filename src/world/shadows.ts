@@ -13,7 +13,7 @@ import * as THREE from "three";
 let sharedTexture: THREE.Texture | null = null;
 
 /** Radial falloff, generated once at runtime so there's still no asset to ship. */
-function blobTexture(): THREE.Texture {
+export function blobTexture(): THREE.Texture {
   if (sharedTexture) return sharedTexture;
   const size = 64;
   const c = document.createElement("canvas");

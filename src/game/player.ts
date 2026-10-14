@@ -63,6 +63,12 @@ export class Player {
   private throttle = 0;
   private props = new PropQuery();
   private shake = 0;
+  /**
+   * Collision circles contributed by nearby landmarks. Kept separate from the
+   * prop query because landmarks are placed on a far coarser grid — and because
+   * an arch has to be two legs you can drive between, not one blocking disc.
+   */
+  landmarkSolids: { x: number; z: number; radius: number }[] = [];
 
   private vehPos = new THREE.Vector3();
   private vehHeading = 0;
@@ -269,7 +275,8 @@ export class Player {
    */
   private collideVehicle(fwdX: number, fwdZ: number) {
     if (this.vehAir) return; // you can clear obstacles by jumping them
-    const solids = this.props.solidNear(this.vehPos.x, this.vehPos.z);
+    const near = this.props.solidNear(this.vehPos.x, this.vehPos.z);
+    const solids = this.landmarkSolids.length ? [...near, ...this.landmarkSolids] : near;
     if (!solids.length) return;
 
     let worst = 0;
@@ -308,7 +315,8 @@ export class Player {
 
   /** Slide a walker out of any solid prop they've wandered into. */
   private pushOutOfProps(pos: THREE.Vector3, radius: number) {
-    for (const p of this.props.solidNear(pos.x, pos.z)) {
+    const near = this.props.solidNear(pos.x, pos.z);
+    for (const p of this.landmarkSolids.length ? [...near, ...this.landmarkSolids] : near) {
       const dx = pos.x - p.x;
       const dz = pos.z - p.z;
       const min = radius + p.radius;

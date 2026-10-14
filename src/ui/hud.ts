@@ -60,6 +60,9 @@ export class Hud {
   /** Open/close the controls sheet. Also driven by H, ? and Escape. */
   toggleHelp: (show?: boolean) => void = () => {};
   private onlineEl!: HTMLElement;
+  private toastEl!: HTMLElement;
+  private toastNameEl!: HTMLElement;
+  private toastTimer = 0;
   private dotEl!: HTMLElement;
 
   constructor(
@@ -85,6 +88,7 @@ export class Hud {
       </div>
       <div class="compass"><div class="compass-tape" id="h-compass"></div><div class="compass-needle"></div></div>
       <div class="prompt" id="h-prompt"></div>
+      <div class="toast" id="h-toast"><span class="toast-kicker">found</span><span id="h-toast-name"></span></div>
       ${
         controls.isTouch
           ? `<div class="stick" id="h-stick"><div class="knob" id="h-knob"></div></div>
@@ -141,6 +145,8 @@ export class Hud {
       .map(([d, n]) => `<span style="left:${d * 2}px">${n}</span>`)
       .join("");
 
+    this.toastEl = document.getElementById("h-toast")!;
+    this.toastNameEl = document.getElementById("h-toast-name")!;
     this.onlineEl = document.getElementById("h-online")!;
     this.dotEl = document.getElementById("h-dot")!;
 
@@ -209,6 +215,14 @@ export class Hud {
       status === "online" ? (count === 0 ? "alone here" : `${count + 1} here`)
       : status === "connecting" ? "connecting"
       : "solo";
+  }
+
+  /** Says what you just walked up to, then gets out of the way. */
+  announce(name: string) {
+    this.toastNameEl.textContent = name;
+    this.toastEl.classList.add("on");
+    clearTimeout(this.toastTimer);
+    this.toastTimer = window.setTimeout(() => this.toastEl.classList.remove("on"), 4200);
   }
 
   setMuted(muted: boolean) {
