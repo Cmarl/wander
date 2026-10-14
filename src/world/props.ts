@@ -13,6 +13,8 @@ import { heightAt, slopeAt, treeDensityAt, slotRandom, moistureAt, temperatureAt
 
 export const CELL = 40;
 const SLOTS = 3;
+/** Horizontal scale at or above which a tree is solid. Below it, it bends. */
+const SAPLING_MAX = 1.08;
 
 export type PropKind = "pine" | "broadleaf" | "dead" | "shrub" | "rock";
 
@@ -31,6 +33,8 @@ export interface Prop {
   shade: number;
   /** Collision radius in metres. 0 means you pass straight through it. */
   radius: number;
+  /** Whippy enough to be pushed aside by something driving past. */
+  bends?: boolean;
 }
 
 const clamp01 = (x: number) => (x < 0 ? 0 : x > 1 ? 1 : x);
@@ -67,6 +71,10 @@ export function propsInCell(gx: number, gz: number, out: Prop[]): void {
       // Between trunk and canopy: a truck clips the lower branches too, but the
       // full canopy width would stop you a metre short of anything.
       const grab = kind === "dead" ? 0.32 : kind === "broadleaf" ? 0.8 : 0.7;
+      // A sapling is not an obstacle. Below this it has no collision at all and
+      // bends out of the way instead — stopping a truck dead on a whip-thin
+      // trunk is the single most annoying thing open country can do to you.
+      const solid = sx >= SAPLING_MAX;
       out.push({
         kind,
         x,
@@ -77,7 +85,8 @@ export function propsInCell(gx: number, gz: number, out: Prop[]): void {
         rot: r0 * Math.PI * 2,
         tint: r1,
         shade: r3,
-        radius: grab * sx,
+        radius: solid ? grab * sx : 0,
+        bends: !solid,
       });
       continue;
     }
@@ -97,6 +106,7 @@ export function propsInCell(gx: number, gz: number, out: Prop[]): void {
         tint: r0,
         shade: r4,
         radius: 0, // you brush through scrub, you don't crash into it
+        bends: true,
       });
       continue;
     }

@@ -3,6 +3,7 @@ import { NOISE_GLSL } from "./glsl/noise";
 import { TERRAIN_GLSL } from "./glsl/terrain";
 import { SKY_GLSL } from "./glsl/sky";
 import { COMMON_GLSL } from "./glsl/common";
+import { CRUSH_POINTS, crushPoints, updateCrush } from "./crush";
 
 /**
  * Ground cover, placed entirely on the GPU.
@@ -39,13 +40,6 @@ function tuftGeometry(blades: number): THREE.InstancedBufferGeometry {
   g.setAttribute("position", new THREE.Float32BufferAttribute(pos, 3));
   return g;
 }
-
-/**
- * How many recent crush points the shader tracks. Each is a vec4 (xyz + how
- * fresh it is), and they decay slowly enough that the flattened trail behind
- * the truck reads as tyre tracks for a few seconds.
- */
-export const CRUSH_POINTS = 16;
 
 const VERT = /* glsl */ `
 #define CRUSH_POINTS ${CRUSH_POINTS}
@@ -180,7 +174,7 @@ export class Grass {
         uRadius: { value: radius },
         uTime: { value: 0 },
         uWind: { value: 0.1 },
-        uCrush: { value: Array.from({ length: CRUSH_POINTS }, () => new THREE.Vector4(0, 0, 0, 0)) },
+        uCrush: { value: crushPoints },
         uSunDir: { value: new THREE.Vector3(0, 1, 0) },
         uSunColor: { value: new THREE.Color(1, 1, 1) },
         uSkyAmbient: { value: new THREE.Color(0.3, 0.4, 0.55) },
@@ -196,26 +190,9 @@ export class Grass {
     this.mesh.renderOrder = 5;
   }
 
-  /**
-   * Lay down a crush point at `(x, z)` and age the rest.
-   *
-   * A ring buffer rather than a trail texture: 16 points at speed is roughly
-   * 60 m of visible track, which is enough to feel like you left a mark without
-   * needing a render target and the bookkeeping that comes with it.
-   */
-  private crushNext = 0;
-  private crushTimer = 0;
-
+  /** Advance the shared wake. Grass and saplings both read it. */
   crush(dt: number, x: number, y: number, z: number, moving: boolean) {
-    const pts = this.material.uniforms.uCrush.value as THREE.Vector4[];
-    for (const p of pts) p.w = Math.max(0, p.w - dt * 0.14);
-
-    this.crushTimer -= dt;
-    if (!moving || this.crushTimer > 0) return;
-    this.crushTimer = 0.07;
-    const p = pts[this.crushNext];
-    this.crushNext = (this.crushNext + 1) % pts.length;
-    p.set(x, y, z, 1);
+    updateCrush(dt, x, y, z, moving);
   }
 
   update(camX: number, camZ: number, time: number) {

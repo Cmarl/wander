@@ -2,6 +2,7 @@ import * as THREE from "three";
 import { mergeGeometries } from "three/examples/jsm/utils/BufferGeometryUtils.js";
 import { CELL, propsInCell, type Prop, type PropKind } from "./props";
 import { blobGeometry, blobMaterial } from "./shadows";
+import { CRUSH_POINTS, crushPoints } from "./crush";
 
 /**
  * Draws the props that props.ts places.
@@ -137,12 +138,33 @@ const GEOMETRY: Record<PropKind, () => THREE.BufferGeometry> = {
   rock: boulder,
 };
 
-/** Shrink instances toward their base as they approach the scatter edge. */
-function addDistanceFade(mat: THREE.Material, fadeEnd: number) {
+/**
+ * Shrink instances at the scatter edge, and lean the whippy ones away from
+ * anything that has just driven past.
+ *
+ * `aBend` is per-instance, so a species keeps a single draw call while solid
+ * trees stay rigid and saplings in the same mesh bend.
+ *
+ * This is Lambert, which three compiles as GLSL1 even on WebGL2, so there is
+ * no inverse() available. The instance matrix here is a Y rotation times a
+ * scale and the scatter group has no transform of its own, so projecting the
+ * world-space push onto the matrix's own basis columns and dividing by the
+ * squared scale inverts it exactly, with three dot products.
+ */
+function addWakeResponse(mat: THREE.Material, fadeEnd: number, bendHeight: number) {
   mat.onBeforeCompile = (shader) => {
     shader.uniforms.uFadeEnd = { value: fadeEnd };
+    shader.uniforms.uBendHeight = { value: bendHeight };
+    shader.uniforms.uCrush = { value: crushPoints };
     shader.vertexShader = shader.vertexShader
-      .replace("#include <common>", `#include <common>\nuniform float uFadeEnd;`)
+      .replace(
+        "#include <common>",
+        `#include <common>
+         uniform float uFadeEnd;
+         uniform float uBendHeight;
+         uniform vec4 uCrush[${CRUSH_POINTS}];
+         attribute float aBend;`
+      )
       .replace(
         "#include <begin_vertex>",
         `#include <begin_vertex>
@@ -150,10 +172,41 @@ function addDistanceFade(mat: THREE.Material, fadeEnd: number) {
            vec3 instOrigin = (modelMatrix * instanceMatrix * vec4(0.0, 0.0, 0.0, 1.0)).xyz;
            float d = distance(instOrigin, cameraPosition);
            transformed *= 1.0 - smoothstep(uFadeEnd - 110.0, uFadeEnd, d);
+
+           if (aBend > 0.5) {
+             vec3 push = vec3(0.0);
+             for (int i = 0; i < ${CRUSH_POINTS}; i++) {
+               float s = uCrush[i].w;
+               if (s <= 0.002) continue;
+               vec2 away = instOrigin.xz - uCrush[i].xz;
+               float dist = length(away);
+               // Cubed, so a sapling springs back in about a second while the
+               // grass track behind you lingers for several.
+               float infl = s * s * s * (1.0 - smoothstep(0.0, 3.4, dist));
+               if (infl <= 0.0) continue;
+               push.xz += (away / max(dist, 0.001)) * infl;
+             }
+             float lean = clamp(position.y / uBendHeight, 0.0, 1.0);
+             vec3 off = push * lean * lean * 1.35;
+             vec3 c0 = instanceMatrix[0].xyz;
+             vec3 c2 = instanceMatrix[2].xyz;
+             float s2 = max(dot(c0, c0), 1e-5);
+             transformed.x += dot(off, c0) / s2;
+             transformed.z += dot(off, c2) / s2;
+           }
          }`
       );
   };
 }
+
+/** Roughly where the top of each kind sits, for the bend profile. */
+const BEND_HEIGHT: Record<PropKind, number> = {
+  pine: 7.4,
+  broadleaf: 5.0,
+  dead: 4.4,
+  shrub: 0.95,
+  rock: 1,
+};
 
 function colourFor(p: Prop, out: THREE.Color): THREE.Color {
   switch (p.kind) {
@@ -185,8 +238,10 @@ export class Scatter {
     const reach = CELL * RADIUS_CELLS;
     for (const kind of Object.keys(GEOMETRY) as PropKind[]) {
       const mat = new THREE.MeshLambertMaterial({ flatShading: true });
-      addDistanceFade(mat, reach);
-      const mesh = new THREE.InstancedMesh(GEOMETRY[kind](), mat, BUDGET[kind]);
+      addWakeResponse(mat, reach, BEND_HEIGHT[kind]);
+      const geo = GEOMETRY[kind]();
+      geo.setAttribute("aBend", new THREE.InstancedBufferAttribute(new Float32Array(BUDGET[kind]), 1));
+      const mesh = new THREE.InstancedMesh(geo, mat, BUDGET[kind]);
       mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
       mesh.frustumCulled = false;
       mesh.count = 0;
@@ -288,9 +343,11 @@ export class Scatter {
     const up = new THREE.Vector3(0, 1, 0);
     const col = new THREE.Color();
 
+    const bend = mesh.geometry.getAttribute("aBend") as THREE.InstancedBufferAttribute | undefined;
     const n = Math.min(slots.length, mesh.instanceMatrix.count);
     for (let i = 0; i < n; i++) {
       const p = slots[i];
+      if (bend) bend.setX(i, p.bends ? 1 : 0);
       pos.set(p.x, p.y, p.z);
       q.setFromAxisAngle(up, p.rot);
       scl.set(p.sx, p.sy, p.sx);
@@ -300,6 +357,7 @@ export class Scatter {
     }
     mesh.count = n;
     mesh.instanceMatrix.needsUpdate = true;
+    if (bend) bend.needsUpdate = true;
     if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
   }
 }
