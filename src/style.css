@@ -611,3 +611,52 @@ html, body {
 .journal-note { margin: 12px 0 0; font-size: 11.5px; opacity: 0.55; min-height: 1.2em; }
 .journal-acts { display: flex; gap: 10px; margin-top: 10px; }
 .journal-acts .sheet-close { margin-top: 0; }
+
+/* ---- mobile ergonomics -------------------------------------------------- */
+
+/* Thumbs sit at the bottom corners, so bottom-left belongs to the stick, not
+   to buttons. In portrait the width gets tight enough that the stack would
+   land directly under a steering thumb — so it moves up out of the way. */
+@media (orientation: portrait) {
+  .clock { font-size: 24px; }
+  .sub { font-size: 11.5px; }
+  .compass { width: min(230px, 64vw); }
+
+  .help-btn, .journal-btn, .world-btn {
+    bottom: auto;
+    padding: 6px 11px;
+    font-size: 10.5px;
+  }
+  .help-btn { top: calc(var(--pad) + 108px); }
+  .journal-btn { top: calc(var(--pad) + 144px); }
+  .world-btn { top: calc(var(--pad) + 180px); }
+
+  .buttons { gap: 11px; bottom: max(26px, env(safe-area-inset-bottom)); }
+  .btn { width: 58px; height: 58px; font-size: 19px; }
+  .btn.small { width: 50px; height: 50px; font-size: 10.5px; }
+
+  .camp { bottom: 22%; }
+  .camp-acts { flex-direction: column; width: min(260px, 72vw); }
+  .camp-btn { width: 100%; }
+
+  .sheet-card { padding: 22px 20px 18px; }
+  .sheet-card dl { grid-template-columns: minmax(70px, auto) 1fr; gap: 9px 12px; }
+  .journal-list { max-height: 52dvh; }
+  .photo-bar { gap: 12px; padding: 9px 13px; }
+}
+
+/* Very short landscape — a phone held sideways — needs the chrome pulled in. */
+@media (orientation: landscape) and (max-height: 460px) {
+  .clock { font-size: 22px; }
+  .btn { width: 54px; height: 54px; }
+  .btn.small { width: 46px; height: 46px; font-size: 10px; }
+  .buttons { gap: 9px; }
+  .camp { bottom: 8%; }
+  .journal-list { max-height: 38dvh; }
+}
+
+/* Keep every edge-anchored control clear of notches and home indicators. */
+.buttons, .help-btn, .journal-btn, .world-btn, .photo, .panel-left, .panel-right {
+  padding-left: max(0px, env(safe-area-inset-left));
+  padding-right: max(0px, env(safe-area-inset-right));
+}

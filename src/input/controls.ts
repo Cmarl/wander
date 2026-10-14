@@ -20,6 +20,8 @@ export class Controls {
   pin = false;
   /** Edge: make or break camp. */
   camp = false;
+  /** Held throttle, so a phone only has to steer. */
+  cruise = false;
 
   readonly isTouch = matchMedia("(hover: none)").matches || "ontouchstart" in window;
 
@@ -66,13 +68,16 @@ export class Controls {
   }
 
   /** Wire HUD buttons up without Controls needing to know about the DOM layout. */
-  bindButton(el: HTMLElement, action: "jump" | "interact" | "sprint" | "glass" | "pin" | "camp") {
+  bindButton(el: HTMLElement, action: "jump" | "interact" | "sprint" | "glass" | "pin" | "camp" | "cruise") {
     const down = (e: Event) => {
       e.preventDefault();
       el.classList.add("held");
       if (action === "sprint") {
         this.sprint = !this.sprint;
         el.classList.toggle("on", this.sprint);
+      } else if (action === "cruise") {
+        this.cruise = !this.cruise;
+        el.classList.toggle("on", this.cruise);
       } else if (action === "glass") {
         // Toggle on touch — nobody wants to hold a button and steer.
         this.glass = !this.glass;

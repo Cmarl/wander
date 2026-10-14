@@ -20,6 +20,7 @@ import { Controls } from "./input/controls";
 import { Hud } from "./ui/hud";
 import { Postcard } from "./ui/postcard";
 import { Journal } from "./ui/journal";
+import { haptics } from "./ui/haptics";
 import { Soundscape } from "./audio/soundscape";
 import { Net, DEFAULT_WORLD } from "./net/net";
 import { PeerBodies } from "./net/peers";
@@ -85,8 +86,14 @@ sound.attachUnlock();
 player.onLand = () => sound.land();
 player.onMount = () => sound.mount();
 player.onDismount = () => sound.dismount();
-player.onCrash = (f) => sound.crash(f);
-player.onVehicleLand = (f) => sound.vehicleLand(f);
+player.onCrash = (f) => {
+  sound.crash(f);
+  haptics.crash(f);
+};
+player.onVehicleLand = (f) => {
+  sound.vehicleLand(f);
+  haptics.land(f);
+};
 
 // --- multiplayer -----------------------------------------------------------
 // Connect by default. "See each other" is the point, and a lobby gate between
@@ -150,6 +157,9 @@ function resize() {
   renderer.setSize(w, h, false);
 }
 addEventListener("resize", resize);
+addEventListener("orientationchange", () => setTimeout(resize, 120));
+// Mobile browser chrome slides away without firing a window resize.
+visualViewport?.addEventListener("resize", resize);
 resize();
 
 // Dev convenience: nudge the clock without waiting an hour for dusk.
@@ -367,6 +377,7 @@ function frame(now: number) {
     });
     hud.announce(nearest.name);
     sound.moment();
+    haptics.discover();
   }
   grass.update(camera.position.x, camera.position.z, env.elapsed);
   wake(dt);

@@ -235,7 +235,9 @@ export class Player {
   // --- driving ---------------------------------------------------------------
 
   private updateDriving(dt: number, input: Controls) {
-    const throttle = input.move.y;
+    // Cruise holds the throttle open so a thumb only has to steer. Pulling
+    // back still brakes, so it never takes control away.
+    const throttle = input.cruise && input.move.y > -0.12 ? 1 : input.move.y;
     const steerInput = input.move.x;
     this.throttle = throttle;
 
