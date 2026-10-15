@@ -153,6 +153,13 @@ export class Player {
     };
   }
 
+  /** 0 at the door, 1 at the edge of reach, Infinity if out of reach. */
+  get vehicleProximity(): number {
+    if (this.mode !== "foot") return Infinity;
+    const d = this.position.distanceTo(this.vehPos);
+    return d <= MOUNT_RANGE ? d / MOUNT_RANGE : Infinity;
+  }
+
   /** On foot and far enough from the truck that calling it is reasonable. */
   get canSummon(): boolean {
     return this.mode === "foot" && this.position.distanceTo(this.vehPos) > SUMMON_MIN;
@@ -185,6 +192,14 @@ export class Player {
    * near it.
    */
   featureHold: THREE.Vector3 | null = null;
+  /** Yaw of whatever camera currently owns the view, if not the chase camera. */
+  holdYaw: number | null = null;
+  /**
+   * Set when something nearer than the truck wants this frame's interact.
+   * There is only one interaction verb in the game, so whoever is closest wins
+   * it rather than the player learning a second button.
+   */
+  suppressInteract = false;
   /** True once the tether is noticeably resisting — the HUD explains the door. */
   heldByCamp = false;
 
@@ -200,7 +215,7 @@ export class Player {
     const far = this.freeCamera ? 90 : 26;
     this.camDist = THREE.MathUtils.clamp(this.camDist + input.zoom * (this.freeCamera ? 1.6 : 0.6), 1.6, far);
 
-    if (input.interact) {
+    if (input.interact && !this.suppressInteract) {
       if (this.mode === "foot" && this.nearVehicle) {
         this.mode = "drive";
         this.onMount?.();
@@ -241,10 +256,13 @@ export class Player {
       return;
     }
 
-    const fx = -Math.sin(this.camYaw);
-    const fz = -Math.cos(this.camYaw);
-    const rx = Math.cos(this.camYaw);
-    const rz = -Math.sin(this.camYaw);
+    // While a hold camera is in charge, steer relative to IT. Using camYaw
+    // would mean pushing forward walks along a heading you cannot see.
+    const basis = this.holdYaw ?? this.camYaw;
+    const fx = -Math.sin(basis);
+    const fz = -Math.cos(basis);
+    const rx = Math.cos(basis);
+    const rz = -Math.sin(basis);
 
     let dx = rx * input.move.x + fx * input.move.y;
     let dz = rz * input.move.x + fz * input.move.y;

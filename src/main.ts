@@ -376,6 +376,20 @@ function frame(now: number) {
 
   controls.beginFrame();
   player.freeCamera = postcard.active;
+
+  // Work out who owns this frame's interact BEFORE the player consumes it.
+  // Normalised proximity, so being deep inside a hot spring beats standing at
+  // the very edge of reach of the truck, and vice versa.
+  const offer =
+    camp.active || player.mode === "drive"
+      ? null
+      : features.candidate(landmarks.loaded, player.position.x, player.position.z);
+  const offerProx = offer
+    ? Math.hypot(offer.x - player.position.x, offer.z - player.position.z) /
+      (ACTIONS[offer.kind].range * offer.scale)
+    : Infinity;
+  const placeWins = !!features.held || (offer !== null && offerProx <= player.vehicleProximity);
+  player.suppressInteract = placeWins;
   env.advance(dt);
   player.update(dt, controls);
 
@@ -464,9 +478,7 @@ function frame(now: number) {
   peers.update(dt, net, camera);
 
   // --- what this place offers ---------------------------------------------
-  const offer = camp.active || player.mode === "drive" ? null : features.candidate(landmarks.loaded, player.position.x, player.position.z);
-
-  if (controls.act) {
+  if (controls.interact && placeWins) {
     if (features.held) {
       // Press again to get out. Nothing ever traps you somewhere.
       features.release();
@@ -525,6 +537,11 @@ function frame(now: number) {
       });
     }
   }
+  // While camped, the look input pans the fire camera rather than a yaw the
+  // player can't see.
+  if (camp.active && (controls.look.x !== 0 || controls.look.y !== 0)) {
+    camp.look(controls.look.x, controls.look.y);
+  }
   const fire = camp.update(dt, env, (x, y, z) => {
     emberTint.setHSL(0.07 + Math.random() * 0.05, 0.9, 0.55 + Math.random() * 0.2);
     dust.emit(x, y, z, 2, emberTint, false);
@@ -537,13 +554,16 @@ function frame(now: number) {
     features.cameraTarget(campPos, campLook);
     player.campCamera = { pos: campPos, look: campLook };
     player.campAnchor = null;
+    player.holdYaw = null; // a held character doesn't steer anyway
   } else if (camp.active) {
     camp.cameraTarget(campPos, campLook);
     player.campCamera = { pos: campPos, look: campLook };
     player.campAnchor = camp.site;
+    player.holdYaw = camp.viewYaw;
   } else {
     player.campCamera = null;
     player.campAnchor = null;
+    player.holdYaw = null;
   }
   hud.setCamp(camp.active, camp.nearby, camp.resting, player.heldByCamp);
 
@@ -607,9 +627,9 @@ function frame(now: number) {
     headingDeg,
     prompt:
       features.held
-        ? controls.isTouch ? `⦿  ${features.held.spec.note || "stay a while"}` : `R  ${features.held.spec.note || "stay a while"}`
-        : offer
-          ? controls.isTouch ? `⦿  ${ACTIONS[offer.kind].verb}` : `R  ${ACTIONS[offer.kind].verb}`
+        ? `${controls.isTouch ? "⏎" : "E"}  ${features.held.spec.note || "stay a while"}`
+        : placeWins && offer
+          ? `${controls.isTouch ? "⏎" : "E"}  ${ACTIONS[offer.kind].verb}`
         : camp.active
         ? null
         : player.canSummon

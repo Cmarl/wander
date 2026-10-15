@@ -18,14 +18,13 @@ const DESK_KEYS: [string, string][] = [
   ["drag mouse", "look around"],
   ["Shift", "run"],
   ["Space", "jump — the truck jumps too"],
-  ["E", "get in / out of the truck"],
+  ["E", "get in or out of the truck, or do what a place offers"],
   ["scroll", "zoom the camera"],
   ["[  ]", "wind the clock back / forward an hour"],
   ["M", "mute"],
   ["Q", "raise binoculars"],
   ["F", "pin what you are looking at"],
   ["C", "make or break camp"],
-  ["R", "do what this place offers"],
   ["J", "field journal"],
   ["B", "horn"],
   ["K", "change the paint"],
@@ -37,10 +36,9 @@ const TOUCH_KEYS: [string, string][] = [
   ["right thumb", "look around"],
   ["RUN", "hold a run"],
   ["⤴", "jump — the truck jumps too"],
-  ["⏎", "get in / out of the truck"],
+  ["⏎", "get in or out, or do what a place offers"],
   ["LOOK", "binoculars — tap a marker to pin it"],
   ["CAMP", "stop somewhere and light a fire"],
-  ["⦿", "do what this place offers"],
   ["GO", "cruise — holds the throttle so you only steer"],
   ["journal", "everywhere you have been"],
   ["pinch-free", "the whole left half is the stick"],
@@ -134,7 +132,6 @@ export class Hud {
                <button class="btn small" id="b-glass">LOOK</button>
                <button class="btn small" id="b-camp">CAMP</button>
                <button class="btn small" id="b-cruise">GO</button>
-               <button class="btn small" id="b-act">⦿</button>
              </div>`
           : ``
       }
@@ -263,7 +260,6 @@ export class Hud {
       controls.bindButton(document.getElementById("b-glass")!, "glass");
       controls.bindButton(document.getElementById("b-camp")!, "camp");
       controls.bindButton(document.getElementById("b-cruise")!, "cruise");
-      controls.bindButton(document.getElementById("b-act")!, "act");
     }
   }
 

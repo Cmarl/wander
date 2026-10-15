@@ -22,8 +22,6 @@ export class Controls {
   camp = false;
   /** Held throttle, so a phone only has to steer. */
   cruise = false;
-  /** Edge: do the thing this place offers. */
-  act = false;
 
   readonly isTouch = matchMedia("(hover: none)").matches || "ontouchstart" in window;
 
@@ -42,7 +40,6 @@ export class Controls {
       if (e.code === "KeyE" || e.code === "Enter") this.interact = true;
       if (e.code === "KeyF") this.pin = true;
       if (e.code === "KeyC") this.camp = true;
-      if (e.code === "KeyR") this.act = true;
       if (e.code === "Space" || e.code.startsWith("Arrow")) e.preventDefault();
     });
     addEventListener("keyup", (e) => this.keys.delete(e.code));
@@ -71,7 +68,7 @@ export class Controls {
   }
 
   /** Wire HUD buttons up without Controls needing to know about the DOM layout. */
-  bindButton(el: HTMLElement, action: "jump" | "interact" | "sprint" | "glass" | "pin" | "camp" | "cruise" | "act") {
+  bindButton(el: HTMLElement, action: "jump" | "interact" | "sprint" | "glass" | "pin" | "camp" | "cruise") {
     const down = (e: Event) => {
       e.preventDefault();
       el.classList.add("held");
@@ -173,6 +170,5 @@ export class Controls {
     this.interact = false;
     this.pin = false;
     this.camp = false;
-    this.act = false;
   }
 }

@@ -37,6 +37,10 @@ export class Camp {
   private restRate = 0;
   private orbit = 0;
   private emberTimer = 0;
+  /** Camera height above the fire. The look input raises and lowers it. */
+  private elevation = 4.4;
+  /** Seconds since the player last panned, so the drift doesn't fight them. */
+  private lookIdle = 99;
 
   constructor() {
     const stoneMat = new THREE.MeshLambertMaterial({ color: 0x6b6962, flatShading: true });
@@ -85,7 +89,32 @@ export class Camp {
     this.active = true;
     this.nearby = nearby;
     this.orbit = 0;
+    this.elevation = 4.4;
+    this.lookIdle = 99;
     this.restTarget = null;
+  }
+
+  /**
+   * Pan around the fire.
+   *
+   * While camped the look input drives this instead of the player's own yaw,
+   * which the camp camera overrides anyway — so nothing is taken away, and
+   * sitting at a fire becomes something you look around from rather than
+   * something you walk about in.
+   */
+  look(dx: number, dy: number) {
+    if (!this.active) return;
+    this.orbit -= dx * 2.4;
+    this.elevation = Math.min(9.5, Math.max(1.5, this.elevation - dy * 9));
+    this.lookIdle = 0;
+  }
+
+  /** Camera yaw, so movement can be made relative to what you're looking at. */
+  get viewYaw(): number {
+    // Camera sits at site + (cos o, _, sin o)·r looking inward, so its view
+    // direction is -(cos o, 0, sin o). Matching that to the engine's
+    // (-sin yaw, 0, -cos yaw) gives yaw = pi/2 - o.
+    return Math.PI / 2 - this.orbit;
   }
 
   strike() {
@@ -114,7 +143,9 @@ export class Camp {
   update(dt: number, env: Environment, emit: (x: number, y: number, z: number) => void): number {
     if (!this.active) return 0;
 
-    this.orbit += dt * 0.085;
+    // Drift slowly, but only once the player has stopped panning.
+    this.lookIdle += dt;
+    if (this.lookIdle > 5) this.orbit += dt * 0.085;
 
     // Flicker: three cones breathing out of phase reads as fire surprisingly well.
     const t = env.elapsed;
@@ -160,7 +191,7 @@ export class Camp {
     const x = this.site.x + Math.cos(this.orbit) * r;
     const z = this.site.z + Math.sin(this.orbit) * r;
     // Never let the orbit dip into a slope behind the fire.
-    const y = Math.max(this.site.y + 4.4, heightAt(x, z) + 2.2);
+    const y = Math.max(this.site.y + this.elevation, heightAt(x, z) + 1.6);
     out.set(x, y, z);
     look.set(this.site.x, this.site.y + 0.55, this.site.z);
   }
