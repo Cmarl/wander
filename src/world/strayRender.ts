@@ -17,15 +17,23 @@ const POOL = 3;
 export class StrayField {
   readonly group = new THREE.Group();
   loaded: Stray[] = [];
+  /**
+   * One stray hidden because the player has taken it over.
+   *
+   * The world is a pure function so the machine is still out there; what has
+   * changed is that the player's own vehicle is now standing in exactly that
+   * spot, and drawing both would be two aeroplanes in one place.
+   */
+  taken: string | null = null;
   private slots: { cls: VehicleClass | null; root: THREE.Group | null; anim: ((d: number, s: number, t: number) => void) | null }[] =
     Array.from({ length: POOL }, () => ({ cls: null, root: null, anim: null }));
   private cellX = NaN;
   private cellZ = NaN;
 
-  update(px: number, pz: number) {
+  update(px: number, pz: number, retake = false) {
     const cx = Math.round(px / STRAY_CELL);
     const cz = Math.round(pz / STRAY_CELL);
-    if (cx === this.cellX && cz === this.cellZ) return;
+    if (!retake && cx === this.cellX && cz === this.cellZ) return;
     this.cellX = cx;
     this.cellZ = cz;
 
@@ -37,7 +45,7 @@ export class StrayField {
     for (let i = 0; i < POOL; i++) {
       const slot = this.slots[i];
       const s = this.loaded[i];
-      if (!s) {
+      if (!s || s.id === this.taken) {
         if (slot.root) slot.root.visible = false;
         continue;
       }

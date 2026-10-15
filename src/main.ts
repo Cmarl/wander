@@ -646,10 +646,35 @@ function hearRumour(gx: number, gz: number, salt: number, x: number, z: number, 
  */
 const CLAIM_RANGE = 11;
 
+/** Walk this close and the machine in front of you is the one you are driving. */
+const BOARD_RANGE = 7;
+
 function straying() {
-  strays.update(player.position.x, player.position.z);
+  strays.update(player.position.x, player.position.z, strays.taken !== null && player.mode === "drive");
   const s = strays.nearest(player.position.x, player.position.z, CLAIM_RANGE);
   if (!s) return;
+
+  // Close enough to get in. Your vehicle becomes this one, standing where it
+  // stands, and the normal "E to get in" prompt takes it from there — which is
+  // what Clyde expected to happen and is the obvious reading of walking up to
+  // an aeroplane.
+  if (
+    player.mode === "foot" &&
+    Math.hypot(s.x - player.position.x, s.z - player.position.z) < BOARD_RANGE &&
+    strays.taken !== s.id
+  ) {
+    player.adopt(s.cls, s.paint, s.x, s.z, s.rot);
+    strays.taken = s.id;
+    strays.update(player.position.x, player.position.z, true);
+    // Summoning should bring whatever you last got into, not something you
+    // chose in a menu a week ago.
+    stable.claim(s.cls);
+    stable.choose(s.cls);
+    hud.announce(`${SPECS[s.cls].label} · yours — get in`, "you walk up to the");
+    sound.moment();
+    return;
+  }
+
   if (!stable.claim(s.cls)) return;
   found.add({
     id: s.id,

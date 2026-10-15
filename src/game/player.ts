@@ -176,6 +176,34 @@ export class Player {
     // on the next one without anything needing to be told about the swap.
   }
 
+  /**
+   * Take over a vehicle standing in the world.
+   *
+   * Clyde: "I was expecting to be able to just get into the plane. I can't. it
+   * adds it to my vehicle menu to be set as summonable."
+   *
+   * He is right and the old behaviour was wrong. Walking up to a machine and
+   * getting in is the obvious thing; a garage is for calling one BACK, not for
+   * permission to use the one you are standing next to.
+   *
+   * Rather than add a third claimant to the interact key — which is how the
+   * "can't get out of the truck" bug happened — the vehicle you walked up to
+   * simply becomes yours, parked exactly where it stands. From there the
+   * existing "E to get in" path handles it, because your vehicle is now the
+   * thing in front of you.
+   */
+  adopt(cls: VehicleClass, paint: number, x: number, z: number, rot: number) {
+    if (this.mode !== "foot") return;
+    if (cls !== this.spec.cls) this.switchTo(cls, paint);
+    else this.vehicle.setPaint(paint);
+    this.vehPos.set(x, heightAt(x, z), z);
+    this.vehHeading = rot;
+    this.vehSpeed = 0;
+    this.vehVelY = 0;
+    this.vehAir = false;
+    this.warmedUp = false; // settle onto the local slope without a lurch
+  }
+
   /** Everything the soundscape needs to voice the truck. */
   get vehicleState() {
     return {
