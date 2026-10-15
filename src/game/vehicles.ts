@@ -34,6 +34,17 @@ export interface VehicleSpec {
   gradePull: number;
   /** Steering authority at a standstill. */
   turn: number;
+  /**
+   * How fast steering authority falls off with speed.
+   *
+   * Tuned for wheels, where going faster must make the steering calmer or the
+   * truck is undrivable. An aircraft is the opposite: it turns BETTER with
+   * airspeed, and the wheeled value throttled the plane to a crawl of a turn
+   * at cruise. Lower means speed costs you less.
+   */
+  turnFalloff?: number;
+  /** How quickly the climb/descend command takes effect. Higher is snappier. */
+  pitchRate?: number;
   /** Collision circles along the spine. */
   bodyR: number;
   bodyOffset: number;
@@ -91,12 +102,21 @@ export const SPECS: Record<VehicleClass, VehicleSpec> = {
   },
   plane: {
     cls: "plane", label: "Aeroplane",
-    // Fastest thing in the world by a long way, and the least willing to stop.
-    top: 96, accel: 26, brake: 14, drag: 0.26, reverse: 4,
-    jump: 0, gradePull: 2.4, turn: 1.1,
+    /**
+     * Clyde, after the controls fix: "sick - plane much better. should climb
+     * and fall faster. plane should overall be much faster and manuever
+     * faster too."
+     *
+     * So: half again the top speed, twice the climb, and a turn that does not
+     * evaporate with airspeed. Fast is fine; twitchy is not, which is why the
+     * steering input is still eased into — the response got quicker, not
+     * jumpier.
+     */
+    top: 150, accel: 44, brake: 16, drag: 0.24, reverse: 4,
+    jump: 0, gradePull: 2.4, turn: 2.2, turnFalloff: 0.01, pitchRate: 3.4,
     bodyR: 1.2, bodyOffset: 1.6,
     seat: [0, 1.5, 0.5], dogSeat: [0, 1.4, -0.3],
-    flies: true, lift: 13, sink: 11, wing: 0.9,
+    flies: true, lift: 26, sink: 15, wing: 0.9,
   },
 };
 

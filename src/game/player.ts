@@ -500,7 +500,8 @@ export class Player {
     this.vehSpeed = Math.max(this.vehSpeed, -this.spec.reverse);
 
     // Steering authority falls off with speed, so it isn't twitchy at pace.
-    const authority = this.spec.turn / (1 + Math.abs(this.vehSpeed) * 0.075);
+    const authority =
+      this.spec.turn / (1 + Math.abs(this.vehSpeed) * (this.spec.turnFalloff ?? 0.075));
     this.vehSteer = THREE.MathUtils.lerp(this.vehSteer, steerInput, Math.min(1, dt * 7));
     // Heading SUBTRACTS steer. Forward is (sin h, 0, cos h), so from a chase
     // camera the viewer's right is -(cos h, 0, -sin h) — rising `h` swings the
@@ -722,7 +723,7 @@ export class Player {
           : -this.spec.sink! * wing;
       // Eased, so the controls feel like a machine with mass rather than a
       // cursor being dragged up and down.
-      this.vehVelY += (want - this.vehVelY) * Math.min(1, dt * 2.2);
+      this.vehVelY += (want - this.vehVelY) * Math.min(1, dt * (this.spec.pitchRate ?? 2.2));
       this.vehPos.y += this.vehVelY * dt;
 
       if (this.vehPos.y <= groundY) {
