@@ -32,6 +32,13 @@ export interface ActionSpec {
   instant: boolean;
   /** A line shown while you're settled in. */
   note: string;
+  /**
+   * Half-width of a deck you can walk around on, in local metres.
+   *
+   * Present only on places with a floor up in the air. Everything else holds
+   * you exactly where it put you.
+   */
+  deck?: number;
 }
 
 export const ACTIONS: Record<LandmarkKind, ActionSpec> = {
@@ -41,8 +48,11 @@ export const ACTIONS: Record<LandmarkKind, ActionSpec> = {
     note: "warm to the shoulders",
   },
   lookout: {
+    // The deck is a 9.6 m square slab centred at 16.7 with 0.5 of thickness,
+    // so its top is 16.95 — that is where your feet go, times the scale.
     verb: "climb", badge: "Climbed", range: 9, camera: "chase",
-    lift: 17.2, inset: 0.0, instant: false,
+    lift: 16.95, inset: 0.0, instant: false,
+    deck: 4.3,
     note: "the whole country, laid out",
   },
   lonetree: {
@@ -198,7 +208,9 @@ export class Features {
     const inset = spec.inset * spec.range * lm.scale;
     this.site.set(
       lm.x - (ax / d) * inset,
-      heightAt(lm.x - (ax / d) * inset, lm.z - (az / d) * inset) + spec.lift,
+      // Lift scales with the landmark. It was a fixed number of metres against
+      // geometry that scales, so a big tower put you well below its own deck.
+      heightAt(lm.x - (ax / d) * inset, lm.z - (az / d) * inset) + spec.lift * lm.scale,
       lm.z - (az / d) * inset
     );
     this.held = { lm, spec };

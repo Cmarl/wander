@@ -1153,7 +1153,19 @@ function frame(now: number) {
       }
       const sustained = features.begin(offer, player.position);
       if (sustained) {
-        player.featureHold = features.holdPosition(new THREE.Vector3());
+        const at = features.holdPosition(new THREE.Vector3());
+        if (sustained.deck) {
+          // A deck is a floor, not a pose. You stand on it and walk about.
+          player.platform = {
+            x: offer.x,
+            z: offer.z,
+            y: at.y,
+            half: sustained.deck * offer.scale,
+          };
+          player.position.set(offer.x, at.y, offer.z);
+        } else {
+          player.featureHold = at;
+        }
         player.heading = Math.atan2(offer.x - player.position.x, offer.z - player.position.z);
       } else if (offer.kind === "mast") {
         // The one landmark that changes how the game sounds.
@@ -1244,6 +1256,17 @@ function frame(now: number) {
    */
   if (!features.held && player.featureHold && player.ridingHost === null) {
     player.featureHold = null;
+  }
+  /**
+   * Same invariant for the deck, plus a way down.
+   *
+   * Stepping off a lookout thirty metres up should not be a fall — this game
+   * has no fail states — so leaving puts you back at the foot of the ladder.
+   */
+  if (!features.held && player.platform) {
+    const p = player.platform;
+    player.platform = null;
+    player.position.set(p.x + p.half + 2.2, heightAt(p.x + p.half + 2.2, p.z), p.z);
   }
 
   if (features.held && features.held.spec.camera === "inside") {

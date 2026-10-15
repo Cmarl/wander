@@ -265,6 +265,13 @@ export class Player {
    */
   featureHold: THREE.Vector3 | null = null;
   /**
+   * A floor above the ground you can walk about on — a lookout deck.
+   *
+   * Movement is ordinary; only the height and the edges are overridden, so
+   * nothing about walking has to know this exists.
+   */
+  platform: { x: number; z: number; y: number; half: number } | null = null;
+  /**
    * Riding in somebody else's truck. Their client owns the driving entirely;
    * we just place ourselves in a seat each frame and send the result, so peers
    * never have to resolve who is riding with whom to draw us correctly.
@@ -380,7 +387,25 @@ export class Player {
     this.settleToCamp(dt);
     this.speed = moveSpeed;
 
-    const ground = heightAt(this.position.x, this.position.z);
+    /**
+     * Standing on something that is not the ground.
+     *
+     * Clyde climbed a fire tower and ended up under it: "big when I climb I
+     * sit just as high so worse". The lift was a fixed number of metres while
+     * the tower scales — widening the size range made a fixed 17.2 m land
+     * nine metres below a deck that had moved to 31.
+     *
+     * Rather than pin him at the right altitude, the deck is a FLOOR. You walk
+     * on it, within its edges, and the view is yours to look around from —
+     * which is what he actually asked for and what a lookout is for.
+     */
+    let ground = heightAt(this.position.x, this.position.z);
+    if (this.platform) {
+      const p = this.platform;
+      this.position.x = THREE.MathUtils.clamp(this.position.x, p.x - p.half, p.x + p.half);
+      this.position.z = THREE.MathUtils.clamp(this.position.z, p.z - p.half, p.z + p.half);
+      ground = p.y;
+    }
     if (this.grounded && input.jump) {
       this.onJump?.(false);
       this.velY = JUMP;
