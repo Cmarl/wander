@@ -1,0 +1,84 @@
+<!doctype html><meta charset=utf8>
+<!--
+  Headless WebGL check.
+
+  Written to find out why a headless frame grab of the game produces nothing.
+  It answers half the question definitively, and the answer is: not the
+  browser.
+
+  Run under Brave: --headless --disable-gpu --no-sandbox --enable-unsafe-swiftshader
+  Result, 2026-10-15:
+    1 raw webgl2 context: ok
+    2 three WebGLRenderer: ok            (with preserveDrawingBuffer: true)
+    3 render + toDataURL: 3790 chars
+    4 pixels that look like the orange cube: 4760
+
+  So three.js renders and the canvas reads back fine in software. Whatever
+  stops the game producing a frame headlessly is inside the game's own
+  startup, not in WebGL, SwiftShader or toDataURL.
+
+  Two things already ruled out, to save repeating them:
+   - Brave's --screenshot flag hangs here even on a plain 2D canvas with no
+     WebGL at all, so it is the flag and not the renderer. Post pixels over
+     fetch instead; that channel works.
+   - The game's renderer does not set preserveDrawingBuffer, which toDataURL
+     needs. That alone would give a BLANK image rather than no image, so it
+     does not explain a silent failure — but it will have to be set before any
+     capture works.
+
+  Still unknown: which part of main.ts's startup fails. An attempt to bisect it
+  by dynamically importing each module was invalid — Vite cannot resolve a
+  dynamic import built from a variable more than one directory deep, so every
+  module "failed" for the same spurious reason.
+-->
+<body style="margin:0"><pre id=o></pre>
+<script type="module">
+import * as THREE from "three";
+const log = [];
+const say = (s) => { log.push(s); document.getElementById("o").textContent = log.join("\n"); };
+const send = () => fetch("http://127.0.0.1:8914/", { method: "POST", body: "webglcheck|" + JSON.stringify(log) }).catch(() => {});
+
+try {
+  const raw = document.createElement("canvas").getContext("webgl2");
+  say("1 raw webgl2 context: " + (raw ? "ok" : "NULL"));
+} catch (e) { say("1 raw webgl2 threw: " + e.message); }
+
+let r = null;
+try {
+  const c = document.createElement("canvas");
+  c.width = 200; c.height = 120;
+  r = new THREE.WebGLRenderer({ canvas: c, antialias: true, powerPreference: "high-performance", preserveDrawingBuffer: true });
+  say("2 three WebGLRenderer: ok");
+} catch (e) { say("2 three WebGLRenderer THREW: " + e.message); }
+
+if (r) {
+  try {
+    const sc = new THREE.Scene();
+    const cam = new THREE.PerspectiveCamera(60, 200 / 120, 0.1, 100);
+    cam.position.z = 4;
+    const m = new THREE.Mesh(new THREE.BoxGeometry(2, 2, 2), new THREE.MeshBasicMaterial({ color: 0xcc5533 }));
+    sc.add(m);
+    r.setClearColor(0x224466, 1);
+    r.render(sc, cam);
+    const url = r.domElement.toDataURL("image/png");
+    say("3 render + toDataURL: " + url.length + " chars");
+    // Is it actually non-blank? Decode a few pixels via a 2D canvas.
+    const img = new Image();
+    img.onload = () => {
+      const c2 = document.createElement("canvas");
+      c2.width = 200; c2.height = 120;
+      const g = c2.getContext("2d");
+      g.drawImage(img, 0, 0);
+      const d = g.getImageData(0, 0, 200, 120).data;
+      let nonBg = 0;
+      for (let i = 0; i < d.length; i += 4) if (d[i] > 150) nonBg++;
+      say("4 pixels that look like the orange cube: " + nonBg);
+      send();
+    };
+    img.onerror = () => { say("4 could not decode the data url"); send(); };
+    img.src = url;
+  } catch (e) { say("3 render THREW: " + e.message); send(); }
+} else send();
+
+addEventListener("error", (e) => { say("window error: " + e.message); send(); });
+</script>
