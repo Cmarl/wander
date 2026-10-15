@@ -23,7 +23,16 @@ export class Controls {
   /** Held throttle, so a phone only has to steer. */
   cruise = false;
 
-  readonly isTouch = matchMedia("(hover: none)").matches || "ontouchstart" in window;
+  /**
+   * maxTouchPoints is the signal that survives an embedded WebView. Telegram's
+   * in-app browser can report hover capability and omit ontouchstart, which
+   * left isTouch false — no on-screen buttons at all, and no keyboard either,
+   * so there was genuinely no way to get out of the truck.
+   */
+  readonly isTouch =
+    matchMedia("(hover: none)").matches ||
+    "ontouchstart" in window ||
+    (navigator.maxTouchPoints ?? 0) > 0;
 
   private keys = new Set<string>();
   private pointerLook: number | null = null;
@@ -67,10 +76,18 @@ export class Controls {
     });
   }
 
+  /** Guards against a WebView firing both touch and pointer for one tap. */
+  private lastTap = new WeakMap<HTMLElement, number>();
+
   /** Wire HUD buttons up without Controls needing to know about the DOM layout. */
   bindButton(el: HTMLElement, action: "jump" | "interact" | "sprint" | "glass" | "pin" | "camp" | "cruise") {
     const down = (e: Event) => {
       e.preventDefault();
+      // Some WebViews fire touchstart AND pointerdown for a single tap, others
+      // only one of them. Listen for both and ignore the echo.
+      const now = performance.now();
+      if (now - (this.lastTap.get(el) ?? 0) < 350) return;
+      this.lastTap.set(el, now);
       el.classList.add("held");
       if (action === "sprint") {
         this.sprint = !this.sprint;
@@ -91,7 +108,9 @@ export class Controls {
       el.classList.remove("held");
     };
     el.addEventListener("pointerdown", down);
+    el.addEventListener("touchstart", down, { passive: false });
     el.addEventListener("pointerup", up);
+    el.addEventListener("touchend", up);
     el.addEventListener("pointercancel", up);
   }
 

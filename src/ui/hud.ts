@@ -73,6 +73,7 @@ export class Hud {
   private onlineEl!: HTMLElement;
   private toastEl!: HTMLElement;
   private toastNameEl!: HTMLElement;
+  private toastKickEl!: HTMLElement;
   private toastTimer = 0;
   private glassEl!: HTMLElement;
   private marksEl!: HTMLElement;
@@ -126,7 +127,7 @@ export class Hud {
       </div>
       <div class="glass" id="h-glass"><div class="glass-recticle"></div></div>
       <div class="marks" id="h-marks"></div>
-      <div class="toast" id="h-toast"><span class="toast-kicker">found</span><span id="h-toast-name"></span></div>
+      <div class="toast" id="h-toast"><span class="toast-kicker" id="h-toast-kick"></span><span id="h-toast-name"></span></div>
       ${
         controls.isTouch
           ? `<div class="stick" id="h-stick"><div class="knob" id="h-knob"></div></div>
@@ -205,6 +206,7 @@ export class Hud {
     this.marksEl = document.getElementById("h-marks")!;
     this.toastEl = document.getElementById("h-toast")!;
     this.toastNameEl = document.getElementById("h-toast-name")!;
+    this.toastKickEl = document.getElementById("h-toast-kick")!;
     this.whoEl = document.getElementById("h-who")!;
     this.whoEl.addEventListener("pointerdown", (e) => {
       e.stopPropagation();
@@ -307,8 +309,17 @@ export class Hud {
       : "solo";
   }
 
-  /** Says what you just walked up to, then gets out of the way. */
-  announce(name: string) {
+  /**
+   * Says what just happened, then gets out of the way.
+   *
+   * The kicker used to be the hardcoded word "found", so doing a thing at a
+   * place you had already found announced itself as "found Passed under" —
+   * which reads like the discovery firing a second time. Each caller now says
+   * what kind of event this is, or nothing at all.
+   */
+  announce(name: string, kicker = "") {
+    this.toastKickEl.textContent = kicker;
+    this.toastKickEl.style.display = kicker ? "" : "none";
     this.toastNameEl.textContent = name;
     this.toastEl.classList.add("on");
     clearTimeout(this.toastTimer);

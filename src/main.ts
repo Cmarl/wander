@@ -181,7 +181,7 @@ wildlife.onSight = (species, spec, x, z) => {
     tod: env.timeOfDay,
   });
   if (fresh) {
-    hud.announce(spec.label);
+    hud.announce(spec.label, "spotted");
     if (spec.rare) haptics.discover();
   }
 };
@@ -211,6 +211,14 @@ if (localStorage.getItem("wander.solo") !== "1") {
 };
 
 function resize() {
+  // An embedded browser's own toolbars sit inside innerHeight but outside the
+  // visual viewport, so controls anchored to the bottom end up underneath them
+  // and taps hit the browser instead of the game. env(safe-area-inset) does
+  // not cover this.
+  const vv = window.visualViewport;
+  const chrome = vv ? Math.max(0, innerHeight - vv.height - vv.offsetTop) : 0;
+  document.documentElement.style.setProperty("--chrome-bottom", `${Math.round(chrome)}px`);
+
   const w = innerWidth;
   const h = innerHeight;
   camera.aspect = w / h;
@@ -221,6 +229,7 @@ addEventListener("resize", resize);
 addEventListener("orientationchange", () => setTimeout(resize, 120));
 // Mobile browser chrome slides away without firing a window resize.
 visualViewport?.addEventListener("resize", resize);
+visualViewport?.addEventListener("scroll", resize);
 resize();
 
 // Dev convenience: nudge the clock without waiting an hour for dusk.
@@ -241,7 +250,7 @@ addEventListener("keydown", (e) => {
   if (e.code === "KeyK") {
     const paint = garage.cycle(player.distanceTravelled / 1000);
     player.vehicle.setPaint(paint.hex);
-    hud.announce(paint.name);
+    hud.announce(paint.name, "painted");
   }
   if (e.code === "Escape" && journal.open) journal.toggle(false);
   if (e.code === "Escape" && postcard.active) postcard.toggle(false);
@@ -411,6 +420,7 @@ function awardBadge(lm: { id: string; name: string; x: number; z: number }, badg
       tod: env.timeOfDay,
     })
   ) {
+    // The action, not another discovery.
     hud.announce(badge);
     haptics.discover();
   }
@@ -535,7 +545,7 @@ function frame(now: number) {
       at: Date.now(),
       tod: env.timeOfDay,
     });
-    hud.announce(nearest.name);
+    hud.announce(nearest.name, "found");
     sound.moment();
     haptics.discover();
   }
