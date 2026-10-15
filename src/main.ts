@@ -8,7 +8,7 @@ import { Scatter } from "./world/scatter";
 import { Grass } from "./world/grass";
 import { LandmarkField } from "./world/landmarkRender";
 import { SettlementField } from "./world/settlementRender";
-import { landmarkSolids } from "./world/landmarks";
+import { geyserLevel, landmarkSolids } from "./world/landmarks";
 import { hasAccretion } from "./world/accretions";
 import { Discoveries } from "./game/discovery";
 import { Camp } from "./game/camp";
@@ -17,12 +17,13 @@ import { StrayField } from "./world/strayRender";
 import { Stable } from "./game/stable";
 import { Wanderer } from "./game/wanderer";
 import { Figures } from "./game/figures";
+import { Aurora } from "./world/aurora";
 import { SPECS } from "./game/vehicles";
 import { Features, ACTIONS } from "./game/features";
 import { PAINTS } from "./game/paint";
 import { Dust, Birds } from "./world/particles";
 import { Wildlife } from "./world/wildlife";
-import { surfaceAt, moistureAt, treeDensityAt, slopeAt } from "./world/field";
+import { surfaceAt, moistureAt, treeDensityAt, slopeAt, temperatureAt } from "./world/field";
 import { findSpawn } from "./world/spawn";
 import { lastPlace, rememberPlace } from "./game/save";
 import { heightAt, biomeNameAt } from "./world/field";
@@ -87,6 +88,8 @@ const camp = new Camp();
 scene.add(camp.group);
 const wildlife = new Wildlife();
 scene.add(wildlife.group);
+const aurora = new Aurora();
+scene.add(aurora.group);
 const figures = new Figures();
 scene.add(figures.group);
 const wanderer = new Wanderer();
@@ -692,6 +695,68 @@ function dogging(dt: number) {
   }
 }
 
+/**
+ * Conditional finds — things that exist only when the world says so.
+ *
+ * You can be in exactly the right place and still not have found them, which
+ * is the cleanest answer there is to "I have seen everything". Neither of
+ * these can be sought out by grinding: one needs the clock, the other needs
+ * the date and the cold.
+ */
+function conditions(dt: number) {
+  landmarks.timeOfDay = env.timeOfDay;
+
+  // Standing at a geyser while it goes is its own find. Being near a quiet
+  // pool is not — you have to be there for it.
+  {
+    for (const lm of landmarks.loaded) {
+      if (geyserLevel(lm, env.timeOfDay) < 0.55) continue;
+      if (Math.hypot(lm.x - player.position.x, lm.z - player.position.z) > 70) continue;
+      if (
+        found.add({
+          id: `geyser:${lm.id}`,
+          kind: "badge",
+          name: `${lm.name} — caught it blowing`,
+          x: Math.round(lm.x),
+          z: Math.round(lm.z),
+          at: Date.now(),
+          tod: env.timeOfDay,
+          region: regionAt(lm.x, lm.z).name,
+        })
+      ) {
+        hud.announce(lm.name, "it goes off");
+        sound.moment();
+      }
+      break;
+    }
+  }
+
+  // The lights. Only on nights the shared date seed picks, only after dark,
+  // and only where it is cold.
+  const night = env.sunDir.y < -0.09;
+  const cold = temperatureAt(player.position.x, player.position.z) < 0.34;
+  const lit = env.today.aurora && night && cold;
+  aurora.update(dt, lit, env.elapsed, camera.position);
+
+  if (lit) {
+    if (
+      found.add({
+        id: `aurora:${new Date().toISOString().slice(0, 10)}`,
+        kind: "badge",
+        name: "The lights were out",
+        x: Math.round(player.position.x),
+        z: Math.round(player.position.z),
+        at: Date.now(),
+        tod: env.timeOfDay,
+        region: regionAt(player.position.x, player.position.z).name,
+      })
+    ) {
+      hud.announce("the whole sky is moving", "look up");
+      sound.moment();
+    }
+  }
+}
+
 const projected = new THREE.Vector3();
 
 function glassing() {
@@ -1116,6 +1181,7 @@ function frame(now: number) {
   straying();
   wanderer.update(dt, player.position, player.heading);
   figures.update(dt, player.position, player.heading);
+  conditions(dt);
   camera.getWorldDirection(dir);
   const headingDeg = ((((Math.atan2(dir.x, -dir.z) * 180) / Math.PI) % 360) + 360) % 360;
   for (let i = pins.length - 1; i >= 0; i--) {

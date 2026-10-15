@@ -338,6 +338,30 @@ export function landmarksNear(x: number, z: number, cells: number): Landmark[] {
 }
 
 /** Solid circles in world space, for collision. */
+/**
+ * How hard a geyser is going, 0..1, for a given time of day.
+ *
+ * About one hot spring in five is a geyser, and each one erupts on ONE hour of
+ * the day that it owns — not every hour. A game hour is only two and a half
+ * real minutes, so blowing on all of them put a geyser in eruption a quarter
+ * of the time, which is not a condition, it is a schedule. Once a day means
+ * once a real hour, for about forty seconds.
+ *
+ * Returns 0 for springs that are not geysers at all, so callers can use this
+ * as the whole test.
+ */
+export function geyserLevel(lm: Landmark, timeOfDay: number): number {
+  if (lm.kind !== "spring") return 0;
+  if (slotRandom(lm.gx, lm.gz, 1511) <= 0.8) return 0;
+  const its = Math.floor(slotRandom(lm.gx, lm.gz, 1523) * 24) % 24;
+  const hour = timeOfDay * 24;
+  // Shortest distance round the clock, so an eruption at midnight works.
+  const d = Math.abs(((hour - its + 36) % 24) - 12);
+  const from = 12 - d;
+  // About forty real seconds either side, as a fraction of one game hour.
+  return 1 - Math.min(1, from / 0.28);
+}
+
 export function landmarkSolids(lm: Landmark): { x: number; z: number; r: number }[] {
   const c = Math.cos(lm.rot);
   const s = Math.sin(lm.rot);

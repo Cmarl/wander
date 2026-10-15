@@ -3,7 +3,7 @@ import { blobTexture } from "./shadows";
 import { slotRandom } from "./field";
 import { box, merge, strut, type Layer } from "./geom";
 import { steadingLayers } from "./buildings";
-import { LANDMARK_CELL, landmarksNear, type Landmark, type LandmarkKind } from "./landmarks";
+import { LANDMARK_CELL, geyserLevel, landmarksNear, type Landmark, type LandmarkKind } from "./landmarks";
 import { ACCRETION_KINDS, accretionsAt, type AccretionKind } from "./accretions";
 import {
   adit,
@@ -92,6 +92,18 @@ interface Plume {
    * dark grey rather than thin. Two materials, two draw calls, correct result.
    */
   smoke: boolean;
+  /**
+   * A hot spring that erupts on the hour rather than steaming steadily.
+   *
+   * Out of season it is a quiet pool and you would never know. That is the
+   * whole point of a conditional find — being in the right place is not the
+   * same as having found it.
+   */
+  geyser?: boolean;
+  /** Geysers only: how hard it is going right now, recomputed each frame. */
+  level: number;
+  /** The spring itself, so its own eruption hour can be looked up. */
+  lm?: Landmark;
 }
 
 
@@ -707,6 +719,15 @@ export class LandmarkField {
     this.smoke = puffs(0xb9b3ab, 0.26);
   }
 
+  /**
+   * How hard the geysers are going, 0..1.
+   *
+   * Set from the frame loop, which is the only thing that knows what the clock
+   * says. Each geyser erupts on one hour of the day that it owns — see
+   * geyserLevel in world/landmarks.
+   */
+  timeOfDay = 0;
+
   update(px: number, pz: number, time: number, camera: THREE.Camera) {
     const cx = Math.round(px / LANDMARK_CELL);
     const cz = Math.round(pz / LANDMARK_CELL);
@@ -787,9 +808,15 @@ export class LandmarkField {
       counts.set(lm.kind, n + 1);
 
       if (lm.kind === "spring") {
+        // About one in five is a geyser, and a geyser is only a geyser on the
+        // hour — see geyserOn(). The rest of the time it is an ordinary pool
+        // and you would never know, which is the point of a conditional find:
+        // you can be in exactly the right place and still not have found it.
+        const geyser = slotRandom(lm.gx, lm.gz, 1511) > 0.8;
         this.plumes.push({
           x: lm.x, y: lm.y + 1, z: lm.z,
           rise: 30, spread: 2.2, drift: 13, smoke: false,
+          geyser, level: 0, lm,
         });
       }
       // Somebody is home. Only a cabin has a chimney, and only some cabins are
@@ -797,7 +824,7 @@ export class LandmarkField {
       if (lm.kind === "steading" && lm.variant === 0 && slotRandom(lm.gx, lm.gz, 1031) > 0.55) {
         this.plumes.push({
           x: lm.x - 3.5 * lm.scale, y: lm.y + 4.8 * lm.scale, z: lm.z - 1.1 * lm.scale,
-          rise: 64, spread: 1.1, drift: 26, smoke: true,
+          rise: 64, spread: 1.1, drift: 26, smoke: true, level: 0,
         });
       }
     }
@@ -826,7 +853,7 @@ export class LandmarkField {
         if (a.lit) {
           this.plumes.push({
             x: a.x, y: a.y + 0.5, z: a.z,
-            rise: 26, spread: 0.7, drift: 11, smoke: true,
+            rise: 26, spread: 0.7, drift: 11, smoke: true, level: 0,
           });
         }
       }
@@ -868,15 +895,20 @@ export class LandmarkField {
     let k = 0;
     for (let a = 0; a < this.plumes.length; a++) {
       const p = this.plumes[a];
+      if (p.geyser && p.lm) p.level = geyserLevel(p.lm, this.timeOfDay);
       const into = p.smoke ? this.smoke : this.steam;
       if ((p.smoke ? k : n) >= STEAM_BUDGET) continue;
       for (let i = 0; i < STEAM_PER_SPRING; i++) {
         if ((p.smoke ? k : n) >= STEAM_BUDGET) break;
-        const phase = (((time * 0.11 + i / STEAM_PER_SPRING + a * 0.37) % 1) + 1) % 1;
+        // A geyser out of season is a quiet pool; in season it throws a
+        // column several times the height of ordinary steam.
+        const force = p.geyser ? p.level : 1;
+        if (p.geyser && force < 0.02) break;
+        const phase = (((time * (p.geyser ? 0.3 : 0.11) + i / STEAM_PER_SPRING + a * 0.37) % 1) + 1) % 1;
         const wobble = Math.sin(time * 0.5 + i * 2.1 + a) * phase * 5;
         pos.set(
-          p.x + wobble,
-          p.y + phase * p.rise,
+          p.x + wobble * (p.geyser ? 0.3 : 1),
+          p.y + phase * p.rise * (p.geyser ? 1 + force * 3.4 : 1),
           p.z + Math.cos(time * 0.4 + i) * phase * 4
         );
         // Spread opens out as it climbs, which spreads the same alpha over a

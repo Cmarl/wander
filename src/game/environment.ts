@@ -30,7 +30,7 @@ const HOR_DAY = new THREE.Color(0.735, 0.805, 0.88);
  * grinded, and is genuinely shared — "did you see it today" works because it
  * is literally the same sky.
  */
-function todaySeed(d = new Date()): { cloud: number; haze: number; sunset: number; name: string } {
+function todaySeed(d = new Date()): { cloud: number; haze: number; sunset: number; aurora: boolean; name: string } {
   const key = d.getFullYear() * 10000 + (d.getMonth() + 1) * 100 + d.getDate();
   let h = Math.imul(key, 2654435761) >>> 0;
   const next = () => {
@@ -43,9 +43,20 @@ function todaySeed(d = new Date()): { cloud: number; haze: number; sunset: numbe
   const haze = 0.78 + next() * 0.55;
   const vivid = next();
   const sunset = vivid > 0.8 ? 1.5 + vivid : 1;
-  const name =
-    sunset > 1 ? "a vivid sky" : cloud > 0.6 ? "an overcast day" : haze > 1.15 ? "a hazy day" : "a clear day";
-  return { cloud, haze, sunset, name };
+  // Some nights the sky is up to something, in the cold north. Roughly one
+  // night in nine, from the same date seed everybody shares — so "did you see
+  // it last night" works the same way a vivid sunset already does.
+  const aurora = next() > 0.89;
+  const name = aurora
+    ? "a night for the lights"
+    : sunset > 1
+      ? "a vivid sky"
+      : cloud > 0.6
+        ? "an overcast day"
+        : haze > 1.15
+          ? "a hazy day"
+          : "a clear day";
+  return { cloud, haze, sunset, aurora, name };
 }
 
 export class Environment {
