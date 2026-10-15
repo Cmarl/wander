@@ -526,6 +526,91 @@ const ACCRETION_MODELS: Record<AccretionKind, AccretionModel[]> = {
 /** 40 landmarks times six optional objects, with room to spare. */
 const ACCRETION_BUDGET = 150;
 
+
+/**
+ * Steadings: one building somebody put up and then left.
+ *
+ * The three variants are genuinely different buildings rather than three
+ * conditions of one — a cabin, a barn and a line shack — so each gets its own
+ * walls and roof. That is more layers than any other kind, which is the cost
+ * of buildings being the headline: a flat-coloured box is exactly what made
+ * landmarks read as placeholder before.
+ */
+function steading(): Layer[] {
+  /** Walls, a door hole and a pitched roof — the shape all three share. */
+  const shell = (w: number, d: number, h: number, pitch: number, door: number) => {
+    const walls: THREE.BufferGeometry[] = [];
+    const t = 0.22;
+    for (const [ox, oz, ww, dd] of [
+      [0, -d / 2, w, t],
+      [-w / 2, 0, t, d],
+      [w / 2, 0, t, d],
+    ] as [number, number, number, number][]) {
+      const wall = box(ww, h, dd);
+      wall.translate(ox, h / 2, oz);
+      walls.push(wall);
+    }
+    // The front wall is two posts and a lintel, which leaves the doorway.
+    const side = (w - door) / 2;
+    for (const sx of [-1, 1]) {
+      const pier = box(side, h, t);
+      pier.translate(sx * (door + side) / 2, h / 2, d / 2);
+      walls.push(pier);
+    }
+    const lintel = box(door, h * 0.26, t);
+    lintel.translate(0, h - h * 0.13, d / 2);
+    walls.push(lintel);
+
+    const roof = new THREE.CylinderGeometry(pitch, pitch, d + 0.9, 3, 1);
+    roof.rotateZ(Math.PI / 2);
+    roof.rotateY(Math.PI / 2);
+    roof.scale(1, 1, (w + 0.8) / (pitch * Math.sqrt(3)));
+    roof.translate(0, h + pitch * 0.42, 0);
+    return { walls: merge(walls), roof };
+  };
+
+  const cabin = shell(6.6, 5.2, 3.0, 2.0, 1.3);
+  const barn = shell(10.4, 7.2, 4.8, 2.9, 3.0);
+  const shack = shell(4.2, 3.8, 2.5, 1.3, 1.1);
+
+  // A stone chimney is what makes a cabin a home rather than a shed, and it is
+  // where the smoke goes once Traces lands.
+  const stack: THREE.BufferGeometry[] = [];
+  const flue = box(1.0, 4.4, 1.0);
+  flue.translate(-3.5, 2.2, -1.1);
+  stack.push(flue);
+  const cap = box(1.3, 0.3, 1.3);
+  cap.translate(-3.5, 4.5, -1.1);
+  stack.push(cap);
+
+  // The shack gets a tin stovepipe instead — the same idea, cheaper to build.
+  const pipe = new THREE.CylinderGeometry(0.16, 0.18, 2.0, 6);
+  pipe.translate(-1.5, 3.3, -0.9);
+
+  const panes: THREE.BufferGeometry[] = [];
+  for (const [ox, oz] of [[-2.1, 2.62], [2.1, 2.62], [3.33, -1.1]] as [number, number][]) {
+    const pane = box(Math.abs(oz) > 2 ? 1.1 : 0.08, 0.85, Math.abs(oz) > 2 ? 0.08 : 1.1);
+    pane.translate(ox, 1.85, oz);
+    panes.push(pane);
+  }
+  const shackPane = box(0.8, 0.62, 0.08);
+  shackPane.translate(1.2, 1.5, 1.95);
+
+  return [
+    // 0 cabin · 1 barn · 2 line shack
+    { geo: cabin.walls, colour: 0x8a7050, on: [0] },
+    { geo: cabin.roof, colour: 0x5a4a3e, on: [0] },
+    { geo: merge(stack), colour: 0x8a8880, on: [0] },
+    { geo: merge(panes), colour: 0x9fc4d4, on: [0] },
+    { geo: barn.walls, colour: 0x7a4f42, on: [1] },
+    { geo: barn.roof, colour: 0x6b7076, on: [1] },
+    { geo: shack.walls, colour: 0x938068, on: [2] },
+    { geo: shack.roof, colour: 0x6f6257, on: [2] },
+    { geo: pipe, colour: 0x767c82, on: [2] },
+    { geo: shackPane, colour: 0x9fc4d4, on: [2] },
+  ];
+}
+
 const BUILDERS: Record<LandmarkKind, () => Layer[]> = {
   lookout,
   arch,
@@ -533,6 +618,7 @@ const BUILDERS: Record<LandmarkKind, () => Layer[]> = {
   spring,
   lonetree: loneTree,
   wreck,
+  steading,
 };
 
 export class LandmarkField {

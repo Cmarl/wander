@@ -60,6 +60,14 @@ export const ACTIONS: Record<LandmarkKind, ActionSpec> = {
     lift: 0, inset: 0.6, instant: true,
     note: "",
   },
+  // The real interior — a fire you light, food you make — is Shelter & Stay.
+  // Until then stepping in out of the weather is worth having on its own, and
+  // it is the one action that is purely about stopping.
+  steading: {
+    verb: "step inside", badge: "Sheltered", range: 9, camera: "orbit",
+    lift: 0, inset: 0.55, instant: false,
+    note: "out of the weather, for a while",
+  },
   // The arch has no prompt. Driving through one IS the action, and asking
   // permission first would spoil the only landmark you meet at speed.
   arch: {

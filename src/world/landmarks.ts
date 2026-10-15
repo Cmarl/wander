@@ -18,7 +18,14 @@ import { heightAt, slopeAt, moistureAt, temperatureAt, slotRandom } from "./fiel
 export const LANDMARK_CELL = 2200;
 const OCCUPANCY = 0.54;
 
-export type LandmarkKind = "lookout" | "arch" | "mast" | "spring" | "lonetree" | "wreck";
+export type LandmarkKind =
+  | "lookout"
+  | "arch"
+  | "mast"
+  | "spring"
+  | "lonetree"
+  | "wreck"
+  | "steading";
 
 /**
  * Naming.
@@ -70,6 +77,18 @@ export const LANDMARK_NAMES: Record<LandmarkKind, string> = {
   spring: "Hot Spring",
   lonetree: "Lone Tree",
   wreck: "Abandoned Truck",
+  steading: "Steading",
+};
+
+/**
+ * Where a kind's variants deserve their own noun.
+ *
+ * A steading is a cabin, a barn or a line shack depending on which one got
+ * built — calling all three "Steading" would waste the only kind whose
+ * variants are different BUILDINGS rather than different conditions.
+ */
+export const VARIANT_NAMES: Partial<Record<LandmarkKind, string[]>> = {
+  steading: ["Cabin", "Barn", "Line Shack"],
 };
 
 /** Local-space collision circles, so you can drive *through* an arch. */
@@ -102,6 +121,13 @@ export const LANDMARK_SOLIDS: Record<LandmarkKind, { dx: number; dz: number; r: 
   spring: [],
   lonetree: [{ dx: 0, dz: 0, r: 1.9 }],
   wreck: [{ dx: 0, dz: 0, r: 2.4 }],
+  // Covers the largest variant, the barn, so collision never depends on which
+  // building got built — the same per-kind simplification as the lookout.
+  steading: [
+    { dx: 0, dz: 0, r: 3.6 },
+    { dx: -3.4, dz: 0, r: 2.1 },
+    { dx: 3.4, dz: 0, r: 2.1 },
+  ],
 };
 
 export interface Landmark {
@@ -153,6 +179,10 @@ export function landmarkInCell(gx: number, gz: number): Landmark | null {
   if (moist < 0.70 && y > 80 && y < 1500) options.push("lonetree");
   // Rarer than the rest, or every other cell would be a dead truck.
   if (slotRandom(gx, gz, 967) > 0.82) options.push("wreck");
+  // Somebody chose to live here, so the ground has to be worth living on:
+  // low, sheltered, with something growing. Gated to keep a lone building on a
+  // far slope an event rather than scenery.
+  if (y > 20 && y < 1100 && moist > 0.3 && slotRandom(gx, gz, 1013) > 0.72) options.push("steading");
   if (!options.length) return null;
 
   const kind = options[Math.min(options.length - 1, Math.floor(pick * options.length))];
@@ -170,12 +200,13 @@ export function landmarkInCell(gx: number, gz: number): Landmark | null {
     middlePick < 0.55
       ? terrainWord(y, slopeAt(x, z, 14), temp, moist)
       : LANDFORMS[Math.min(LANDFORMS.length - 1, Math.floor(slotRandom(gx, gz, 991) * LANDFORMS.length))];
-  const name = `${lead} ${middle} ${LANDMARK_NAMES[kind]}`;
-
   // Variant and wear are independent hashes, so the same kind is rarely the
   // same object twice: a burnt lookout, a weathered one, a pristine one.
   const variant = Math.floor(slotRandom(gx, gz, 997) * 3) % 3;
   const wear = slotRandom(gx, gz, 1009);
+
+  const noun = VARIANT_NAMES[kind]?.[variant] ?? LANDMARK_NAMES[kind];
+  const name = `${lead} ${middle} ${noun}`;
 
   return {
     id: `${gx},${gz}`,
