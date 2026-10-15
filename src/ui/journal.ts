@@ -1,4 +1,5 @@
 import type { Discoveries, Found } from "../game/discovery";
+import { exportCode, importCode } from "../game/save";
 
 /**
  * The field journal.
@@ -156,7 +157,7 @@ export class Journal {
   }
 
   private async copy() {
-    const code = this.found.exportCode();
+    const code = exportCode(this.found);
     try {
       await navigator.clipboard.writeText(code);
       this.flash("save copied — paste it on another device");
@@ -168,8 +169,15 @@ export class Journal {
   private async paste() {
     try {
       const code = await navigator.clipboard.readText();
-      const added = this.found.importCode(code);
+      const { added, full } = importCode(code, this.found);
       this.render();
+      if (full) {
+        // Position, pins and paint are read at startup, so they only take
+        // effect on a reload. Saying so beats looking like nothing happened.
+        this.flash(`restored — ${added} new finds, reloading`);
+        setTimeout(() => location.reload(), 1400);
+        return;
+      }
       this.flash(added ? `restored — ${added} new` : "restored — nothing new");
     } catch {
       this.flash("couldn't read a save from the clipboard");

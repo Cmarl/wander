@@ -16,6 +16,7 @@ import { Dust, Birds } from "./world/particles";
 import { Wildlife } from "./world/wildlife";
 import { surfaceAt, moistureAt, treeDensityAt, slopeAt } from "./world/field";
 import { findSpawn } from "./world/spawn";
+import { lastPlace, rememberPlace } from "./game/save";
 import { heightAt, biomeNameAt } from "./world/field";
 import { regionAt } from "./world/regions";
 import { Environment } from "./game/environment";
@@ -83,10 +84,17 @@ const atParam = new URLSearchParams(location.search).get("at");
 const atMatch = atParam?.match(/^(-?\d+(?:\.\d+)?),(-?\d+(?:\.\d+)?)$/);
 // A shared postcard puts you exactly where the photographer stood. The world is
 // a pure function, so no lookup is needed — the coordinates ARE the place.
+//
+// Otherwise you resume where you left off. An explicit ?at= always wins: you
+// followed a link to a specific place and that is what you asked for.
+const resume = atMatch ? null : lastPlace();
 const spawn = atMatch
   ? new THREE.Vector2(Number(atMatch[1]), Number(atMatch[2]))
-  : findSpawn();
+  : resume
+    ? new THREE.Vector2(resume.x, resume.z)
+    : findSpawn();
 const player = new Player(camera, spawn);
+if (resume) player.distanceTravelled = resume.odo;
 scene.add(player.group);
 
 const sound = new Soundscape();
@@ -478,9 +486,21 @@ let fps = 60;
 let slowFrames = 0;
 let booted = false;
 
+/**
+ * Writing where you are every frame would hit localStorage sixty times a
+ * second for no benefit; four seconds means the worst case is losing the last
+ * few seconds of a drive.
+ */
+let placeSaveIn = 4;
+
 function frame(now: number) {
   requestAnimationFrame(frame);
   const dt = Math.min(0.05, (now - last) / 1000);
+  placeSaveIn -= dt;
+  if (placeSaveIn <= 0) {
+    placeSaveIn = 4;
+    rememberPlace(player.position.x, player.position.z, player.distanceTravelled);
+  }
   last = now;
   fps += (1 / Math.max(dt, 1e-4) - fps) * 0.08;
 
@@ -887,6 +907,14 @@ function frame(now: number) {
     boot.classList.add("gone");
     setTimeout(() => boot.remove(), 1000);
   }
+}
+
+// Closing the tab or backgrounding the app mid-drive should still be captured;
+// pagehide fires on mobile where unload does not.
+for (const ev of ["pagehide", "visibilitychange"]) {
+  addEventListener(ev, () =>
+    rememberPlace(player.position.x, player.position.z, player.distanceTravelled)
+  );
 }
 
 requestAnimationFrame(frame);
