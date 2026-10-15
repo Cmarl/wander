@@ -265,6 +265,18 @@ html, body {
 .pin-lead.drop { pointer-events: auto; }
 .pin-lead.drop::after { content: "\00d7"; margin-left: 8px; opacity: 0.7; font-size: 12px; }
 
+/* A rumour has to be noticed and has to say what to do about it. */
+.toast.big { padding: 14px 20px; }
+.toast.big #h-toast-name { font-size: 15px; line-height: 1.35; }
+.toast-hint {
+  display: block;
+  margin-top: 7px;
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  opacity: 0.72;
+  color: #e2c069;
+}
+
 .camp {
   position: absolute;
   left: 50%;

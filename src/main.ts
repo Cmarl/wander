@@ -640,7 +640,12 @@ function hearRumour(gx: number, gz: number, salt: number, x: number, z: number, 
     region: r.region,
     about: r.short,
   });
-  hud.announce(r.text, fresh ? from : `${from}, again`);
+  hud.announce(r.text, fresh ? from : `${from}, again`, {
+    big: true,
+    hint: controls.isTouch
+      ? "open the journal, then REGISTER — tap “pin it” to put it on your compass"
+      : "press J for the journal — “pin it” puts it on your compass",
+  });
 }
 
 /**

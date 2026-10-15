@@ -85,6 +85,7 @@ export class Hud {
   private toastEl!: HTMLElement;
   private toastNameEl!: HTMLElement;
   private toastKickEl!: HTMLElement;
+  private toastHintEl!: HTMLElement;
   private toastTimer = 0;
   private glassEl!: HTMLElement;
   private marksEl!: HTMLElement;
@@ -150,7 +151,7 @@ export class Hud {
       </div>
       <div class="glass" id="h-glass"><div class="glass-recticle"></div></div>
       <div class="marks" id="h-marks"></div>
-      <div class="toast" id="h-toast"><span class="toast-kicker" id="h-toast-kick"></span><span id="h-toast-name"></span></div>
+      <div class="toast" id="h-toast"><span class="toast-kicker" id="h-toast-kick"></span><span id="h-toast-name"></span><span class="toast-hint" id="h-toast-hint"></span></div>
       ${
         controls.isTouch
           ? `<div class="stick" id="h-stick"><div class="knob" id="h-knob"></div></div>
@@ -246,6 +247,7 @@ export class Hud {
     this.toastEl = document.getElementById("h-toast")!;
     this.toastNameEl = document.getElementById("h-toast-name")!;
     this.toastKickEl = document.getElementById("h-toast-kick")!;
+    this.toastHintEl = document.getElementById("h-toast-hint")!;
     this.whoEl = document.getElementById("h-who")!;
     this.whoEl.addEventListener("pointerdown", (e) => {
       e.stopPropagation();
@@ -356,13 +358,28 @@ export class Hud {
    * which reads like the discovery firing a second time. Each caller now says
    * what kind of event this is, or nothing at all.
    */
-  announce(name: string, kicker = "") {
+  announce(name: string, kicker = "", opts?: { big?: boolean; hint?: string }) {
     this.toastKickEl.textContent = kicker;
     this.toastKickEl.style.display = kicker ? "" : "none";
     this.toastNameEl.textContent = name;
+    /**
+     * Some things need to be unmissable and need to say what to do next.
+     *
+     * Clyde: "those events when you get a 'heard about' clue don't give a UI
+     * indication when it's found. needs to be in your face with info on where
+     * to find that menu to pin it." He only discovered rumours at all by
+     * stumbling into the journal.
+     *
+     * A hint line and a bigger, longer-held toast — still a toast, because the
+     * calm spine says a modal that stops the world is worse than one you can
+     * read while driving.
+     */
+    this.toastHintEl.textContent = opts?.hint ?? "";
+    this.toastHintEl.style.display = opts?.hint ? "" : "none";
+    this.toastEl.classList.toggle("big", !!opts?.big);
     this.toastEl.classList.add("on");
     clearTimeout(this.toastTimer);
-    this.toastTimer = window.setTimeout(() => this.toastEl.classList.remove("on"), 4200);
+    this.toastTimer = window.setTimeout(() => this.toastEl.classList.remove("on"), opts?.big ? 8000 : 4200);
   }
 
   /**
