@@ -260,48 +260,7 @@ html, body {
 .camp-btn.ghost { opacity: 0.6; }
 
 /* controls sheet */
-.help-btn {
-  position: absolute;
-  left: max(16px, env(safe-area-inset-left));
-  bottom: var(--bottom-safe);
-  pointer-events: auto;
-  padding: 7px 14px;
-  border-radius: 999px;
-  border: 1px solid rgba(255, 255, 255, 0.22);
-  background: rgba(12, 16, 24, 0.4);
-  backdrop-filter: blur(8px);
-  -webkit-backdrop-filter: blur(8px);
-  color: var(--ink);
-  font: inherit;
-  font-size: 11.5px;
-  letter-spacing: 0.1em;
-  opacity: 0.6;
-  transition: opacity 0.15s;
-}
-.help-btn:hover { opacity: 1; }
 
-.world-btn {
-  position: absolute;
-  left: max(16px, env(safe-area-inset-left));
-  bottom: calc(var(--bottom-safe) + 40px);
-  pointer-events: auto;
-  display: flex;
-  align-items: center;
-  gap: 7px;
-  padding: 7px 14px;
-  border-radius: 999px;
-  border: 1px solid rgba(255, 255, 255, 0.22);
-  background: rgba(12, 16, 24, 0.4);
-  backdrop-filter: blur(8px);
-  -webkit-backdrop-filter: blur(8px);
-  color: var(--ink);
-  font: inherit;
-  font-size: 11.5px;
-  letter-spacing: 0.1em;
-  opacity: 0.6;
-  transition: opacity 0.15s;
-}
-.world-btn:hover { opacity: 1; }
 .dot {
   width: 7px;
   height: 7px;
@@ -610,25 +569,6 @@ html, body {
 }
 
 /* journal */
-.journal-btn {
-  position: absolute;
-  left: max(16px, env(safe-area-inset-left));
-  bottom: calc(var(--bottom-safe) + 80px);
-  pointer-events: auto;
-  padding: 7px 14px;
-  border-radius: 999px;
-  border: 1px solid rgba(255, 255, 255, 0.22);
-  background: rgba(12, 16, 24, 0.4);
-  backdrop-filter: blur(8px);
-  -webkit-backdrop-filter: blur(8px);
-  color: var(--ink);
-  font: inherit;
-  font-size: 11.5px;
-  letter-spacing: 0.1em;
-  opacity: 0.6;
-  transition: opacity 0.15s;
-}
-.journal-btn:hover { opacity: 1; }
 
 .journal .sheet-card { width: min(460px, 90vw); }
 .journal-list { max-height: 46dvh; overflow-y: auto; margin: 0 -4px; padding: 0 4px; }
@@ -671,14 +611,11 @@ html, body {
   .sub { font-size: 11.5px; }
   .compass { width: min(210px, 56vw); }
 
-  .help-btn, .journal-btn, .world-btn {
+  .hud-stack {
     bottom: auto;
     padding: 6px 11px;
     font-size: 10.5px;
   }
-  .help-btn { top: calc(var(--pad) + 108px); }
-  .journal-btn { top: calc(var(--pad) + 144px); }
-  .world-btn { top: calc(var(--pad) + 180px); }
 
   /* Must keep the chrome offset the base rule adds, or an embedded browser's
      toolbar sits straight on top of the controls in portrait. */
@@ -707,7 +644,7 @@ html, body {
 }
 
 /* Keep every edge-anchored control clear of notches and home indicators. */
-.buttons, .help-btn, .journal-btn, .world-btn, .photo, .panel-left, .panel-right {
+.buttons, .hud-stack, .photo, .panel-left, .panel-right {
   padding-left: max(0px, env(safe-area-inset-left));
   padding-right: max(0px, env(safe-area-inset-right));
 }
@@ -732,3 +669,79 @@ html, body {
 .who-row.on { border-color: rgba(127, 214, 255, 0.55); background: rgba(127, 214, 255, 0.12); }
 .who-row.on s { color: #7fd6ff; opacity: 0.9; }
 .who-empty { margin: 0; font-size: 12px; opacity: 0.45; }
+
+/* ---- the left-hand stack ------------------------------------------------ */
+/*
+ * One container rather than three separately positioned pills. Each used to
+ * size to its own label, so the right edges were ragged and the vertical
+ * rhythm came from hardcoded 40px offsets that didn't match the button height.
+ */
+.hud-stack {
+  position: absolute;
+  left: max(16px, env(safe-area-inset-left));
+  bottom: var(--bottom-safe);
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 7px;
+  pointer-events: none;
+}
+
+.hud-btn {
+  pointer-events: auto;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  min-width: 112px;
+  height: 30px;
+  padding: 0 14px;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  /* Neutral and cool rather than the old muddy navy, which went green-grey
+     against grass and disappeared against sky. */
+  background: rgba(8, 11, 16, 0.34);
+  backdrop-filter: blur(12px) saturate(1.15);
+  -webkit-backdrop-filter: blur(12px) saturate(1.15);
+  color: rgba(255, 255, 255, 0.76);
+  font: inherit;
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.13em;
+  white-space: nowrap;
+  transition: background 0.16s ease, color 0.16s ease, border-color 0.16s ease, transform 0.08s ease;
+}
+.hud-btn:hover {
+  background: rgba(255, 255, 255, 0.13);
+  border-color: rgba(255, 255, 255, 0.3);
+  color: rgba(255, 255, 255, 0.96);
+}
+.hud-btn:active { transform: scale(0.97); }
+
+/* Presence dot: a ring instead of a hard glow, so it reads as a state rather
+   than a notification demanding attention. */
+.dot {
+  width: 6px;
+  height: 6px;
+  flex: none;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.26);
+  transition: background 0.25s ease, box-shadow 0.25s ease;
+}
+.dot.online { background: #7fd98f; box-shadow: 0 0 0 3px rgba(127, 217, 143, 0.16); }
+.dot.connecting {
+  background: #e0c173;
+  box-shadow: 0 0 0 3px rgba(224, 193, 115, 0.16);
+  animation: pulse 1.2s ease-in-out infinite;
+}
+
+@media (orientation: portrait) {
+  /* Up out of the steering thumb's way, same as before — but now one move
+     instead of three that had to be kept in sync. */
+  .hud-stack { bottom: auto; top: calc(var(--pad) + 104px); gap: 6px; }
+  .hud-btn { min-width: 102px; height: 28px; font-size: 10.5px; letter-spacing: 0.1em; }
+}
+@media (orientation: landscape) and (max-height: 460px) {
+  .hud-stack { gap: 5px; }
+  .hud-btn { height: 26px; min-width: 96px; font-size: 10px; }
+}

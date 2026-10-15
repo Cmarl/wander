@@ -144,9 +144,11 @@ export class Hud {
              </div>`
           : ``
       }
-      <button class="help-btn" id="h-help">controls</button>
-      <button class="journal-btn" id="h-journal">journal</button>
-      <button class="world-btn" id="h-world"><span class="dot" id="h-dot"></span><span id="h-online">solo</span></button>
+      <div class="hud-stack">
+        <button class="hud-btn" id="h-journal">journal</button>
+        <button class="hud-btn" id="h-world"><span class="dot" id="h-dot"></span><span id="h-online">solo</span></button>
+        <button class="hud-btn" id="h-help">controls</button>
+      </div>
       <div class="sheet" id="h-world-sheet">
         <div class="sheet-card">
           <h2>World</h2>
