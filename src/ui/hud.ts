@@ -86,6 +86,9 @@ export class Hud {
   private pinLeadEl!: HTMLElement;
   /** Called when the player taps a marker through the glass. */
   onPinRequest?: (id: string) => void;
+  /** Tapping the name under the compass drops that pin. */
+  onPinDrop?: (id: string) => void;
+  private leadId: string | null = null;
   onRest?: (target: "dawn" | "dusk") => void;
   onJournal?: () => void;
   /** Tapping a name in the who's-here list. */
@@ -119,7 +122,7 @@ export class Hud {
         </div>
       </div>
       <div class="compass"><div class="compass-tape" id="h-compass"></div><div class="compass-needle"></div></div>
-      <div class="pin-lead" id="h-pin-lead"></div>
+      <button class="pin-lead" id="h-pin-lead"></button>
       <div class="prompt" id="h-prompt"></div>
       <div class="camp" id="h-camp">
         <div class="camp-where" id="h-camp-where"></div>
@@ -181,6 +184,10 @@ export class Hud {
     this.fpsEl = document.getElementById("h-fps")!;
     this.compassEl = document.getElementById("h-compass")!;
     this.pinLeadEl = document.getElementById("h-pin-lead")!;
+    this.pinLeadEl.addEventListener("pointerdown", (e) => {
+      e.stopPropagation();
+      if (this.leadId) this.onPinDrop?.(this.leadId);
+    });
     this.promptEl = document.getElementById("h-prompt")!;
     this.muteEl = document.getElementById("h-mute")!;
     this.muteEl.addEventListener("pointerdown", (e) => {
@@ -194,7 +201,9 @@ export class Hud {
 
     this.compassEl.innerHTML = CARDINALS.concat(CARDINALS.map(([d, n]) => [d + 360, n] as [number, string]))
       .concat(CARDINALS.map(([d, n]) => [d - 360, n] as [number, string]))
-      .map(([d, n]) => `<span style="left:${d * 2}px">${n}</span>`)
+      // N/E/S/W carry the reading, so they get full weight and the
+      // intercardinals stay quiet — legible at a glance without more ink.
+      .map(([d, n]) => `<span class="${n.length === 1 ? "card" : ""}" style="left:${d * 2}px">${n}</span>`)
       .join("");
 
     this.campEl = document.getElementById("h-camp")!;
@@ -378,7 +387,9 @@ export class Hud {
       el.dataset.id = m.id;
       el.classList.toggle("pinned", m.pinned);
       el.querySelector("b")!.textContent = m.name;
-      el.querySelector("s")!.textContent = `${m.km.toFixed(1)} km`;
+      el.querySelector("s")!.textContent = m.pinned
+        ? `${m.km.toFixed(1)} km · pinned`
+        : `${m.km.toFixed(1)} km`;
     }
   }
 
@@ -392,7 +403,10 @@ export class Hud {
    * goes on its own line below the compass, outside the clipping box, for
    * whichever pin you're actually facing.
    */
-  setPins(pins: { name: string; bearing: number; km: number; live?: boolean }[], headingDeg: number) {
+  setPins(
+    pins: { name: string; bearing: number; km: number; live?: boolean; id?: string }[],
+    headingDeg: number
+  ) {
     while (this.pinEls.length < pins.length) {
       const el = document.createElement("span");
       el.className = "pin";
@@ -401,7 +415,7 @@ export class Hud {
       this.pinEls.push(el);
     }
 
-    let lead: { name: string; km: number } | null = null;
+    let lead: { name: string; km: number; id?: string } | null = null;
     let leadOff = 999;
 
     for (let i = 0; i < this.pinEls.length; i++) {
@@ -428,6 +442,9 @@ export class Hud {
     const show = lead !== null && leadOff < 32;
     this.pinLeadEl.textContent = show && lead ? `${lead.name} · ${lead.km.toFixed(1)} km` : "";
     this.pinLeadEl.classList.toggle("on", show);
+    // A followed player isn't a pin and has no id, so it gets no drop affordance.
+    this.leadId = show && lead?.id ? lead.id : null;
+    this.pinLeadEl.classList.toggle("drop", this.leadId !== null);
   }
 
   setMuted(muted: boolean) {

@@ -58,6 +58,12 @@ html, body {
      sliced off at the bottom by overflow:hidden on every device. */
   height: 40px;
   overflow: hidden;
+  /* A soft wash behind the tape. Letters at 0.72 opacity over bare sky were
+     fine against dusk and nearly gone against snow or noon cloud; the whole
+     point of a compass is being readable without being looked at. The
+     horizontal mask fades this out at both ends along with the lettering, so
+     it reads as a hint of shade rather than a bar across the view. */
+  background: radial-gradient(ellipse 60% 100% at 50% 0%, rgba(8, 12, 18, 0.46), transparent 70%);
   mask-image: linear-gradient(90deg, transparent, #000 22%, #000 78%, transparent);
   -webkit-mask-image: linear-gradient(90deg, transparent, #000 22%, #000 78%, transparent);
 }
@@ -65,20 +71,40 @@ html, body {
 .compass-tape span {
   position: absolute;
   transform: translateX(-50%);
-  font-size: 12px;
+  font-size: 11px;
   font-weight: 600;
-  opacity: 0.72;
+  /* Intercardinals are scale, not information — they stay quiet. */
+  opacity: 0.5;
   letter-spacing: 0.08em;
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.75);
+}
+.compass-tape span.card {
+  font-size: 13px;
+  font-weight: 700;
+  opacity: 0.97;
+  letter-spacing: 0.1em;
 }
 .compass-needle {
   position: absolute;
   left: 50%;
   top: 0;
-  width: 1.5px;
-  height: 7px;
-  margin-left: -0.75px;
+  width: 2px;
+  height: 10px;
+  margin-left: -1px;
   background: var(--ink);
-  opacity: 0.85;
+  opacity: 0.95;
+  box-shadow: 0 0 5px rgba(0, 0, 0, 0.6);
+}
+/* A cap on the needle, so where you are facing is a mark and not just a tick. */
+.compass-needle::before {
+  content: "";
+  position: absolute;
+  left: 50%;
+  top: 0;
+  transform: translateX(-50%);
+  border-left: 4px solid transparent;
+  border-right: 4px solid transparent;
+  border-top: 5px solid var(--ink);
 }
 
 /* prompt */
@@ -187,6 +213,11 @@ html, body {
 .mark b { font-size: 11px; font-weight: 600; letter-spacing: 0.06em; opacity: 0.9; }
 .mark s { font-size: 10px; text-decoration: none; opacity: 0.5; }
 .mark.pinned i { background: #e2c069; border-color: #e2c069; }
+/* Pinned has to be obvious at a glance — a filled dot alone was too subtle to
+   tell apart from an unpinned one while sweeping the binoculars. */
+.mark.pinned { box-shadow: inset 0 0 0 1px rgba(226, 192, 105, 0.5); }
+.mark.pinned b { color: #e2c069; opacity: 1; }
+.mark.pinned s { opacity: 0.72; }
 
 .pin {
   position: absolute;
@@ -205,11 +236,22 @@ html, body {
 .pin s { text-decoration: none; font-size: 9px; font-weight: 600; opacity: 0.8; }
 
 /* Outside the compass, so it can never be clipped or masked. */
+/* A button, because dropping a pin by facing it and tapping the name is the
+   whole unpin flow — the alternative was raising the binoculars, finding the
+   marker again and tapping that. */
 .pin-lead {
   position: absolute;
   top: calc(var(--pad) + 42px);
   left: 50%;
   transform: translateX(-50%);
+  appearance: none;
+  border: 0;
+  background: rgba(8, 12, 18, 0.34);
+  border-radius: 999px;
+  padding: 3px 10px;
+  font: inherit;
+  cursor: pointer;
+  pointer-events: none;
   font-size: 10px;
   font-weight: 600;
   letter-spacing: 0.1em;
@@ -219,7 +261,9 @@ html, body {
   opacity: 0;
   transition: opacity 0.3s;
 }
-.pin-lead.on { opacity: 0.82; }
+.pin-lead.on { opacity: 0.88; }
+.pin-lead.drop { pointer-events: auto; }
+.pin-lead.drop::after { content: "\00d7"; margin-left: 8px; opacity: 0.7; font-size: 12px; }
 
 .camp {
   position: absolute;

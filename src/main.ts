@@ -153,6 +153,8 @@ const netFacade = {
 
 const hud = new Hud(controls, sound, netFacade);
 hud.onPinRequest = (id) => togglePin(id);
+// Tapping the name under the compass drops that pin — face it, tap it, gone.
+hud.onPinDrop = (id) => dropPin(id);
 // Following someone is a live bearing, not a saved place — they move, and it
 // lapses the moment they leave.
 let followId: number | null = null;
@@ -326,16 +328,46 @@ try {
 }
 const savePins = () => localStorage.setItem("wander.pins", JSON.stringify(pins));
 
+/**
+ * Arriving retires a pin.
+ *
+ * A pin is an intention. Standing at the thing is that intention fulfilled,
+ * so leaving the marker up turns the compass into a to-do list you have to
+ * tidy by hand. The radius is deliberately tight — a lookout is about twenty
+ * metres across, so sixty metres means you are at its feet, not merely
+ * driving past in the same valley.
+ */
+const ARRIVE_M = 60;
+
+/**
+ * Unpin by id, without needing the landmark loaded.
+ *
+ * Dropping used to go through togglePin, which looked the landmark up in the
+ * loaded set first — so a pin you had driven away from could not be dropped.
+ */
+function dropPin(id: string, kicker = "unpinned") {
+  const at = pins.findIndex((p) => p.id === id);
+  if (at < 0) return;
+  const [gone] = pins.splice(at, 1);
+  savePins();
+  hud.announce(gone.name, kicker);
+  sound.moment();
+}
+
 function togglePin(id: string) {
+  if (pins.some((p) => p.id === id)) {
+    dropPin(id);
+    return;
+  }
   const lm = landmarks.loaded.find((l) => l.id === id);
   if (!lm) return;
-  const at = pins.findIndex((p) => p.id === id);
-  if (at >= 0) pins.splice(at, 1);
-  else {
-    pins.push({ id, name: lm.name, x: lm.x, z: lm.z });
-    if (pins.length > MAX_PINS) pins.shift();
-  }
+  pins.push({ id, name: lm.name, x: lm.x, z: lm.z });
+  // Three is the cap. Saying what fell off is the difference between knowing
+  // why a pin went away and watching one silently vanish.
+  const dropped = pins.length > MAX_PINS ? pins.shift() : null;
   savePins();
+  hud.announce(dropped ? `${lm.name} — dropped ${dropped.name}` : lm.name, "pinned");
+  sound.moment();
 }
 
 const projected = new THREE.Vector3();
@@ -718,10 +750,17 @@ function frame(now: number) {
   glassing();
   camera.getWorldDirection(dir);
   const headingDeg = ((((Math.atan2(dir.x, -dir.z) * 180) / Math.PI) % 360) + 360) % 360;
-  const marks: { name: string; bearing: number; km: number; live?: boolean }[] = pins.map((p) => {
+  for (let i = pins.length - 1; i >= 0; i--) {
+    const p = pins[i];
+    if (Math.hypot(p.x - player.position.x, p.z - player.position.z) > ARRIVE_M) continue;
+    dropPin(p.id, "arrived");
+  }
+
+  const marks: { name: string; bearing: number; km: number; live?: boolean; id?: string }[] = pins.map((p) => {
     const dx = p.x - player.position.x;
     const dz = p.z - player.position.z;
     return {
+      id: p.id,
       name: p.name,
       bearing: ((Math.atan2(dx, -dz) * 180) / Math.PI + 360) % 360,
       km: Math.hypot(dx, dz) / 1000,
