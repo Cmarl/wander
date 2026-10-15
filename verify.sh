@@ -70,4 +70,32 @@ for needle in "terrainHeight" "Fire Lookout" "uCrush" "wander.pins" "drag to fra
 done
 [ "$FAIL" = 0 ] || { echo "FAIL: content assertions"; exit 1; }
 
+# 5. DOES IT ACTUALLY BOOT.
+#
+#    Everything above only proves the right bytes are being served. For six
+#    deploys this script passed green while the game was dead on arrival — a
+#    crash at module load, so nothing ran, and asserting that strings exist in
+#    a bundle cannot see that. Grepping a corpse still finds the right words.
+#
+#    This loads the live page in a real browser and looks for #h-clock, which
+#    is written by the HUD constructor. It can only exist if module init got
+#    all the way through and the game started, so it is a genuine assertion
+#    that the splash proceeds rather than a proxy for one.
+BRAVE="/Applications/Brave Browser.app/Contents/MacOS/Brave Browser"
+if [ -x "$BRAVE" ]; then
+  for attempt in 1 2 3; do
+    DOM=$("$BRAVE" --headless --disable-gpu --no-sandbox --enable-unsafe-swiftshader \
+      --virtual-time-budget=20000 --user-data-dir="$(mktemp -d)" \
+      --dump-dom "$BASE/" 2>/dev/null || true)
+    case "$DOM" in
+      *h-clock*) echo "5. BOOTS   HUD present, so init completed  (attempt $attempt)"; BOOTED=1; break ;;
+      *) BOOTED=0 ;;
+    esac
+    sleep 4
+  done
+  [ "${BOOTED:-0}" = 1 ] || { echo "5. FAIL: served page never built the HUD — it is not getting past the splash"; exit 1; }
+else
+  echo "5. SKIP    no browser available to check the boot"
+fi
+
 echo "VERIFIED $LOCAL"

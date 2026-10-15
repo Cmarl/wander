@@ -1,0 +1,23 @@
+<!doctype html><meta charset=utf8>
+<!-- Loads the real game with an error trap installed first, to catch a boot crash. -->
+<body style="margin:0;background:#111;color:#ddd;font:12px monospace">
+<canvas id="view"></canvas><div id="ui"></div><div id="boot"><p>shaping the land…</p></div><pre id=trap></pre>
+<script>
+window.__errs = [];
+const note = (s) => { window.__errs.push(s); document.getElementById("trap").textContent = window.__errs.join("\n\n"); };
+window.addEventListener("error", (e) => note("ERROR: " + (e.message || "") + "\n" + (e.error && e.error.stack ? e.error.stack : "")));
+window.addEventListener("unhandledrejection", (e) => note("REJECTION: " + (e.reason && e.reason.stack ? e.reason.stack : String(e.reason))));
+setTimeout(() => {
+  const booted = !!document.getElementById("h-clock");
+  const splashGone = !document.getElementById("boot") || document.getElementById("boot").classList.contains("gone") || getComputedStyle(document.getElementById("boot")).opacity === "0";
+  const body = (window.__errs.length ? window.__errs.join("\n\n") : "NO ERRORS CAUGHT")
+    + "\nHUD built (past boot): " + booted + "\nsplash dismissed: " + splashGone;
+  fetch("http://127.0.0.1:8914/", { method: "POST", body: "boottrap|" + body }).catch(() => {});
+}, 12000);
+</script>
+<script type="module">
+  import("../src/main.ts").catch((e) => {
+    window.__errs.push("IMPORT THREW: " + (e && e.stack ? e.stack : String(e)));
+    document.getElementById("trap").textContent = window.__errs.join("\n\n");
+  });
+</script>

@@ -32,6 +32,21 @@ export interface Layer {
 export const box = (w: number, h: number, d: number) => new THREE.BoxGeometry(w, h, d);
 
 export function merge(parts: THREE.BufferGeometry[]): THREE.BufferGeometry {
+  /**
+   * An empty list is legitimate and must not throw.
+   *
+   * A barn has no stove, so its interior's "dark" parts list is empty, and
+   * mergeGeometries dereferences the first element without checking — which
+   * took the whole game down at module load, because the building kit is built
+   * at module scope. Six deploys shipped on top of it.
+   *
+   * Zero vertices draws nothing, which is exactly what no parts should mean.
+   */
+  if (!parts.length) {
+    const empty = new THREE.BufferGeometry();
+    empty.setAttribute("position", new THREE.BufferAttribute(new Float32Array(0), 3));
+    return empty;
+  }
   // Icosahedrons come back non-indexed and cylinders indexed; mergeGeometries
   // refuses a mixed list, so everything is flattened first.
   const flat = parts.map((g) => (g.index ? g.toNonIndexed() : g));
