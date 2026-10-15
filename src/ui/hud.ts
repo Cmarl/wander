@@ -96,6 +96,13 @@ export class Hud {
   private whoEl!: HTMLElement;
   private whoSig = "";
   onStrikeCamp?: () => void;
+  onLightFire?: () => void;
+  private fireEl!: HTMLElement;
+  private eatEl!: HTMLElement;
+  private restDawnEl!: HTMLElement;
+  private restDuskEl!: HTMLElement;
+  private strikeEl!: HTMLElement;
+  onEat?: () => void;
   private campEl!: HTMLElement;
   private campWhereEl!: HTMLElement;
   private dotEl!: HTMLElement;
@@ -127,6 +134,8 @@ export class Hud {
       <div class="camp" id="h-camp">
         <div class="camp-where" id="h-camp-where"></div>
         <div class="camp-acts">
+          <button class="camp-btn" id="h-fire">light the fire</button>
+          <button class="camp-btn" id="h-eat">make something to eat</button>
           <button class="camp-btn" id="h-rest-dawn">rest until dawn</button>
           <button class="camp-btn" id="h-rest-dusk">rest until dusk</button>
           <button class="camp-btn ghost" id="h-strike">break camp</button>
@@ -207,6 +216,11 @@ export class Hud {
       .join("");
 
     this.campEl = document.getElementById("h-camp")!;
+    this.fireEl = document.getElementById("h-fire")!;
+    this.eatEl = document.getElementById("h-eat")!;
+    this.restDawnEl = document.getElementById("h-rest-dawn")!;
+    this.restDuskEl = document.getElementById("h-rest-dusk")!;
+    this.strikeEl = document.getElementById("h-strike")!;
     this.campWhereEl = document.getElementById("h-camp-where")!;
     const tap = (id: string, fn: () => void) =>
       document.getElementById(id)!.addEventListener("pointerdown", (e) => {
@@ -214,6 +228,8 @@ export class Hud {
         fn();
       });
     tap("h-journal", () => this.onJournal?.());
+    tap("h-fire", () => this.onLightFire?.());
+    tap("h-eat", () => this.onEat?.());
     tap("h-rest-dawn", () => this.onRest?.("dawn"));
     tap("h-rest-dusk", () => this.onRest?.("dusk"));
     tap("h-strike", () => this.onStrikeCamp?.());
@@ -342,15 +358,41 @@ export class Hud {
     this.toastTimer = window.setTimeout(() => this.toastEl.classList.remove("on"), 4200);
   }
 
-  setCamp(on: boolean, where: string | null, resting: boolean, held = false) {
+  /**
+   * The stay panel, used by a camp and by a building alike.
+   *
+   * Both are the same moment — you have stopped, there is a fire, and the
+   * question is what you do with the time — so they share one panel rather
+   * than growing a second one that would drift out of step with it.
+   */
+  setCamp(
+    on: boolean,
+    where: string | null,
+    resting: boolean,
+    held = false,
+    stay?: { fire: boolean; indoors: boolean }
+  ) {
     this.campEl.classList.toggle("on", on);
     this.campEl.classList.toggle("resting", resting);
-    // Leaning on the tether explains the way out, rather than just stopping you.
-    this.campWhereEl.textContent = held
-      ? "break camp to move on"
-      : where
-        ? `camped at ${where}`
-        : "camped";
+
+    const indoors = !!stay?.indoors;
+    // Indoors the fire has to be lit before resting or eating means anything;
+    // a camp arrives with one already burning.
+    const lit = stay ? stay.fire : true;
+    this.fireEl.style.display = indoors && !lit ? "" : "none";
+    this.eatEl.style.display = lit ? "" : "none";
+    for (const el of [this.restDawnEl, this.restDuskEl]) el.style.display = lit ? "" : "none";
+    this.strikeEl.textContent = indoors ? "step back outside" : "break camp";
+
+    this.campWhereEl.textContent = indoors
+      ? lit
+        ? `inside ${where ?? "shelter"} · the fire is going`
+        : `inside ${where ?? "shelter"} · cold and dark`
+      : held
+        ? "break camp to move on"
+        : where
+          ? `camped at ${where}`
+          : "camped";
   }
 
   setGlassing(on: boolean) {

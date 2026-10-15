@@ -204,7 +204,61 @@ hud.onFollow = (id) => {
   followId = followId === id ? null : id;
 };
 hud.onRest = (t) => camp.rest(t, env.timeOfDay);
-hud.onStrikeCamp = () => camp.strike();
+hud.onStrikeCamp = () => leaveShelter();
+
+/**
+ * Stepping back outside, or breaking camp — the same button either way.
+ *
+ * Indoors the fire and the room are two separate pieces of state, so leaving
+ * has to put out the one and release the other; doing only the first left you
+ * standing in a dark room with no way out but the interact key.
+ */
+function leaveShelter() {
+  if (features.indoors) features.release();
+  camp.strike();
+}
+
+/**
+ * Lighting the fire.
+ *
+ * The hearth is a camp — the same stones, flames and point light, smaller and
+ * sat on the floor. Reusing it means resting indoors goes through the rest
+ * clock that already works, rather than a second copy of it that would drift.
+ */
+hud.onLightFire = () => {
+  if (!features.indoors || camp.active) return;
+  const h = features.hearth(new THREE.Vector3());
+  camp.pitch(h.x, h.z, features.held!.lm.name, { y: h.y, indoors: true });
+  sound.setFire(1);
+  hud.announce("the fire takes", "");
+};
+
+/**
+ * Making something to eat.
+ *
+ * Deliberately not a stat. There is no hunger in this game and adding one
+ * would turn stopping somewhere warm into a chore with a timer — the exact
+ * opposite of the point. It is worth doing because it is a nice thing to do,
+ * and the journal remembers the first time.
+ */
+hud.onEat = () => {
+  if (!camp.active) return;
+  const where = features.indoors ? features.held!.lm.name : camp.nearby;
+  const fresh = found.add({
+    id: "ate:first",
+    kind: "badge",
+    name: "Cooked a meal",
+    x: Math.round(player.position.x),
+    z: Math.round(player.position.z),
+    at: Date.now(),
+    tod: env.timeOfDay,
+    region: regionAt(player.position.x, player.position.z).name,
+  });
+  hud.announce(
+    fresh ? "something hot, for once" : where ? `something hot at ${where}` : "something hot",
+    ""
+  );
+};
 hud.onJournal = () => journal.toggle();
 
 const garage = new Garage();
@@ -709,7 +763,8 @@ function frame(now: number) {
     x: player.position.x,
     z: player.position.z,
     biome: biomeNameAt(player.position.x, player.position.z),
-    musicDuck: camp.active ? 1 : 0,
+    musicDuck: camp.active || features.indoors ? 1 : 0,
+    indoors: features.indoors,
     onFoot: player.mode === "foot",
     speed: player.speed,
     grounded: player.grounded,
@@ -739,6 +794,10 @@ function frame(now: number) {
   if (controls.interact && placeWins) {
     if (features.held) {
       // Press again to get out. Nothing ever traps you somewhere.
+      // Indoors the fire belongs to the room, so it goes out with it —
+      // otherwise stepping outside left a hearth burning inside a building
+      // with the camp camera still pointed at it.
+      if (features.indoors) camp.strike();
       features.release();
       player.featureHold = null;
     } else if (offer) {
@@ -797,7 +856,11 @@ function frame(now: number) {
   }
   // While camped, the look input pans the fire camera rather than a yaw the
   // player can't see.
-  if (camp.active && (controls.look.x !== 0 || controls.look.y !== 0)) {
+  // Indoors the look input turns your head in the room; the camp camera is
+  // not driving at that point, so it must not also consume the gesture.
+  if (features.indoors && (controls.look.x !== 0 || controls.look.y !== 0)) {
+    features.look(controls.look.x, controls.look.y);
+  } else if (camp.active && (controls.look.x !== 0 || controls.look.y !== 0)) {
     camp.look(controls.look.x, controls.look.y);
   }
   const fire = camp.update(dt, env, (x, y, z) => {
@@ -809,11 +872,16 @@ function frame(now: number) {
   // and never stay settled into a place you have driven away from.
   if (camp.active && player.mode === "drive") camp.strike();
   if (features.held && player.mode === "drive") {
-    features.release();
+    leaveShelter();
     player.featureHold = null;
   }
 
-  if (features.held && features.held.spec.camera === "orbit") {
+  if (features.held && features.held.spec.camera === "inside") {
+    features.interiorTarget(campPos, campLook);
+    player.campCamera = { pos: campPos, look: campLook };
+    player.campAnchor = null;
+    player.holdYaw = null;
+  } else if (features.held && features.held.spec.camera === "orbit") {
     features.cameraTarget(campPos, campLook);
     player.campCamera = { pos: campPos, look: campLook };
     player.campAnchor = null;
@@ -828,7 +896,15 @@ function frame(now: number) {
     player.campAnchor = null;
     player.holdYaw = null;
   }
-  hud.setCamp(camp.active, camp.nearby, camp.resting, player.heldByCamp);
+  // The panel has to appear on stepping inside, before there is any fire, so
+  // that "light the fire" is reachable at all.
+  hud.setCamp(
+    camp.active || features.indoors,
+    features.indoors ? features.held!.lm.name : camp.nearby,
+    camp.resting,
+    player.heldByCamp,
+    features.indoors ? { fire: camp.active, indoors: true } : undefined
+  );
 
   glassing();
   signposts();

@@ -43,6 +43,79 @@ function shell(w: number, d: number, h: number, pitch: number, door: number) {
   return { walls: merge(walls), roof };
 }
 
+/**
+ * What is inside. One room, and simply there — no loading, no second scene,
+ * nothing that happens when you cross the threshold. You can see it through
+ * the doorway from outside, which is most of what makes a building feel like
+ * somewhere rather than a prop.
+ */
+function room(opts: {
+  w: number;
+  d: number;
+  /** Stove or hearth position. Null for a barn, which has neither. */
+  stove: [number, number] | null;
+  bed: boolean;
+  table: boolean;
+  bales: boolean;
+}): { timber: THREE.BufferGeometry; dark: THREE.BufferGeometry } {
+  const timber: THREE.BufferGeometry[] = [];
+  const dark: THREE.BufferGeometry[] = [];
+
+  const floor = box(opts.w - 0.5, 0.1, opts.d - 0.5);
+  floor.translate(0, 0.05, 0);
+  timber.push(floor);
+
+  if (opts.stove) {
+    const [sx, sz] = opts.stove;
+    const body = box(0.85, 0.95, 0.85);
+    body.translate(sx, 0.52, sz);
+    dark.push(body);
+    const plate = box(1.0, 0.1, 1.0);
+    plate.translate(sx, 1.03, sz);
+    dark.push(plate);
+    const flue = new THREE.CylinderGeometry(0.11, 0.11, 1.6, 6);
+    flue.translate(sx, 1.85, sz);
+    dark.push(flue);
+  }
+
+  if (opts.bed) {
+    const frame = box(1.85, 0.3, 0.95);
+    frame.translate(opts.w / 2 - 1.3, 0.3, -opts.d / 2 + 0.8);
+    timber.push(frame);
+    const bedding = box(1.75, 0.22, 0.88);
+    bedding.translate(opts.w / 2 - 1.3, 0.54, -opts.d / 2 + 0.8);
+    timber.push(bedding);
+  }
+
+  if (opts.table) {
+    const top = box(1.5, 0.08, 0.85);
+    top.translate(0, 0.78, opts.d / 2 - 1.5);
+    timber.push(top);
+    for (const [ox, oz] of [[-0.65, -0.33], [0.65, -0.33], [-0.65, 0.33], [0.65, 0.33]] as [number, number][]) {
+      const leg = box(0.08, 0.76, 0.08);
+      leg.translate(ox, 0.38, opts.d / 2 - 1.5 + oz);
+      timber.push(leg);
+    }
+    const stool = new THREE.CylinderGeometry(0.21, 0.21, 0.44, 7);
+    stool.translate(-1.1, 0.22, opts.d / 2 - 1.5);
+    timber.push(stool);
+    const shelf = box(1.6, 0.07, 0.34);
+    shelf.translate(-opts.w / 2 + 1.1, 1.7, -opts.d / 2 + 0.4);
+    timber.push(shelf);
+  }
+
+  if (opts.bales) {
+    for (let i = 0; i < 7; i++) {
+      const bale = box(1.0, 0.7, 0.7);
+      bale.rotateY(i * 0.3);
+      bale.translate(-opts.w / 2 + 1.2 + (i % 3) * 1.15, 0.37 + Math.floor(i / 3) * 0.72, -opts.d / 2 + 1.0 + (i % 2) * 0.8);
+      timber.push(bale);
+    }
+  }
+
+  return { timber: merge(timber), dark: merge(dark) };
+}
+
 function cabinLayers(): Layer[] {
   const s = shell(6.6, 5.2, 3.0, 2.0, 1.3);
   // A stone chimney is what makes a cabin a home rather than a shed, and it is
@@ -63,19 +136,25 @@ function cabinLayers(): Layer[] {
     panes.push(pane);
   }
 
+  const inside = room({ w: 6.6, d: 5.2, stove: [-2.4, -1.1], bed: true, table: true, bales: false });
+
   return [
     { geo: s.walls, colour: 0x8a7050 },
     { geo: s.roof, colour: 0x5a4a3e },
     { geo: merge(stack), colour: 0x8a8880 },
     { geo: merge(panes), colour: 0x9fc4d4 },
+    { geo: inside.timber, colour: 0x7b6950 },
+    { geo: inside.dark, colour: 0x3c3c40 },
   ];
 }
 
 function barnLayers(): Layer[] {
   const s = shell(10.4, 7.2, 4.8, 2.9, 3.0);
+  const inside = room({ w: 10.4, d: 7.2, stove: null, bed: false, table: false, bales: true });
   return [
     { geo: s.walls, colour: 0x7a4f42 },
     { geo: s.roof, colour: 0x6b7076 },
+    { geo: inside.timber, colour: 0x9a8457 },
   ];
 }
 
@@ -86,11 +165,14 @@ function shackLayers(): Layer[] {
   pipe.translate(-1.5, 3.3, -0.9);
   const pane = box(0.8, 0.62, 0.08);
   pane.translate(1.2, 1.5, 1.95);
+  const inside = room({ w: 4.2, d: 3.8, stove: [-1.3, -0.9], bed: true, table: false, bales: false });
   return [
     { geo: s.walls, colour: 0x938068 },
     { geo: s.roof, colour: 0x6f6257 },
     { geo: pipe, colour: 0x767c82 },
     { geo: pane, colour: 0x9fc4d4 },
+    { geo: inside.timber, colour: 0x857258 },
+    { geo: inside.dark, colour: 0x3c3c40 },
   ];
 }
 

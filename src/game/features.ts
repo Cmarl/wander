@@ -23,7 +23,7 @@ export interface ActionSpec {
   /** How close you have to be for the prompt to appear. */
   range: number;
   /** Where the camera goes while you're there. */
-  camera: "orbit" | "chase";
+  camera: "orbit" | "chase" | "inside";
   /** Vertical offset applied to the character while held. */
   lift: number;
   /** How close in you stand, as a fraction of range. */
@@ -64,9 +64,9 @@ export const ACTIONS: Record<LandmarkKind, ActionSpec> = {
   // Until then stepping in out of the weather is worth having on its own, and
   // it is the one action that is purely about stopping.
   steading: {
-    verb: "step inside", badge: "Sheltered", range: 9, camera: "orbit",
+    verb: "step inside", badge: "Sheltered", range: 9, camera: "inside",
     lift: 0, inset: 0.55, instant: false,
-    note: "out of the weather, for a while",
+    note: "out of the weather",
   },
   shipwreck: {
     verb: "climb aboard", badge: "Boarded", range: 13, camera: "orbit",
@@ -117,10 +117,31 @@ export const ACTIONS: Record<LandmarkKind, ActionSpec> = {
   },
 };
 
+/**
+ * Where you stand inside each build, and where its hearth is.
+ *
+ * Local to the building, before its rotation and scale, indexed by the
+ * steading variant — cabin, barn, line shack. A barn has no stove, so its fire
+ * goes on the floor where anyone sheltering in a barn would build one.
+ */
+const INTERIORS: {
+  eye: [number, number, number];
+  look: [number, number, number];
+  hearth: [number, number, number];
+}[] = [
+  // cabin
+  { eye: [1.7, 1.6, 1.5], look: [-1.8, 0.95, -0.9], hearth: [-2.4, 0.95, -1.1] },
+  // barn
+  { eye: [2.9, 1.8, 2.5], look: [-2.2, 1.0, -1.6], hearth: [1.8, 0.1, -0.4] },
+  // line shack
+  { eye: [0.9, 1.5, 1.1], look: [-1.1, 0.9, -0.7], hearth: [-1.3, 0.95, -0.9] },
+];
+
 export class Features {
   /** The place you're currently settled into, if any. */
   held: { lm: Landmark; spec: ActionSpec } | null = null;
   private orbit = 0;
+  private pitch = 0;
   private site = new THREE.Vector3();
 
   /** The nearest landmark offering a prompt, or null. */
@@ -160,7 +181,8 @@ export class Features {
       lm.z - (az / d) * inset
     );
     this.held = { lm, spec };
-    this.orbit = Math.atan2(from.x - lm.x, from.z - lm.z);
+    this.orbit = spec.camera === "inside" ? 0 : Math.atan2(from.x - lm.x, from.z - lm.z);
+    this.pitch = 0;
     return spec;
   }
 
@@ -169,12 +191,63 @@ export class Features {
   }
 
   update(dt: number) {
-    if (this.held) this.orbit += dt * 0.07;
+    // Indoors the view is yours to pan; everywhere else it drifts on its own.
+    if (this.held && this.held.spec.camera !== "inside") this.orbit += dt * 0.07;
+  }
+
+  /** True while settled somewhere with a roof. */
+  get indoors(): boolean {
+    return this.held?.spec.camera === "inside";
+  }
+
+  /** Pan the room, the same gesture as looking around a camp. */
+  look(dx: number, dy: number) {
+    if (!this.indoors) return;
+    this.orbit -= dx * 2.2;
+    this.pitch = Math.min(0.5, Math.max(-0.55, this.pitch - dy * 2.4));
+  }
+
+  /** Local-to-world, for anything positioned inside a building. */
+  private place(local: [number, number, number], out: THREE.Vector3): THREE.Vector3 {
+    const lm = this.held!.lm;
+    const c = Math.cos(lm.rot);
+    const sn = Math.sin(lm.rot);
+    const [lx, ly, lz] = local;
+    return out.set(
+      lm.x + (lx * c + lz * sn) * lm.scale,
+      lm.y + ly * lm.scale,
+      lm.z + (-lx * sn + lz * c) * lm.scale
+    );
+  }
+
+  /** Where this building's fire belongs, in world space. */
+  hearth(out: THREE.Vector3): THREE.Vector3 {
+    return this.place(INTERIORS[this.held!.lm.variant].hearth, out);
   }
 
   /** Where the character sits while settled. */
   holdPosition(out: THREE.Vector3): THREE.Vector3 {
     return out.copy(this.site);
+  }
+
+  /**
+   * Inside the room.
+   *
+   * The camera stands in the room and turns on the spot rather than orbiting
+   * the building, because orbiting would spend most of its time outside the
+   * walls looking at the back of them. There is no transition and no loading:
+   * the room is simply there, and the camera moves into it.
+   */
+  interiorTarget(out: THREE.Vector3, look: THREE.Vector3) {
+    const spec = INTERIORS[this.held!.lm.variant];
+    this.place(spec.eye, out);
+    this.place(spec.look, look);
+    // Panning swings the look point around the eye, so you turn your head.
+    const dx = look.x - out.x;
+    const dz = look.z - out.z;
+    const r = Math.hypot(dx, dz);
+    const a = Math.atan2(dz, dx) + this.orbit;
+    look.set(out.x + Math.cos(a) * r, look.y + this.pitch * r, out.z + Math.sin(a) * r);
   }
 
   /** Slow orbit of the place itself, for the sustained actions that want one. */

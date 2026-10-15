@@ -24,6 +24,8 @@ export type RestTarget = "dawn" | "dusk" | null;
 export class Camp {
   readonly group = new THREE.Group();
   active = false;
+  /** Lit inside a building rather than out in the open. */
+  indoors = false;
   /** Where the fire is, once lit. */
   readonly site = new THREE.Vector3();
   /** Name of the landmark we pitched next to, if any. */
@@ -81,9 +83,17 @@ export class Camp {
     this.group.visible = false;
   }
 
-  /** Pitch at the given spot. Returns the site so the caller can record it. */
-  pitch(x: number, z: number, nearby: string | null) {
-    this.site.set(x, heightAt(x, z), z);
+  /**
+   * Pitch at the given spot.
+   *
+   * A hearth indoors is the same object: a ring of stones, flames and a point
+   * light. Only smaller, and sat on a floor whose height the caller knows
+   * rather than on the terrain.
+   */
+  pitch(x: number, z: number, nearby: string | null, opts?: { y?: number; indoors?: boolean }) {
+    this.indoors = !!opts?.indoors;
+    this.group.scale.setScalar(this.indoors ? 0.7 : 1);
+    this.site.set(x, opts?.y ?? heightAt(x, z), z);
     this.group.position.copy(this.site);
     this.group.visible = true;
     this.active = true;
@@ -119,6 +129,7 @@ export class Camp {
 
   strike() {
     this.active = false;
+    this.indoors = false;
     this.restTarget = null;
     this.group.visible = false;
   }
