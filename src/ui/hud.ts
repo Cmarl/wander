@@ -28,7 +28,7 @@ const DESK_KEYS: [string, string][] = [
   ["Q", "raise binoculars"],
   ["F", "pin what you are looking at"],
   ["C", "make or break camp"],
-  ["J", "field journal"],
+  ["J", "journal — register, map and garage"],
   ["B", "horn"],
   ["V", "wave"],
   ["K", "change the paint"],
@@ -45,7 +45,7 @@ const TOUCH_KEYS: [string, string][] = [
   ["LOOK", "binoculars — tap a marker to pin it"],
   ["CAMP", "stop somewhere and light a fire"],
   ["GO", "cruise — holds the throttle so you only steer"],
-  ["journal", "everywhere you have been"],
+  ["journal", "register, map and garage"],
   ["pinch-free", "the whole left half is the stick"],
 ];
 

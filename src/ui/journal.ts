@@ -134,7 +134,11 @@ export class Journal {
 
   private map!: HTMLCanvasElement;
   private tabs!: HTMLElement;
-  private view: "register" | "map" = "register";
+  private view: "register" | "map" | "garage" = "register";
+  /** What you own and what is set, for the garage tab. */
+  stable: () => { owned: string[]; chosen: string; labels: Record<string, string>; stats: Record<string, string> } | null =
+    () => null;
+  onChooseVehicle?: (cls: string) => void;
   /** Turning a rumour into a marker, which only you can do. */
   onPinRumour?: (f: Found) => void;
   /** The dog, read live rather than from its journal line. */
@@ -155,6 +159,7 @@ export class Journal {
         <div class="journal-tabs" id="j-tabs">
           <button class="jtab on" data-view="register">register</button>
           <button class="jtab" data-view="map">map</button>
+          <button class="jtab" data-view="garage">garage</button>
         </div>
         <div class="journal-list" id="j-list"></div>
         <canvas class="journal-map" id="j-map" width="420" height="420"></canvas>
@@ -172,7 +177,7 @@ export class Journal {
     this.tabs = this.sheet.querySelector("#j-tabs")!;
     this.tabs.addEventListener("pointerdown", (e) => {
       e.stopPropagation();
-      const v = (e.target as HTMLElement).dataset?.view as "register" | "map" | undefined;
+      const v = (e.target as HTMLElement).dataset?.view as "register" | "map" | "garage" | undefined;
       if (!v || v === this.view) return;
       this.view = v;
       for (const b of this.tabs.children) b.classList.toggle("on", (b as HTMLElement).dataset.view === v);
@@ -210,8 +215,15 @@ export class Journal {
     // Pinning a rumour. Delegated, because entries are rebuilt on every open.
     this.list.addEventListener("pointerdown", (e) => {
       const id = (e.target as HTMLElement).dataset?.id;
-      if (!id) return;
+      if (!id && !(e.target as HTMLElement).dataset?.veh) return;
       e.stopPropagation();
+      const veh = (e.target as HTMLElement).dataset?.veh;
+      if (veh) {
+        e.stopPropagation();
+        this.onChooseVehicle?.(veh);
+        this.render();
+        return;
+      }
       const f = this.found.all().find((q) => q.id === id);
       if (!f) return;
       this.onPinRumour?.(f);
@@ -240,6 +252,10 @@ export class Journal {
     this.map.style.display = showMap ? "" : "none";
     if (showMap) {
       this.drawMap();
+      return;
+    }
+    if (this.view === "garage") {
+      this.drawGarage();
       return;
     }
 
@@ -304,6 +320,41 @@ export class Journal {
           `<div class="region-head"><b>${region}</b><s>${items.length} ${
             items.length === 1 ? "thing" : "things"
           }</s></div>` + items.map(entry).join("")
+      )
+      .join("");
+  }
+
+  /**
+   * The garage.
+   *
+   * Everything you have come across, and which one summoning brings. Reachable
+   * by touch, which a keyboard shortcut alone would not be — and this game gets
+   * played on a phone.
+   *
+   * No stat bars. "Quick, poor on hills" tells you what you need in the words
+   * you would use, and a bar chart would invite comparing numbers instead of
+   * picking the one that suits where you are going.
+   */
+  private drawGarage() {
+    const st = this.stable();
+    if (!st) {
+      this.list.innerHTML = "";
+      return;
+    }
+    this.note.textContent = "summoning brings whichever is set";
+    this.list.innerHTML = st.owned
+      .map(
+        (cls) => `<div class="entry garage-row${cls === st.chosen ? " set" : ""}">
+          <div class="entry-text">
+            <b>${st.labels[cls]}</b>
+            <s class="dim">${st.stats[cls]}</s>
+          </div>
+          ${
+            cls === st.chosen
+              ? `<span class="veh-set">yours</span>`
+              : `<button class="pin-it" data-veh="${cls}">set as yours</button>`
+          }
+        </div>`
       )
       .join("");
   }

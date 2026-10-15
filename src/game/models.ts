@@ -1,9 +1,9 @@
 import * as THREE from "three";
 
-const mat = (hex: number, rough = true) =>
+export const mat = (hex: number, rough = true) =>
   new THREE.MeshLambertMaterial({ color: hex, flatShading: rough });
 
-function box(w: number, h: number, d: number, m: THREE.Material) {
+export function box(w: number, h: number, d: number, m: THREE.Material) {
   return new THREE.Mesh(new THREE.BoxGeometry(w, h, d), m);
 }
 

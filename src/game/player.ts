@@ -2,7 +2,9 @@ import * as THREE from "three";
 import { heightAt, normalAt, slopeAt } from "../world/field";
 import { PropQuery } from "../world/props";
 import { DynamicShadow } from "../world/shadows";
-import { makeCharacter, makeVehicle, type Character, type Vehicle } from "./models";
+import { makeCharacter, type Character, type Vehicle } from "./models";
+import { SPECS, makeFor, type VehicleClass, type VehicleSpec } from "./vehicles";
+import { PAINTS } from "./paint";
 import type { Controls } from "../input/controls";
 
 const WALK = 2.3;
@@ -12,12 +14,10 @@ const JUMP = 7.2;
 const EYE = 1.55;
 
 // Drag sets the real ceiling: steady state is ACCEL/DRAG, so that has to clear
-// DRIVE_TOP or the clamp never comes into play and the truck feels capped low.
-const DRIVE_TOP = 48; // ~173 km/h
-const DRIVE_REVERSE = 13;
-const DRIVE_ACCEL = 27;
-const DRIVE_BRAKE = 30;
-const DRIVE_DRAG = 0.5; // 27 / 0.5 = 54 > DRIVE_TOP
+// this.spec.top or the clamp never comes into play and the truck feels capped low.
+// These now live on the vehicle spec — see game/vehicles.ts. They were
+// module constants when there was one vehicle, and a motorcycle that handles
+// exactly like a truck is just a truck with a different mesh.
 
 const MOUNT_RANGE = 4.5;
 /** Far enough that walking back would be a chore rather than a stroll. */
@@ -39,12 +39,9 @@ const FOLLOW_GRACE = 0.35;
 const GLASS_FOV = 13;
 
 const VEH_GRAVITY = 26;
-const VEH_JUMP = 10.5;
 /** Head-on closing speed above which a bump becomes a crash. */
 const CRASH_SPEED = 7;
-/** The truck as two circles along its spine — close enough to a 4.1x1.9 box. */
-const BODY_R = 1.15;
-const BODY_OFFSET = 1.25;
+/** Two circles along the spine. Radius and spacing come from the spec. */
 const FOOT_R = 0.42;
 
 /**
@@ -68,7 +65,9 @@ export type Mode = "foot" | "drive";
 export class Player {
   readonly group = new THREE.Group();
   readonly character: Character;
-  readonly vehicle: Vehicle;
+  vehicle: Vehicle;
+  /** Which vehicle this is, and all of its handling. */
+  spec: VehicleSpec;
 
   position = new THREE.Vector3(0, 0, 0);
   heading = 0;
@@ -128,7 +127,8 @@ export class Player {
   constructor(private camera: THREE.PerspectiveCamera, spawn: THREE.Vector2) {
     this.baseFov = camera.fov;
     this.character = makeCharacter();
-    this.vehicle = makeVehicle();
+    this.spec = SPECS.truck;
+    this.vehicle = makeFor(this.spec.cls, PAINTS[0].hex);
     this.group.add(
       this.character.root,
       this.vehicle.root,
@@ -143,13 +143,30 @@ export class Player {
     this.vehPos.y = heightAt(this.vehPos.x, this.vehPos.z);
   }
 
+  /**
+   * Swap which vehicle is yours.
+   *
+   * Rebuilds the body and takes the spec with it, so handling changes with the
+   * shape. Only ever called while on foot — swapping the vehicle out from
+   * under a driver would leave them sitting on a seat that no longer exists.
+   */
+  switchTo(cls: VehicleClass, paint: number) {
+    if (this.mode !== "foot" || cls === this.spec.cls) return;
+    this.group.remove(this.vehicle.root);
+    this.spec = SPECS[cls];
+    this.vehicle = makeFor(cls, paint);
+    this.group.add(this.vehicle.root);
+    // Lights are set from the sun every frame, so the new body picks them up
+    // on the next one without anything needing to be told about the swap.
+  }
+
   /** Everything the soundscape needs to voice the truck. */
   get vehicleState() {
     return {
       speed: this.vehSpeed,
       throttle: this.throttle,
       y: this.vehPos.y,
-      topSpeed: DRIVE_TOP,
+      topSpeed: this.spec.top,
     };
   }
 
@@ -372,14 +389,14 @@ export class Player {
     this.throttle = throttle;
 
     if (throttle > 0.02) {
-      this.vehSpeed += DRIVE_ACCEL * throttle * dt;
+      this.vehSpeed += this.spec.accel * throttle * dt;
     } else if (throttle < -0.02) {
       // Pulling back brakes while rolling forward, then backs up.
-      const rate = this.vehSpeed > 0.5 ? DRIVE_BRAKE : DRIVE_ACCEL * 0.6;
+      const rate = this.vehSpeed > 0.5 ? this.spec.brake : this.spec.accel * 0.6;
       this.vehSpeed += rate * throttle * dt;
     }
     if (input.jump && !this.vehAir) {
-      this.vehVelY = VEH_JUMP;
+      this.vehVelY = this.spec.jump;
       this.vehAir = true;
     }
 
@@ -390,13 +407,13 @@ export class Player {
     const fwdZ = Math.cos(this.vehHeading);
     if (!this.vehAir) {
       const grade = -(n.x * fwdX + n.z * fwdZ) / Math.max(n.y, 0.2);
-      this.vehSpeed -= grade * 9.0 * dt;
+      this.vehSpeed -= grade * this.spec.gradePull * dt;
     }
-    this.vehSpeed -= this.vehSpeed * DRIVE_DRAG * dt;
-    this.vehSpeed = THREE.MathUtils.clamp(this.vehSpeed, -DRIVE_REVERSE, DRIVE_TOP);
+    this.vehSpeed -= this.vehSpeed * this.spec.drag * dt;
+    this.vehSpeed = THREE.MathUtils.clamp(this.vehSpeed, -this.spec.reverse, this.spec.top);
 
     // Steering authority falls off with speed, so it isn't twitchy at pace.
-    const authority = 1.6 / (1 + Math.abs(this.vehSpeed) * 0.075);
+    const authority = this.spec.turn / (1 + Math.abs(this.vehSpeed) * 0.075);
     this.vehSteer = THREE.MathUtils.lerp(this.vehSteer, steerInput, Math.min(1, dt * 7));
     // Heading SUBTRACTS steer. Forward is (sin h, 0, cos h), so from a chase
     // camera the viewer's right is -(cos h, 0, -sin h) — rising `h` swings the
@@ -437,13 +454,13 @@ export class Player {
     if (!solids.length) return;
 
     let worst = 0;
-    for (const off of [BODY_OFFSET, -BODY_OFFSET]) {
+    for (const off of [this.spec.bodyOffset, -this.spec.bodyOffset]) {
       const cx = this.vehPos.x + fwdX * off;
       const cz = this.vehPos.z + fwdZ * off;
       for (const p of solids) {
         const dx = cx - p.x;
         const dz = cz - p.z;
-        const min = BODY_R + p.radius;
+        const min = this.spec.bodyR + p.radius;
         const d2 = dx * dx + dz * dz;
         if (d2 >= min * min) continue;
 

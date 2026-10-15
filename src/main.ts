@@ -13,6 +13,9 @@ import { hasAccretion } from "./world/accretions";
 import { Discoveries } from "./game/discovery";
 import { Camp } from "./game/camp";
 import { Dog } from "./game/dog";
+import { StrayField } from "./world/strayRender";
+import { Stable } from "./game/stable";
+import { SPECS } from "./game/vehicles";
 import { Features, ACTIONS } from "./game/features";
 import { PAINTS } from "./game/paint";
 import { Dust, Birds } from "./world/particles";
@@ -82,6 +85,9 @@ const camp = new Camp();
 scene.add(camp.group);
 const wildlife = new Wildlife();
 scene.add(wildlife.group);
+const strays = new StrayField();
+scene.add(strays.group);
+const stable = new Stable();
 const dog = new Dog();
 scene.add(dog.group);
 const dust = new Dust();
@@ -110,7 +116,17 @@ sound.attachUnlock();
 player.onLand = () => sound.land();
 player.onMount = () => sound.mount();
 player.onDismount = () => sound.dismount();
-player.onSummon = () => hud.announce("truck on its way");
+/**
+ * Summoning brings whatever you have set, or the truck.
+ *
+ * The swap happens here rather than at the moment you choose, so choosing in
+ * the garage is a preference and not a teleport — the vehicle you are standing
+ * next to stays where it is until you call for a different one.
+ */
+player.onSummon = () => {
+  player.switchTo(stable.chosen, garage.current(player.distanceTravelled / 1000).hex);
+  hud.announce(`${SPECS[stable.chosen].label.toLowerCase()} on its way`);
+};
 player.onCrash = (f) => {
   sound.crash(f);
   haptics.crash(f);
@@ -274,6 +290,23 @@ const journal = new Journal(
   (x, z) => biomeNameAt(x, z),
   () => ({ x: player.position.x, z: player.position.z })
 );
+// Plain words rather than stat bars: you pick the one that suits where you
+// are going, not the one with the longest bar.
+const VEHICLE_NOTES: Record<string, string> = {
+  truck: "steady, carries anything, good anywhere",
+  bike: "quickest thing out here, poor on a climb",
+  rover: "slow, but a mountain barely notices it",
+};
+journal.stable = () => ({
+  owned: stable.owned,
+  chosen: stable.chosen,
+  labels: Object.fromEntries(stable.owned.map((c) => [c, SPECS[c].label])),
+  stats: Object.fromEntries(stable.owned.map((c) => [c, VEHICLE_NOTES[c] ?? ""])),
+});
+journal.onChooseVehicle = (cls) => {
+  stable.choose(cls as never);
+  hud.announce(`${SPECS[stable.chosen].label} · summon to bring it`, "set as yours");
+};
 journal.dog = () => (dog.here ? { name: dog.name!, home: dog.home } : null);
 journal.onRenameDog = (name) => {
   dog.rename(name);
@@ -548,6 +581,35 @@ function hearRumour(gx: number, gz: number, salt: number, x: number, z: number, 
  * make — walking up is enough. A dog asks nothing of you, and putting a
  * confirmation in front of it would be the one way to make it ask something.
  */
+/**
+ * Coming across a vehicle somebody left.
+ *
+ * Finding it is enough — there is no prompt, because the interact key already
+ * arbitrates between getting in the truck and doing what a place offers, and
+ * adding a third claimant to that is how the "can't get out of the truck" bug
+ * happened. Taking it is a separate, deliberate act in the garage.
+ */
+const CLAIM_RANGE = 11;
+
+function straying() {
+  strays.update(player.position.x, player.position.z);
+  const s = strays.nearest(player.position.x, player.position.z, CLAIM_RANGE);
+  if (!s) return;
+  if (!stable.claim(s.cls)) return;
+  found.add({
+    id: s.id,
+    kind: "badge",
+    name: s.name,
+    x: Math.round(s.x),
+    z: Math.round(s.z),
+    at: Date.now(),
+    tod: env.timeOfDay,
+    region: regionAt(s.x, s.z).name,
+  });
+  hud.announce(`${SPECS[s.cls].label} · yours now, from the garage`, "you find a");
+  sound.moment();
+}
+
 const DOG_JOIN_RANGE = 16;
 const dogSeat = { pos: new THREE.Vector3(), yaw: 0 };
 
@@ -1021,6 +1083,7 @@ function frame(now: number) {
   glassing();
   signposts();
   dogging(dt);
+  straying();
   camera.getWorldDirection(dir);
   const headingDeg = ((((Math.atan2(dir.x, -dir.z) * 180) / Math.PI) % 360) + 360) % 360;
   for (let i = pins.length - 1; i >= 0; i--) {
