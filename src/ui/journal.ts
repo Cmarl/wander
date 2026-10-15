@@ -29,6 +29,8 @@ const GROUND: Record<string, string> = {
 const KIND_LABEL: Record<string, string> = {
   badge: "badge",
   sighting: "wildlife",
+  // A hamlet is the only find that is somewhere rather than something.
+  place: "settlement",
   camp: "camp",
   biome: "country",
   feat: "milestone",

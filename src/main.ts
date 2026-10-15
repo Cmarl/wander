@@ -7,6 +7,7 @@ import { Sky } from "./world/sky";
 import { Scatter } from "./world/scatter";
 import { Grass } from "./world/grass";
 import { LandmarkField } from "./world/landmarkRender";
+import { SettlementField } from "./world/settlementRender";
 import { landmarkSolids } from "./world/landmarks";
 import { Discoveries } from "./game/discovery";
 import { Camp } from "./game/camp";
@@ -70,6 +71,8 @@ scene.fog = new THREE.FogExp2(0x9fb4c8, 0.0001);
 
 const landmarks = new LandmarkField();
 scene.add(landmarks.group);
+const settlements = new SettlementField();
+scene.add(settlements.group);
 const found = new Discoveries();
 const features = new Features();
 const camp = new Camp();
@@ -401,6 +404,38 @@ function signposts() {
   nearSign = text;
 }
 
+/**
+ * Coming into a settlement.
+ *
+ * Fires generously past the furthest building, so arriving happens as you come
+ * up the street rather than when you reach the last roof. Worth a journal line
+ * of its own — a hamlet is the rarest thing in the world and the only find
+ * that is a PLACE rather than an object.
+ */
+let inSettlement: string | null = null;
+
+function arriving() {
+  const here = settlements.nearest(player.position.x, player.position.z);
+  const name = here?.s.name ?? null;
+  if (name && name !== inSettlement) {
+    const fresh = found.add({
+      id: `town:${here!.s.id}`,
+      kind: "place",
+      name: here!.s.name,
+      x: Math.round(here!.s.x),
+      z: Math.round(here!.s.z),
+      at: Date.now(),
+      tod: env.timeOfDay,
+      region: regionAt(here!.s.x, here!.s.z).name,
+    });
+    hud.announce(
+      `${here!.s.name} · ${here!.s.buildings.length} buildings`,
+      fresh ? "you come into" : "back in"
+    );
+  }
+  inSettlement = name;
+}
+
 const projected = new THREE.Vector3();
 
 function glassing() {
@@ -607,6 +642,8 @@ function frame(now: number) {
   water.update(camera.position.x, camera.position.z);
   scatter.update(player.position.x, player.position.z);
   landmarks.update(player.position.x, player.position.z, env.elapsed, camera);
+  settlements.update(player.position.x, player.position.z);
+  arriving();
   wildlife.update(dt, player.position.x, player.position.z, env.sunDir.y, player.glassing);
 
   // Only landmarks you could actually touch take part in collision, and only
@@ -624,6 +661,9 @@ function frame(now: number) {
       nearest = { name: lm.name, id: lm.id, kind: lm.kind, x: lm.x, z: lm.z, d2 };
     }
   }
+  // Settlement buildings are solid too, and they come pre-resolved to world
+  // space because a hamlet doesn't move.
+  for (const c of settlements.solids) solids.push(c);
   player.landmarkSolids = solids;
   if (nearest && !found.has(nearest.id)) {
     found.add({
@@ -867,7 +907,7 @@ function frame(now: number) {
     clock: env.clockString(),
     biome: biomeNameAt(player.position.x, player.position.z),
     elevation: heightAt(player.position.x, player.position.z),
-    region: regionAt(player.position.x, player.position.z).name,
+    region: inSettlement ?? regionAt(player.position.x, player.position.z).name,
     x: player.position.x,
     z: player.position.z,
     km: player.distanceTravelled / 1000,
