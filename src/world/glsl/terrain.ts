@@ -85,7 +85,7 @@ float terrainHeight(vec2 p) {
   return h;
 }
 
-vec3 terrainAlbedo(vec2 p, float h, vec3 n) {
+vec3 terrainAlbedo(vec2 p, float h, vec3 n, float viewDist) {
   float temp  = wTemperature(p) - h * (1.0 / 9000.0);   // altitude lapse rate
   float moist = wMoisture(p);
   float slope = 1.0 - clamp(n.y, 0.0, 1.0);
@@ -117,13 +117,26 @@ vec3 terrainAlbedo(vec2 p, float h, vec3 n) {
   float snowAmt = smoothstep(snowLine, snowLine + 320.0, h) * smoothstep(0.78, 0.46, slope);
   c = mix(c, SNOW, snowAmt);
 
-  // A worn track. Faint on purpose, and it gives up on rock, on snow and on
-  // anything steep — the places nobody would have driven in the first place.
+  /**
+   * A worn track. Faint on purpose, and it gives up on rock, on snow and on
+   * anything steep — the places nobody would have driven in the first place.
+   *
+   * It also fades out past about a kilometre. A 14 m track is narrower than a
+   * pixel at any real distance, and a sub-pixel line does not get fainter, it
+   * BREAKS UP and crawls as you move. Rendering the albedo function top-down
+   * showed it dashing itself apart at a 5 km span, which is exactly what it
+   * would have done on the horizon.
+   *
+   * Fading it is also the better design: a track you can see underfoot is a
+   * hint that somebody came this way, where one stretching to the horizon is
+   * a road to follow, which is the thing this was not supposed to become.
+   */
   const vec3 TRACK = SRGB(0.44, 0.38, 0.30);
   float way = wWay(p)
             * (1.0 - rockAmt) * (1.0 - snowAmt)
             * smoothstep(0.34, 0.14, slope)
-            * smoothstep(2.0, 12.0, h);
+            * smoothstep(2.0, 12.0, h)
+            * smoothstep(1500.0, 500.0, viewDist);
   c = mix(c, TRACK * (0.86 + 0.28 * wFbm(p * (1.0 / 40.0), 2, 163u)), way * 0.62);
 
   return c;

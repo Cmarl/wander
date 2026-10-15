@@ -82,7 +82,7 @@ uniform int uDebug;
 
 void main() {
   vec3 n = faceNormal(vRel);
-  vec3 albedo = terrainAlbedo(vWorld.xz, vWorld.y, n);
+  vec3 albedo = terrainAlbedo(vWorld.xz, vWorld.y, n, length(vRel));
 
   float ndl = max(dot(n, uSunDir), 0.0);
   // Cheap wrapped term so shadowed slopes keep some shape instead of going flat.

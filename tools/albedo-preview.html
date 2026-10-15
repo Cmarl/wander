@@ -1,0 +1,84 @@
+<!doctype html><meta charset=utf8>
+<!--
+  Albedo preview.
+
+  A top-down render of the REAL terrain shader over a patch of world, with no
+  geometry involved. SwiftShader cannot software-rasterise the 4M-triangle
+  clipmap, so a headless screenshot of the game itself is not available here —
+  but the ground colouring is a pure function of position, and that is what
+  this draws. It is how you check whether a track reads as a track without
+  having a GPU.
+
+  ?at=x,z&span=metres   Not a build entry; vite builds index.html only.
+-->
+<body style="margin:0;background:#111">
+<canvas id=c width=256 height=256></canvas>
+<script type="module">
+import { NOISE_GLSL } from "../src/world/glsl/noise.ts";
+import { TERRAIN_GLSL } from "../src/world/glsl/terrain.ts";
+
+const q = new URLSearchParams(location.search);
+const [cx, cz] = (q.get("at") ?? "0,0").split(",").map(Number);
+const span = Number(q.get("span") ?? 1200);
+
+const gl = document.getElementById("c").getContext("webgl2");
+const vs = `#version 300 es
+in vec2 a; out vec2 uv;
+void main() { uv = a * 0.5 + 0.5; gl_Position = vec4(a, 0.0, 1.0); }`;
+const fs = `#version 300 es
+precision highp float; precision highp int;
+${NOISE_GLSL}
+${TERRAIN_GLSL}
+in vec2 uv;
+uniform vec2 uCentre;
+uniform float uSpan;
+out vec4 fragColor;
+
+// The renderer uses ACES plus sRGB out, so the preview has to as well or the
+// colours are not the ones you would actually see.
+vec3 aces(vec3 x) {
+  return clamp((x * (2.51 * x + 0.03)) / (x * (2.43 * x + 0.59) + 0.14), 0.0, 1.0);
+}
+
+void main() {
+  vec2 p = uCentre + (uv - 0.5) * uSpan;
+  float h = terrainHeight(p);
+  // Normal by finite difference, same idea as the terrain mesh.
+  float e = uSpan / 256.0 * 1.5;
+  vec3 n = normalize(vec3(
+    terrainHeight(p - vec2(e, 0.0)) - terrainHeight(p + vec2(e, 0.0)),
+    2.0 * e,
+    terrainHeight(p - vec2(0.0, e)) - terrainHeight(p + vec2(0.0, e))
+  ));
+    // Zero view distance: this is the close-up appearance, which is the thing
+  // worth inspecting. The real shader fades the track out past a kilometre.
+  vec3 c = terrainAlbedo(p, h, n, 0.0);
+  // A touch of top-down shading so relief is legible in a flat view.
+  c *= 0.62 + 0.52 * clamp(n.y, 0.0, 1.0);
+  fragColor = vec4(pow(aces(c), vec3(1.0 / 2.2)), 1.0);
+}`;
+const sh = (t, s) => { const o = gl.createShader(t); gl.shaderSource(o, s); gl.compileShader(o);
+  if (!gl.getShaderParameter(o, gl.COMPILE_STATUS)) { document.title = "ERR " + gl.getShaderInfoLog(o); throw new Error(gl.getShaderInfoLog(o)); } return o; };
+const pr = gl.createProgram();
+gl.attachShader(pr, sh(gl.VERTEX_SHADER, vs));
+gl.attachShader(pr, sh(gl.FRAGMENT_SHADER, fs));
+gl.linkProgram(pr);
+gl.useProgram(pr);
+const b = gl.createBuffer();
+gl.bindBuffer(gl.ARRAY_BUFFER, b);
+gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1,-1, 3,-1, -1,3]), gl.STATIC_DRAW);
+const loc = gl.getAttribLocation(pr, "a");
+gl.enableVertexAttribArray(loc);
+gl.vertexAttribPointer(loc, 2, gl.FLOAT, false, 0, 0);
+gl.uniform2f(gl.getUniformLocation(pr, "uCentre"), cx, cz);
+gl.uniform1f(gl.getUniformLocation(pr, "uSpan"), span);
+gl.viewport(0, 0, 256, 256);
+gl.drawArrays(gl.TRIANGLES, 0, 3);
+document.title = "ready";
+// Brave's --screenshot hangs in this environment even on a plain 2D canvas, so
+// the pixels go out over fetch instead — the one channel that does work here.
+const name = q.get("name");
+if (name) {
+  fetch("http://127.0.0.1:8914/", { method: "POST", body: name + "|" + document.getElementById("c").toDataURL("image/png") });
+}
+</script>

@@ -78,7 +78,9 @@ void main() {
 
   // Nothing grows in a wheel rut. This is what actually makes a track read as
   // worn rather than painted on — the colour alone looked like a decal.
-  ok *= 1.0 - wWay(wp) * 0.92;
+  // Matches the terrain tint's fade, so grass never thins out in a rut that
+  // is too far away to be drawn.
+  ok *= 1.0 - wWay(wp) * 0.92 * smoothstep(1500.0, 500.0, distance(cameraPosition.xz, wp));
 
   float dist = distance(cameraPosition.xz, wp);
   ok *= 1.0 - smoothstep(uRadius * 0.45, uRadius, dist);
