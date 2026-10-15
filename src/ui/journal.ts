@@ -137,6 +137,9 @@ export class Journal {
   private view: "register" | "map" = "register";
   /** Turning a rumour into a marker, which only you can do. */
   onPinRumour?: (f: Found) => void;
+  /** The dog, read live rather than from its journal line. */
+  dog: () => { name: string; home: string | null } | null = () => null;
+  onRenameDog?: (name: string) => void;
 
   constructor(
     private found: Discoveries,
@@ -183,6 +186,27 @@ export class Journal {
         fn();
       });
     tap("#j-close", () => this.toggle(false));
+    // Renaming the dog. Delegated for the same reason as the pin buttons, and
+    // the keydown is so Enter commits on a phone where blur is awkward.
+    const commit = (el: HTMLInputElement) => {
+      const v = el.value.trim();
+      if (v) this.onRenameDog?.(v);
+      el.blur();
+    };
+    this.list.addEventListener("change", (e) => {
+      const el = e.target as HTMLInputElement;
+      if (el.id === "j-dog") commit(el);
+    });
+    this.list.addEventListener("keydown", (e) => {
+      const el = e.target as HTMLInputElement;
+      if (el.id === "j-dog" && (e as KeyboardEvent).key === "Enter") commit(el);
+    });
+    // Typing in the name field must not reach the game's keyboard handling.
+    for (const ev of ["keydown", "keyup", "pointerdown"]) {
+      this.list.addEventListener(ev, (e) => {
+        if ((e.target as HTMLElement).id === "j-dog") e.stopPropagation();
+      });
+    }
     // Pinning a rumour. Delegated, because entries are rebuilt on every open.
     this.list.addEventListener("pointerdown", (e) => {
       const id = (e.target as HTMLElement).dataset?.id;
@@ -263,7 +287,18 @@ export class Journal {
       </div>`;
     };
 
-    this.list.innerHTML = [...groups.entries()]
+    // The dog, if there is one. Above the register because it is not a place
+    // you went — it is who is with you, read live so renaming it shows.
+    const d = this.dog();
+    const dogBlock = d
+      ? `<div class="dog-row">
+           <input class="dog-name" id="j-dog" value="${d.name.replace(/"/g, "&quot;")}" maxlength="16"
+                  autocomplete="off" spellcheck="false" aria-label="your dog's name">
+           <s>${d.home ? `fell in with you at ${d.home}` : "fell in with you"}</s>
+         </div>`
+      : "";
+
+    this.list.innerHTML = dogBlock + [...groups.entries()]
       .map(
         ([region, items]) =>
           `<div class="region-head"><b>${region}</b><s>${items.length} ${

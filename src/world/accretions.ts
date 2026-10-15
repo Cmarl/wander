@@ -143,6 +143,19 @@ function signText(lm: Landmark, pick: number): string {
  * ends up inside a lookout's legs, and sat on the terrain rather than on the
  * landmark's own ground height — on a slope those differ by metres.
  */
+/**
+ * Whether a place has a given accretion, without building any of them.
+ *
+ * accretionsAt does real work — a signpost's text costs forty-eight terrain
+ * samples and a landmark scan — so asking it a yes/no question every frame is
+ * not free. This is the same gate hash and nothing else.
+ */
+export function hasAccretion(lm: Landmark, kind: AccretionKind): boolean {
+  const i = ELIGIBLE[lm.kind].indexOf(kind);
+  if (i < 0) return false;
+  return slotRandom(lm.gx, lm.gz, 1300 + i * 17) <= CHANCE;
+}
+
 export function accretionsAt(lm: Landmark): Accretion[] {
   const out: Accretion[] = [];
   const eligible = ELIGIBLE[lm.kind];

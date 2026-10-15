@@ -9,8 +9,10 @@ import { Grass } from "./world/grass";
 import { LandmarkField } from "./world/landmarkRender";
 import { SettlementField } from "./world/settlementRender";
 import { landmarkSolids } from "./world/landmarks";
+import { hasAccretion } from "./world/accretions";
 import { Discoveries } from "./game/discovery";
 import { Camp } from "./game/camp";
+import { Dog } from "./game/dog";
 import { Features, ACTIONS } from "./game/features";
 import { PAINTS } from "./game/paint";
 import { Dust, Birds } from "./world/particles";
@@ -80,6 +82,8 @@ const camp = new Camp();
 scene.add(camp.group);
 const wildlife = new Wildlife();
 scene.add(wildlife.group);
+const dog = new Dog();
+scene.add(dog.group);
 const dust = new Dust();
 const birds = new Birds();
 scene.add(dust.mesh, birds.mesh);
@@ -270,6 +274,11 @@ const journal = new Journal(
   (x, z) => biomeNameAt(x, z),
   () => ({ x: player.position.x, z: player.position.z })
 );
+journal.dog = () => (dog.here ? { name: dog.name!, home: dog.home } : null);
+journal.onRenameDog = (name) => {
+  dog.rename(name);
+  localStorage.setItem("wander.dog", JSON.stringify({ name: dog.name, home: dog.home }));
+};
 // A rumour becomes a marker only because you chose to make it one.
 journal.onPinRumour = (f) => {
   if (pins.some((p) => p.id === f.id)) return;
@@ -530,6 +539,65 @@ function hearRumour(gx: number, gz: number, salt: number, x: number, z: number, 
     about: r.short,
   });
   hud.announce(r.text, fresh ? from : `${from}, again`);
+}
+
+/**
+ * The dog.
+ *
+ * It joins at a steading that has a kennel, with no prompt and no decision to
+ * make — walking up is enough. A dog asks nothing of you, and putting a
+ * confirmation in front of it would be the one way to make it ask something.
+ */
+const DOG_JOIN_RANGE = 16;
+const dogSeat = { pos: new THREE.Vector3(), yaw: 0 };
+
+try {
+  const saved = JSON.parse(localStorage.getItem("wander.dog") || "null");
+  if (saved?.name) dog.restore(saved.name, saved.home ?? null, player.position);
+} catch {
+  // no dog, which is the normal state until you meet one
+}
+
+function dogging(dt: number) {
+  if (!dog.here) {
+    // On foot only. Collecting a dog by driving past at forty metres a second
+    // is not meeting one, and the design has this happening AT a steading.
+    if (player.mode !== "foot") return;
+    for (const lm of landmarks.loaded) {
+      if (lm.kind !== "steading") continue;
+      if (Math.hypot(lm.x - player.position.x, lm.z - player.position.z) > DOG_JOIN_RANGE) continue;
+      // Only where somebody kept one. The kennel was already there. This is
+      // the cheap hash-only check, not the full accretion build.
+      if (!hasAccretion(lm, "kennel")) continue;
+      const name = dog.join(lm.gx, lm.gz, lm.name, player.position);
+      localStorage.setItem("wander.dog", JSON.stringify({ name, home: lm.name }));
+      found.add({
+        id: "dog",
+        kind: "badge",
+        name: `${name} fell in with you`,
+        x: Math.round(lm.x),
+        z: Math.round(lm.z),
+        at: Date.now(),
+        tod: env.timeOfDay,
+        region: regionAt(lm.x, lm.z).name,
+      });
+      hud.announce(name, "a dog falls in beside you");
+      sound.moment();
+      break;
+    }
+    return;
+  }
+
+  // In the truck it sits in the passenger seat, which has to be read off the
+  // vehicle's live transform or it trails its own seat by a frame.
+  if (player.mode === "drive") {
+    const root = player.vehicle.root;
+    dogSeat.pos.set(0.62, 0.82, -0.15).applyQuaternion(root.quaternion).add(root.position);
+    dogSeat.yaw = root.rotation.y;
+    dog.update(dt, player.position, dogSeat);
+  } else {
+    dog.update(dt, player.position, null);
+  }
 }
 
 const projected = new THREE.Vector3();
@@ -952,6 +1020,7 @@ function frame(now: number) {
 
   glassing();
   signposts();
+  dogging(dt);
   camera.getWorldDirection(dir);
   const headingDeg = ((((Math.atan2(dir.x, -dir.z) * 180) / Math.PI) % 360) + 360) % 360;
   for (let i = pins.length - 1; i >= 0; i--) {
