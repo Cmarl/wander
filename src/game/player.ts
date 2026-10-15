@@ -819,7 +819,21 @@ export class Player {
     // Smooth the body attitude so bumps lean the truck instead of snapping it.
     // In the air the body holds its attitude instead of snapping to the ground
     // it isn't touching.
-    this.vehQuat.slerp(target, this.warmedUp ? Math.min(1, dt * (this.vehAir ? 1.4 : 7)) : 1);
+    /**
+     * How fast the body swings to the heading.
+     *
+     * 1.4 in the air was written for a truck mid-jump, which should hold the
+     * attitude it left the ground with. An aircraft is never not in the air,
+     * so that rate made the model permanently trail its own flight path — at
+     * fifty degrees a second of turn, two thirds of a second of lag is a nose
+     * pointing some thirty degrees away from where you are going, and it never
+     * caught up while you kept turning.
+     *
+     * An aircraft tracks promptly. A truck still holds its attitude over a
+     * jump, which is what that number was for.
+     */
+    const settle = this.spec.flies ? 6.5 : this.vehAir ? 1.4 : 7;
+    this.vehQuat.slerp(target, this.warmedUp ? Math.min(1, dt * settle) : 1);
     this.warmedUp = true;
 
     this.vehicle.root.position.copy(this.vehPos);

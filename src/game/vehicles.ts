@@ -138,6 +138,28 @@ export const CLASSES = Object.keys(SPECS) as VehicleClass[];
 const bank = (steer: number, speed: number, at: number, amount: number) =>
   steer * Math.min(1, Math.abs(speed) / at) * amount;
 
+/**
+ * Put everything a vehicle is made of under one child group.
+ *
+ * The root carries the HEADING, written as a quaternion by the player each
+ * frame. Lean and nose attitude are cosmetic and belong to the model. Writing
+ * both to the same object does not work: setting root.rotation.z recomputes
+ * the quaternion from an Euler decomposition of a transform that already has
+ * yaw and roll in it, and the yaw comes back out wrong.
+ *
+ * That is the bug Clyde hit — "I'm flying in a straight line rn but the plane
+ * is facing like 4 o clock". The nose was being thrown off by its own bank.
+ *
+ * One owner each, now: the player owns root, the model owns tilt.
+ */
+function tiltable(root: THREE.Group): THREE.Group {
+  const tilt = new THREE.Group();
+  // add() detaches from the previous parent, so this drains root.
+  while (root.children.length) tilt.add(root.children[0]);
+  root.add(tilt);
+  return tilt;
+}
+
 const wheel = (r: number, w: number, m: THREE.Material) => {
   const g = new THREE.CylinderGeometry(r, r, w, 12);
   g.rotateZ(Math.PI / 2);
@@ -201,6 +223,7 @@ function makeBike(paint: number): Vehicle {
   root.add(rear);
 
   const paintable = [frame, tank];
+  const tilt = tiltable(root);
   let lean = 0;
 
   return {
@@ -210,7 +233,7 @@ function makeBike(paint: number): Vehicle {
       rear.rotation.x -= (speed / 0.4) * 0.016;
       fork.rotation.y = steer * 0.5;
       // Counter-steer lean, which is most of why a bike reads as a bike.
-      root.rotation.z = bank(steer, speed, 18, 0.42) + lean;
+      tilt.rotation.z = bank(steer, speed, 18, 0.42) + lean;
     },
     setPaint(hex) {
       for (const m of paintable) (m.material as THREE.MeshLambertMaterial).color.setHex(hex);
@@ -369,6 +392,7 @@ function makeChopper(paint: number): Vehicle {
   root.add(light);
 
   const paintable = [pod, boom, fin];
+  const tilt = tiltable(root);
   return {
     root,
     animate(dt, speed, steer) {
@@ -377,8 +401,8 @@ function makeChopper(paint: number): Vehicle {
       rotor.rotation.y += dt * 26;
       tailRotor.rotation.x += dt * 38;
       // Nose down as it moves off, and bank into the turn.
-      root.rotation.x = Math.min(0.16, Math.abs(speed) / 42 * 0.16);
-      root.rotation.z = bank(steer, speed, 20, 0.3);
+      tilt.rotation.x = Math.min(0.16, Math.abs(speed) / 42 * 0.16);
+      tilt.rotation.z = bank(steer, speed, 20, 0.3);
     },
     setPaint(hex) {
       for (const m of paintable) (m.material as THREE.MeshLambertMaterial).color.setHex(hex);
@@ -465,14 +489,26 @@ function makePlane(paint: number): Vehicle {
   root.add(light);
 
   const paintable = [fuselage, wing, tail, rudder, cowl];
+  const tilt = tiltable(root);
+  // Bank is eased so a turn rolls in and rolls out rather than snapping to
+  // an angle the moment the stick moves. This is most of what "coordinated"
+  // feels like without simulating anything.
+  let roll = 0;
+  let nose = 0;
   return {
     root,
     animate(dt, speed, steer) {
       prop.rotation.z += dt * (14 + Math.abs(speed) * 0.5);
       for (const w of wheels) w.rotation.x -= (speed / 0.34) * 0.016;
       // Banks hard, because that is how an aeroplane turns.
-      root.rotation.z = bank(steer, speed, 34, 0.62);
-      root.rotation.x = Math.min(0.1, Math.abs(speed) / 96 * 0.1);
+      // A real bank, and the nose drops into the turn the way a wing loading
+      // up actually behaves.
+      const want = bank(steer, speed, 34, 0.95);
+      roll += (want - roll) * Math.min(1, dt * 3.2);
+      const wantNose = Math.min(0.12, Math.abs(speed) / 150 * 0.12) + Math.abs(roll) * 0.1;
+      nose += (wantNose - nose) * Math.min(1, dt * 2.4);
+      tilt.rotation.z = roll;
+      tilt.rotation.x = nose;
     },
     setPaint(hex) {
       for (const m of paintable) (m.material as THREE.MeshLambertMaterial).color.setHex(hex);
