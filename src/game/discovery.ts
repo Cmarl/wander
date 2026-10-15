@@ -23,6 +23,8 @@ export interface Found {
   at: number;
   /** In-game time of day when it was found, 0..1. Optional for older saves. */
   tod?: number;
+  /** Rumours only — the short description, for when you pin one. */
+  about?: string;
   /** Which region it was in. Optional for older saves. */
   region?: string;
 }

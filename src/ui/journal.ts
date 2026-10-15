@@ -33,6 +33,7 @@ const KIND_LABEL: Record<string, string> = {
   sighting: "wildlife",
   // A hamlet is the only find that is somewhere rather than something.
   place: "settlement",
+  rumour: "heard about",
   camp: "camp",
   biome: "country",
   feat: "milestone",
@@ -134,6 +135,8 @@ export class Journal {
   private map!: HTMLCanvasElement;
   private tabs!: HTMLElement;
   private view: "register" | "map" = "register";
+  /** Turning a rumour into a marker, which only you can do. */
+  onPinRumour?: (f: Found) => void;
 
   constructor(
     private found: Discoveries,
@@ -180,6 +183,16 @@ export class Journal {
         fn();
       });
     tap("#j-close", () => this.toggle(false));
+    // Pinning a rumour. Delegated, because entries are rebuilt on every open.
+    this.list.addEventListener("pointerdown", (e) => {
+      const id = (e.target as HTMLElement).dataset?.id;
+      if (!id) return;
+      e.stopPropagation();
+      const f = this.found.all().find((q) => q.id === id);
+      if (!f) return;
+      this.onPinRumour?.(f);
+      this.flash("pinned — look for it on the compass");
+    });
     tap("#j-copy", () => void this.copy());
     tap("#j-paste", () => void this.paste());
     this.sheet.addEventListener("pointerdown", (e) => {
@@ -228,6 +241,18 @@ export class Journal {
     const entry = (f: Found) => {
       const biome = this.biomeOf(f.x, f.z);
       const tag = KIND_LABEL[f.kind] ?? "landmark";
+      // A rumour is words, so it shows no coordinates — you were told about
+      // the place, not shown it. Pinning it is a separate decision, and the
+      // pin you then get is one you placed yourself.
+      if (f.kind === "rumour") {
+        return `<div class="entry rumour">
+          <div class="entry-text">
+            <b>${f.name}</b>
+            <s class="dim">${tag} · ${when(f.at)}</s>
+          </div>
+          <button class="pin-it" data-id="${f.id}">pin it</button>
+        </div>`;
+      }
       return `<div class="entry">
         <img src="${swatch(f, biome)}" alt="" width="72" height="48">
         <div class="entry-text">

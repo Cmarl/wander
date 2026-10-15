@@ -648,6 +648,24 @@ html, body {
 .region-head b { font-size: 12px; letter-spacing: 0.06em; }
 .region-head s { text-decoration: none; font-size: 10.5px; opacity: 0.5; }
 
+/* A rumour has no picture, because nobody showed you one. */
+.entry.rumour { align-items: center; }
+.entry.rumour .entry-text b { font-style: italic; font-weight: 500; line-height: 1.35; }
+.pin-it {
+  appearance: none;
+  border: 1px solid rgba(226, 192, 105, 0.45);
+  background: transparent;
+  color: #e2c069;
+  font: inherit;
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  padding: 4px 9px;
+  border-radius: 999px;
+  cursor: pointer;
+  flex: 0 0 auto;
+}
+
 .journal-map {
   display: block;
   width: 100%;

@@ -20,6 +20,7 @@ import { findSpawn } from "./world/spawn";
 import { lastPlace, rememberPlace } from "./game/save";
 import { heightAt, biomeNameAt } from "./world/field";
 import { regionAt } from "./world/regions";
+import { rumourAt } from "./world/rumours";
 import { Environment } from "./game/environment";
 import { Player } from "./game/player";
 import { Controls } from "./input/controls";
@@ -269,6 +270,13 @@ const journal = new Journal(
   (x, z) => biomeNameAt(x, z),
   () => ({ x: player.position.x, z: player.position.z })
 );
+// A rumour becomes a marker only because you chose to make it one.
+journal.onPinRumour = (f) => {
+  if (pins.some((p) => p.id === f.id)) return;
+  pins.push({ id: f.id, name: f.about ?? f.name, x: f.x, z: f.z });
+  if (pins.length > MAX_PINS) pins.shift();
+  savePins();
+};
 const postcard = new Postcard(document.getElementById("ui")!);
 postcard.bindLink(() => ({ x: player.position.x, z: player.position.z }));
 
@@ -490,8 +498,38 @@ function arriving() {
       `${here!.s.name} · ${here!.s.buildings.length} buildings`,
       fresh ? "you come into" : "back in"
     );
+    // The noticeboard. Only the first time — a hamlet you pass through weekly
+    // shouldn't keep handing you the same scrap of paper.
+    if (fresh) {
+      const [sgx, sgz] = here!.s.id.slice(1).split(",").map(Number);
+      hearRumour(sgx, sgz, 1321, here!.s.x, here!.s.z, "the noticeboard");
+    }
   }
   inSettlement = name;
+}
+
+/**
+ * Hearing a rumour.
+ *
+ * The two sources the design called for: a radio mast you tune into, and the
+ * noticeboard in a hamlet. Both record words in the journal and nothing else —
+ * no marker appears, and pinning it is a separate decision you make later.
+ */
+function hearRumour(gx: number, gz: number, salt: number, x: number, z: number, from: string) {
+  const r = rumourAt(gx, gz, salt, x, z);
+  if (!r) return;
+  const fresh = found.add({
+    id: r.id,
+    kind: "rumour",
+    name: r.text,
+    x: r.x,
+    z: r.z,
+    at: Date.now(),
+    tod: env.timeOfDay,
+    region: r.region,
+    about: r.short,
+  });
+  hud.announce(r.text, fresh ? from : `${from}, again`);
 }
 
 const projected = new THREE.Vector3();
@@ -807,6 +845,8 @@ function frame(now: number) {
     } else if (offer) {
       const spec = ACTIONS[offer.kind];
       awardBadge(offer, spec.badge);
+      // A mast carries a voice reading out places. That is what it is for.
+      if (offer.kind === "mast") hearRumour(offer.gx, offer.gz, 1301, offer.x, offer.z, "the radio says");
       const sustained = features.begin(offer, player.position);
       if (sustained) {
         player.featureHold = features.holdPosition(new THREE.Vector3());
