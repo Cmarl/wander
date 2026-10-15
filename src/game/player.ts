@@ -130,6 +130,8 @@ export class Player {
   private vehAir = false;
   /** Jump held while flying, i.e. "up". */
   private vehClimb = false;
+  /** Shift held while flying, i.e. "down". */
+  private vehDescend = false;
   /** Ground height under the vehicle last frame, and how fast it was moving. */
   private vehGroundY = 0;
   private vehGroundRate = 0;
@@ -451,7 +453,11 @@ export class Player {
     }
     // For a flyer, jump is the climb control. Latched here because the
     // altitude is integrated in placeVehicle, which never sees the input.
-    this.vehClimb = input.jump;
+    // The HELD flag, not the one-frame pulse. The pulse made "hold to climb"
+    // a single frame of lift per press, which is indistinguishable from the
+    // control not existing.
+    this.vehClimb = input.jumpHeld;
+    this.vehDescend = input.down;
     if (input.jump && !this.vehAir && !this.spec.flies) {
       this.vehVelY = this.spec.jump;
       this.vehAir = true;
@@ -706,7 +712,14 @@ export class Player {
       const wing = this.spec.wing
         ? 1 - Math.min(1, Math.abs(this.vehSpeed) / this.spec.top) * this.spec.wing
         : 1;
-      const want = this.vehClimb ? this.spec.lift! : -this.spec.sink! * wing;
+      // Up, down, or let it find its own level. Having an explicit descent
+      // matters as much as the climb — sinking only when you stop asking to
+      // climb is one control pretending to be two.
+      const want = this.vehClimb
+        ? this.spec.lift!
+        : this.vehDescend
+          ? -this.spec.lift! * 0.85
+          : -this.spec.sink! * wing;
       // Eased, so the controls feel like a machine with mass rather than a
       // cursor being dragged up and down.
       this.vehVelY += (want - this.vehVelY) * Math.min(1, dt * 2.2);

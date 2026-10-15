@@ -13,6 +13,16 @@ export class Controls {
   zoom = 0;
   sprint = false;
   jump = false;
+  /**
+   * Jump HELD, as opposed to the one-frame pulse above.
+   *
+   * Flying needs a sustained control and `jump` is cleared every frame, so
+   * "hold to climb" was true for exactly one frame per press and nothing ever
+   * happened. Clyde: "no way to go up/down".
+   */
+  jumpHeld = false;
+  /** Descend while flying. Shift on a keyboard, the RUN button on a phone. */
+  down = false;
   interact = false;
   /** Held: raise the binoculars. */
   glass = false;
@@ -50,14 +60,24 @@ export class Controls {
     addEventListener("keydown", (e) => {
       if (e.repeat) return;
       this.keys.add(e.code);
-      if (e.code === "Space") this.jump = true;
+      if (e.code === "Space") {
+        this.jump = true;
+        this.jumpHeld = true;
+      }
       if (e.code === "KeyE" || e.code === "Enter") this.interact = true;
       if (e.code === "KeyF") this.pin = true;
       if (e.code === "KeyC") this.camp = true;
       if (e.code === "Space" || e.code.startsWith("Arrow")) e.preventDefault();
     });
-    addEventListener("keyup", (e) => this.keys.delete(e.code));
-    addEventListener("blur", () => this.keys.clear());
+    addEventListener("keyup", (e) => {
+      this.keys.delete(e.code);
+      if (e.code === "Space") this.jumpHeld = false;
+    });
+    addEventListener("blur", () => {
+      this.keys.clear();
+      this.jumpHeld = false;
+      this.down = false;
+    });
 
     canvas.addEventListener("wheel", (e) => {
       this.zoom += e.deltaY * 0.01;
@@ -106,11 +126,14 @@ export class Controls {
         el.classList.toggle("on", this.glassToggle);
       } else {
         this[action] = true;
+        // Held for as long as the thumb is down, which is what flying needs.
+        if (action === "jump") this.jumpHeld = true;
       }
     };
     const up = (e: Event) => {
       e.preventDefault();
       el.classList.remove("held");
+      if (action === "jump") this.jumpHeld = false;
     };
     el.addEventListener("pointerdown", down);
     el.addEventListener("touchstart", down, { passive: false });
@@ -222,6 +245,9 @@ export class Controls {
     }
 
     this.sprint = k.has("ShiftLeft") || k.has("ShiftRight") || this.sprintToggle;
+    // Shift means "run" on foot and "go down" in the air — the same held key
+    // reading as the opposite of Space in both cases.
+    this.down = k.has("ShiftLeft") || k.has("ShiftRight") || this.sprintToggle;
     this.glass = k.has("KeyQ") || this.glassToggle;
   }
 

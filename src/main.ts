@@ -141,7 +141,7 @@ player.onMount = () => {
   // miss while looking at the scenery.
   if (SPECS[player.spec.cls].flies) {
     hud.announce(
-      controls.isTouch ? "hold ⤴ to climb, let go to come down" : "hold SPACE to climb, let go to come down",
+      controls.isTouch ? "hold ⤴ to climb, RUN to come down" : "hold SPACE to climb, SHIFT to come down",
       "to get airborne"
     );
   }

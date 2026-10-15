@@ -102,6 +102,22 @@ export const SPECS: Record<VehicleClass, VehicleSpec> = {
 
 export const CLASSES = Object.keys(SPECS) as VehicleClass[];
 
+/**
+ * Which way a turn leans.
+ *
+ * Clyde: "the steering is maybe backwards" in the plane. The heading is right
+ * — the machine goes where you point it — but the BANK was inverted, and a
+ * roll that disagrees with the turn is read by the eye as the turn itself
+ * being wrong.
+ *
+ * Working it through: steer > 0 decreases heading, forward is (sin h, cos h),
+ * so decreasing heading swings forward toward -x, which is left. A left turn
+ * leans left: the right wing comes up, and rotating about +z carries +x
+ * toward +y, so a left lean is POSITIVE z. The code had it negated.
+ */
+const bank = (steer: number, speed: number, at: number, amount: number) =>
+  steer * Math.min(1, Math.abs(speed) / at) * amount;
+
 const wheel = (r: number, w: number, m: THREE.Material) => {
   const g = new THREE.CylinderGeometry(r, r, w, 12);
   g.rotateZ(Math.PI / 2);
@@ -174,7 +190,7 @@ function makeBike(paint: number): Vehicle {
       rear.rotation.x -= (speed / 0.4) * 0.016;
       fork.rotation.y = steer * 0.5;
       // Counter-steer lean, which is most of why a bike reads as a bike.
-      root.rotation.z = -steer * Math.min(1, Math.abs(speed) / 18) * 0.42 + lean;
+      root.rotation.z = bank(steer, speed, 18, 0.42) + lean;
     },
     setPaint(hex) {
       for (const m of paintable) (m.material as THREE.MeshLambertMaterial).color.setHex(hex);
@@ -342,7 +358,7 @@ function makeChopper(paint: number): Vehicle {
       tailRotor.rotation.x += dt * 38;
       // Nose down as it moves off, and bank into the turn.
       root.rotation.x = Math.min(0.16, Math.abs(speed) / 42 * 0.16);
-      root.rotation.z = -steer * Math.min(1, Math.abs(speed) / 20) * 0.3;
+      root.rotation.z = bank(steer, speed, 20, 0.3);
     },
     setPaint(hex) {
       for (const m of paintable) (m.material as THREE.MeshLambertMaterial).color.setHex(hex);
@@ -435,7 +451,7 @@ function makePlane(paint: number): Vehicle {
       prop.rotation.z += dt * (14 + Math.abs(speed) * 0.5);
       for (const w of wheels) w.rotation.x -= (speed / 0.34) * 0.016;
       // Banks hard, because that is how an aeroplane turns.
-      root.rotation.z = -steer * Math.min(1, Math.abs(speed) / 34) * 0.62;
+      root.rotation.z = bank(steer, speed, 34, 0.62);
       root.rotation.x = Math.min(0.1, Math.abs(speed) / 96 * 0.1);
     },
     setPaint(hex) {
