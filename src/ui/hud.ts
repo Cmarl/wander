@@ -26,7 +26,7 @@ const DESK_KEYS: [string, string][] = [
   ["[  ]", "wind the clock back / forward an hour"],
   ["M", "mute"],
   ["Q", "raise binoculars"],
-  ["F", "pin what you are looking at"],
+  ["F or click", "pin what you are looking at, through the glass"],
   ["C", "make or break camp"],
   ["J", "journal — register, map and garage"],
   ["B", "horn"],

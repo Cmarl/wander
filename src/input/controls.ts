@@ -134,6 +134,24 @@ export class Controls {
       }
       return;
     }
+    /**
+     * Clicking the mouse pins what you are looking at.
+     *
+     * Clyde: "when using the binoculars (at least on web, not mobile) I find
+     * myself wanting to click the mouse to pin what I'm looking at." It is the
+     * obvious desktop gesture for what F already does, and what tapping a
+     * marker already does on a phone.
+     *
+     * Gated on pointerType rather than isTouch, because isTouch is true on any
+     * touchscreen laptop — which has a mouse too. A mouse press means a mouse
+     * press. Nothing happens unless the binoculars are up: the pin request is
+     * only read inside the glassing pass, and the flag is cleared every frame.
+     *
+     * Mouse look runs through pointer lock, so there is no drag to disambiguate
+     * from a click.
+     */
+    if (e.pointerType === "mouse" && e.button === 0) this.pin = true;
+
     if (this.pointerLook === null) {
       this.pointerLook = e.pointerId;
       this.lastLook.x = e.clientX;
