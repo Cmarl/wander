@@ -17,7 +17,14 @@ import { regionAt } from "./regions";
  * same call already made for small trees.
  */
 
-export type AccretionKind = "woodpile" | "firepit" | "cairn" | "signpost" | "drums" | "kennel";
+export type AccretionKind =
+  | "woodpile"
+  | "firepit"
+  | "cairn"
+  | "signpost"
+  | "drums"
+  | "kennel"
+  | "line";
 
 export const ACCRETION_KINDS: AccretionKind[] = [
   "woodpile",
@@ -26,6 +33,7 @@ export const ACCRETION_KINDS: AccretionKind[] = [
   "signpost",
   "drums",
   "kennel",
+  "line",
 ];
 
 /**
@@ -41,7 +49,7 @@ const ELIGIBLE: Record<LandmarkKind, AccretionKind[]> = {
   spring: ["cairn", "firepit", "woodpile", "signpost"],
   lonetree: ["cairn", "firepit", "woodpile", "kennel"],
   // A place somebody lived gets the most of everything.
-  steading: ["woodpile", "firepit", "signpost", "drums", "kennel"],
+  steading: ["woodpile", "firepit", "signpost", "drums", "kennel", "line"],
 };
 
 /** Roughly how often an eligible accretion actually shows up. */
@@ -56,6 +64,14 @@ export interface Accretion {
   scale: number;
   /** Signposts only — what it says when you walk up to it. */
   text?: string;
+  /**
+   * Firepits only — somebody used this recently and it is still warm.
+   *
+   * This is the cheapest trace of a person there is. A cold ring of stones is
+   * archaeology; embers and a thread of smoke mean you are a few hours behind
+   * someone, which is the whole feeling Traces is for without a single NPC.
+   */
+  lit?: boolean;
 }
 
 /**
@@ -141,6 +157,7 @@ export function accretionsAt(lm: Landmark): Accretion[] {
       rot: slotRandom(lm.gx, lm.gz, salt + 3) * Math.PI * 2,
       scale: 0.85 + slotRandom(lm.gx, lm.gz, salt + 4) * 0.35,
       text: kind === "signpost" ? signText(lm, slotRandom(lm.gx, lm.gz, salt + 5)) : undefined,
+      lit: kind === "firepit" && slotRandom(lm.gx, lm.gz, salt + 6) > 0.72,
     });
   }
 

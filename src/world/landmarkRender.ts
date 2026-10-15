@@ -1,6 +1,7 @@
 import * as THREE from "three";
 import { mergeGeometries } from "three/examples/jsm/utils/BufferGeometryUtils.js";
 import { blobTexture } from "./shadows";
+import { slotRandom } from "./field";
 import { LANDMARK_CELL, landmarksNear, type Landmark, type LandmarkKind } from "./landmarks";
 import { ACCRETION_KINDS, accretionsAt, type AccretionKind } from "./accretions";
 
@@ -24,7 +25,42 @@ import { ACCRETION_KINDS, accretionsAt, type AccretionKind } from "./accretions"
 const RANGE_CELLS = 7;
 const BUDGET = 40;
 const STEAM_PER_SPRING = 7;
-const STEAM_BUDGET = 180;
+/**
+ * Measured worst case across fifteen sampled load positions is 217 steam
+ * instances, so 180 was quietly clipping — and it clipped in cell-scan order,
+ * which meant a hot spring fifty metres away could lose its steam while one
+ * three kilometres off kept its own. Plumes are now sorted near-to-far before
+ * drawing, so whatever the budget drops is always the furthest away.
+ */
+const STEAM_BUDGET = 260;
+
+/**
+ * A plume — rising, drifting, billboarded. Steam off a hot spring and smoke
+ * off a chimney are the same effect with different numbers, so they share one
+ * mesh and one draw call.
+ *
+ * Smoke is the whole point of Traces. Somebody's fire on the next ridge says
+ * more about the world being lived in than any amount of furniture, and it
+ * reads from kilometres away, which is where you actually are.
+ */
+interface Plume {
+  x: number;
+  y: number;
+  z: number;
+  /** Metres the column climbs before it fades out. */
+  rise: number;
+  /** Puff width at the bottom, and how fast it opens out. */
+  spread: number;
+  /** How much a puff opens out over that climb, which is what fades it. */
+  drift: number;
+  /**
+   * Which mesh draws it. Steam and smoke need different colour AND different
+   * opacity, and per-instance opacity isn't a thing an InstancedMesh has —
+   * instanceColor multiplies diffuse, so fading a puff that way would make it
+   * dark grey rather than thin. Two materials, two draw calls, correct result.
+   */
+  smoke: boolean;
+}
 
 interface Layer {
   geo: THREE.BufferGeometry;
@@ -478,6 +514,40 @@ function signpostParts(): [THREE.BufferGeometry, THREE.BufferGeometry] {
   return [post, merge(boards)];
 }
 
+function washingLine(): [THREE.BufferGeometry, THREE.BufferGeometry] {
+  const frame: THREE.BufferGeometry[] = [];
+  for (const sx of [-1.9, 1.9]) {
+    const post = new THREE.CylinderGeometry(0.08, 0.1, 1.9, 5);
+    post.translate(sx, 0.95, 0);
+    frame.push(post);
+  }
+  const cord = box(3.8, 0.035, 0.035);
+  cord.translate(0, 1.82, 0);
+  frame.push(cord);
+
+  // Cloth, hung at different lengths. Nobody pegs out a tidy row.
+  const cloth: THREE.BufferGeometry[] = [];
+  for (const [ox, w, h] of [[-1.1, 0.72, 0.9], [0.1, 0.56, 0.66], [1.15, 0.8, 1.05]] as [number, number, number][]) {
+    const c = box(w, h, 0.03);
+    c.translate(ox, 1.8 - h / 2, 0);
+    cloth.push(c);
+  }
+  return [merge(frame), merge(cloth)];
+}
+
+/** Embers in a pit somebody used a few hours ago. */
+function embers(): THREE.BufferGeometry {
+  const parts: THREE.BufferGeometry[] = [];
+  for (let i = 0; i < 5; i++) {
+    const a = (i / 5) * Math.PI * 2;
+    const e = new THREE.IcosahedronGeometry(0.17, 0);
+    e.scale(1, 0.4, 1);
+    e.translate(Math.cos(a) * 0.3, 0.07, Math.sin(a) * 0.3);
+    parts.push(e);
+  }
+  return merge(parts);
+}
+
 function drums(): THREE.BufferGeometry {
   const parts: THREE.BufferGeometry[] = [];
   for (const [ox, oz] of [[0, 0], [0.72, 0.18], [0.34, -0.66]] as [number, number][]) {
@@ -509,11 +579,18 @@ function kennel(): THREE.BufferGeometry {
 interface AccretionModel {
   geo: THREE.BufferGeometry;
   colour: number;
+  /** Emissive, for embers — they shouldn't take shading. */
+  unlit?: boolean;
+  /** Only drawn on instances whose fire is still warm. */
+  litOnly?: boolean;
 }
 
 const ACCRETION_MODELS: Record<AccretionKind, AccretionModel[]> = {
   woodpile: [{ geo: woodpile(), colour: 0x7d6245 }],
-  firepit: [{ geo: firepit(), colour: 0x6e6a63 }],
+  firepit: [
+    { geo: firepit(), colour: 0x6e6a63 },
+    { geo: embers(), colour: 0xff6a2a, unlit: true, litOnly: true },
+  ],
   cairn: [{ geo: cairn(), colour: 0x8d8a80 }],
   signpost: [
     { geo: signpostParts()[0], colour: 0x7a6248 },
@@ -521,6 +598,10 @@ const ACCRETION_MODELS: Record<AccretionKind, AccretionModel[]> = {
   ],
   drums: [{ geo: drums(), colour: 0x6f7a6a }],
   kennel: [{ geo: kennel(), colour: 0x80664b }],
+  line: [
+    { geo: washingLine()[0], colour: 0x7a6248 },
+    { geo: washingLine()[1], colour: 0xd8d2c4 },
+  ],
 };
 
 /** 40 landmarks times six optional objects, with room to spare. */
@@ -631,7 +712,8 @@ export class LandmarkField {
   /** Signposts in range, for the walk-up read. */
   signs: { x: number; z: number; text: string }[] = [];
   private steam: THREE.InstancedMesh;
-  private steamAnchors: { x: number; y: number; z: number }[] = [];
+  private smoke: THREE.InstancedMesh;
+  private plumes: Plume[] = [];
   private cellX = NaN;
   private cellZ = NaN;
   /** Everything currently loaded, for collision and discovery. */
@@ -659,7 +741,9 @@ export class LandmarkField {
       const meshes = ACCRETION_MODELS[kind].map((m) => {
         const mesh = new THREE.InstancedMesh(
           m.geo,
-          new THREE.MeshLambertMaterial({ color: m.colour, flatShading: true }),
+          m.unlit
+            ? new THREE.MeshBasicMaterial({ color: m.colour })
+            : new THREE.MeshLambertMaterial({ color: m.colour, flatShading: true }),
           ACCRETION_BUDGET
         );
         mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
@@ -671,21 +755,27 @@ export class LandmarkField {
       this.accretions.set(kind, meshes);
     }
 
-    this.steam = new THREE.InstancedMesh(
-      new THREE.PlaneGeometry(1, 1),
-      new THREE.MeshBasicMaterial({
-        map: blobTexture(),
-        transparent: true,
-        opacity: 0.42,
-        depthWrite: false,
-        color: 0xffffff,
-      }),
-      STEAM_BUDGET
-    );
-    this.steam.frustumCulled = false;
-    this.steam.count = 0;
-    this.steam.renderOrder = 8;
-    this.group.add(this.steam);
+    const puffs = (colour: number, opacity: number) => {
+      const mesh = new THREE.InstancedMesh(
+        new THREE.PlaneGeometry(1, 1),
+        new THREE.MeshBasicMaterial({
+          map: blobTexture(),
+          transparent: true,
+          opacity,
+          depthWrite: false,
+          color: colour,
+        }),
+        STEAM_BUDGET
+      );
+      mesh.frustumCulled = false;
+      mesh.count = 0;
+      mesh.renderOrder = 8;
+      this.group.add(mesh);
+      return mesh;
+    };
+    this.steam = puffs(0xffffff, 0.42);
+    // Woodsmoke: grey, thinner, and it climbs twice as far as steam.
+    this.smoke = puffs(0xb9b3ab, 0.26);
   }
 
   update(px: number, pz: number, time: number, camera: THREE.Camera) {
@@ -710,7 +800,7 @@ export class LandmarkField {
     const hidden = new THREE.Matrix4().makeScale(0, 0, 0);
     const tint = new THREE.Color();
     const counts = new Map<LandmarkKind, number>();
-    this.steamAnchors.length = 0;
+    this.plumes.length = 0;
 
     for (const lm of this.loaded) {
       const n = counts.get(lm.kind) ?? 0;
@@ -731,7 +821,20 @@ export class LandmarkField {
       }
       counts.set(lm.kind, n + 1);
 
-      if (lm.kind === "spring") this.steamAnchors.push({ x: lm.x, y: lm.y + 1, z: lm.z });
+      if (lm.kind === "spring") {
+        this.plumes.push({
+          x: lm.x, y: lm.y + 1, z: lm.z,
+          rise: 30, spread: 2.2, drift: 13, smoke: false,
+        });
+      }
+      // Somebody is home. Only a cabin has a chimney, and only some cabins are
+      // occupied — smoke from every one of them would read as a theme park.
+      if (lm.kind === "steading" && lm.variant === 0 && slotRandom(lm.gx, lm.gz, 1031) > 0.55) {
+        this.plumes.push({
+          x: lm.x - 3.5 * lm.scale, y: lm.y + 4.8 * lm.scale, z: lm.z - 1.1 * lm.scale,
+          rise: 64, spread: 1.1, drift: 26, smoke: true,
+        });
+      }
     }
 
     // The small stuff. Placed after the structures so a signpost sitting on a
@@ -746,9 +849,21 @@ export class LandmarkField {
         q.setFromAxisAngle(up, a.rot);
         scl.setScalar(a.scale);
         m.compose(pos, q, scl);
-        for (const mesh of this.accretions.get(a.kind)!) mesh.setMatrixAt(k, m);
+        const models = ACCRETION_MODELS[a.kind];
+        const meshes = this.accretions.get(a.kind)!;
+        for (let j = 0; j < meshes.length; j++) {
+          meshes[j].setMatrixAt(k, models[j].litOnly && !a.lit ? hidden : m);
+        }
         acc.set(a.kind, k + 1);
         if (a.text) this.signs.push({ x: a.x, z: a.z, text: a.text });
+        // A thread of smoke off a warm pit, which is what you actually see
+        // from a distance — the embers themselves are a few pixels.
+        if (a.lit) {
+          this.plumes.push({
+            x: a.x, y: a.y + 0.5, z: a.z,
+            rise: 26, spread: 0.7, drift: 11, smoke: true,
+          });
+        }
       }
     }
     for (const [kind, meshes] of this.accretions) {
@@ -758,6 +873,13 @@ export class LandmarkField {
         mesh.instanceMatrix.needsUpdate = true;
       }
     }
+
+    const pdx = px;
+    const pdz = pz;
+    this.plumes.sort(
+      (a, b) =>
+        (a.x - pdx) ** 2 + (a.z - pdz) ** 2 - ((b.x - pdx) ** 2 + (b.z - pdz) ** 2)
+    );
 
     for (const [kind, meshes] of this.meshes) {
       const n = counts.get(kind) ?? 0;
@@ -778,19 +900,29 @@ export class LandmarkField {
     camera.getWorldQuaternion(q);
 
     let n = 0;
-    for (let a = 0; a < this.steamAnchors.length && n < STEAM_BUDGET; a++) {
-      const anchor = this.steamAnchors[a];
-      for (let i = 0; i < STEAM_PER_SPRING && n < STEAM_BUDGET; i++) {
+    let k = 0;
+    for (let a = 0; a < this.plumes.length; a++) {
+      const p = this.plumes[a];
+      const into = p.smoke ? this.smoke : this.steam;
+      if ((p.smoke ? k : n) >= STEAM_BUDGET) continue;
+      for (let i = 0; i < STEAM_PER_SPRING; i++) {
+        if ((p.smoke ? k : n) >= STEAM_BUDGET) break;
         const phase = (((time * 0.11 + i / STEAM_PER_SPRING + a * 0.37) % 1) + 1) % 1;
-        const rise = phase * 30;
-        const spread = 2.2 + phase * 13;
         const wobble = Math.sin(time * 0.5 + i * 2.1 + a) * phase * 5;
-        pos.set(anchor.x + wobble, anchor.y + rise, anchor.z + Math.cos(time * 0.4 + i) * phase * 4);
-        scl.setScalar(spread);
+        pos.set(
+          p.x + wobble,
+          p.y + phase * p.rise,
+          p.z + Math.cos(time * 0.4 + i) * phase * 4
+        );
+        // Spread opens out as it climbs, which spreads the same alpha over a
+        // much bigger area — that is what reads as dissipating.
+        scl.setScalar(p.spread + phase * p.drift);
         m.compose(pos, q, scl);
-        this.steam.setMatrixAt(n++, m);
+        into.setMatrixAt(p.smoke ? k++ : n++, m);
       }
     }
+    this.smoke.count = k;
+    this.smoke.instanceMatrix.needsUpdate = true;
     this.steam.count = n;
     this.steam.instanceMatrix.needsUpdate = true;
   }
