@@ -115,83 +115,116 @@ function lookout(): Layer[] {
   const timber: THREE.BufferGeometry[] = [];
   const metal: THREE.BufferGeometry[] = [];
   const glass: THREE.BufferGeometry[] = [];
-  const L = 3.2;
-  const H = 16.4;
+
+  /**
+   * Proportions, measured against a person.
+   *
+   * Clyde: "the ladder on the side looks to be for giants.. it should now be a
+   * small person size ladder but way longer."
+   *
+   * He was exactly right, and it was not only the ladder. The old flight had
+   * NINE steps at 1.5 m of rise each — a step taller than the 1.55 m character
+   * climbing it — and the legs were 0.8 to 1.24 m thick, which is a tree, not
+   * a post. Everything here is now sized off a human and the landmark scale
+   * does the "bigger", which is the only way bigger stays correct.
+   */
+  const EYE = 1.55; // the character, for reference
+  const L = 2.4; // half the leg spread
+  const H = 16.4; // deck height
   const corners: [number, number][] = [[-L, -L], [L, -L], [L, L], [-L, L]];
 
   for (const [sx, sz] of corners) {
-    const leg = new THREE.CylinderGeometry(0.4, 0.62, H, 6);
+    // 0.36 m at the top to 0.56 at the foot. Heavy timber, not a trunk.
+    const leg = new THREE.CylinderGeometry(0.18, 0.28, H, 6);
     leg.translate(0, H / 2, 0);
     leg.rotateZ(-Math.sign(sx) * 0.055);
     leg.rotateX(Math.sign(sz) * 0.055);
     leg.translate(sx, 0, sz);
     timber.push(leg);
   }
-  // X-bracing round all four faces at two heights, plus horizontal ties.
-  for (const [y0, y1] of [[1.2, 7.4], [7.4, 13.6]] as [number, number][]) {
+  // X-bracing round all four faces at three heights, plus horizontal ties.
+  for (const [y0, y1] of [[1.1, 6.2], [6.2, 11.3], [11.3, 16.0]] as [number, number][]) {
     for (let i = 0; i < 4; i++) {
       const a = corners[i];
       const c = corners[(i + 1) % 4];
-      timber.push(strut([a[0], y0, a[1]], [c[0], y1, c[1]], 0.1));
-      timber.push(strut([a[0], y1, a[1]], [c[0], y0, c[1]], 0.1));
+      timber.push(strut([a[0], y0, a[1]], [c[0], y1, c[1]], 0.07));
+      timber.push(strut([a[0], y1, a[1]], [c[0], y0, c[1]], 0.07));
     }
   }
-  for (const y of [7.4, 13.6]) {
+  for (const y of [6.2, 11.3, 16.0]) {
     for (let i = 0; i < 4; i++) {
       const a = corners[i];
       const c = corners[(i + 1) % 4];
-      timber.push(strut([a[0], y, a[1]], [c[0], y, c[1]], 0.09));
+      timber.push(strut([a[0], y, a[1]], [c[0], y, c[1]], 0.065));
     }
   }
 
-  const deck = box(9.6, 0.5, 9.6);
-  deck.translate(0, 16.7, 0);
+  const deck = box(5.8, 0.26, 5.8);
+  deck.translate(0, H + 0.13, 0);
   timber.push(deck);
-  const joist = box(9.6, 0.34, 0.34);
-  joist.translate(0, 16.4, 0);
-  timber.push(joist);
-
-  // A stair flight up one side — the detail that says people go up there.
-  for (let i = 0; i < 9; i++) {
-    const step = box(1.5, 0.12, 0.5);
-    step.translate(-5.3, 3 + i * 1.5, -4.6 + i * 0.5);
-    timber.push(step);
+  for (const sz of [-1, 1]) {
+    const joist = box(5.8, 0.22, 0.22);
+    joist.translate(0, H - 0.1, sz * 1.6);
+    timber.push(joist);
   }
-  metal.push(strut([-6.1, 2.8, -4.8], [-6.1, 16.6, -0.5], 0.06));
-  metal.push(strut([-4.5, 2.8, -4.8], [-4.5, 16.6, -0.5], 0.06));
 
-  const cabin = box(6.4, 2.1, 6.4);
-  cabin.translate(0, 18.0, 0);
+  /**
+   * The ladder. Rungs a third of a metre apart, shoulder width, running the
+   * whole way up — about fifty-six of them. Long because the tower is tall,
+   * which is what Clyde asked for and what a ladder actually is.
+   */
+  const RUNG = 0.29;
+  const LADDER_W = 0.46;
+  const lz = -L - 0.42;
+  for (const sx of [-1, 1]) {
+    const rail = box(0.07, H + 0.5, 0.07);
+    rail.translate((sx * LADDER_W) / 2, (H + 0.5) / 2, lz);
+    timber.push(rail);
+  }
+  for (let y = 0.45; y < H + 0.2; y += RUNG) {
+    const rung = box(LADDER_W, 0.045, 0.06);
+    rung.translate(0, y, lz);
+    metal.push(rung);
+  }
+
+  const cabin = box(4.2, 2.3, 4.2);
+  cabin.translate(0, H + 1.4, 0);
   timber.push(cabin);
-  // A band of glass right round, which is what a lookout is for.
+  // A band of glass right round, which is what a lookout is for. Sill at
+  // 0.95 above the deck, head height above that — a window a person uses.
   for (const [ox, oz, w, d] of [
-    [0, 3.24, 6.2, 0.1], [0, -3.24, 6.2, 0.1], [3.24, 0, 0.1, 6.2], [-3.24, 0, 0.1, 6.2],
+    [0, 2.13, 4.0, 0.08], [0, -2.13, 4.0, 0.08], [2.13, 0, 0.08, 4.0], [-2.13, 0, 0.08, 4.0],
   ] as [number, number, number, number][]) {
-    const pane = box(w, 1.25, d);
-    pane.translate(ox, 18.6, oz);
+    const pane = box(w, 1.1, d);
+    pane.translate(ox, H + 1.6, oz);
     glass.push(pane);
   }
-  const eaves = box(7.6, 0.22, 7.6);
-  eaves.translate(0, 19.2, 0);
+  const eaves = box(5.0, 0.16, 5.0);
+  eaves.translate(0, H + 2.6, 0);
   metal.push(eaves);
-  const roof = new THREE.ConeGeometry(5.6, 1.9, 4);
+  const roof = new THREE.ConeGeometry(3.6, 1.3, 4);
   roof.rotateY(Math.PI / 4);
-  roof.translate(0, 20.2, 0);
+  roof.translate(0, H + 3.3, 0);
   metal.push(roof);
 
-  for (let i = 0; i < 16; i++) {
-    const a = (i / 16) * Math.PI * 2;
-    const post = box(0.12, 0.95, 0.12);
-    post.translate(Math.cos(a) * 4.5, 17.4, Math.sin(a) * 4.5);
+  // Railing: posts at waist height, which is 1.0 m, not 0.95 of a giant.
+  const RAIL_H = 1.02;
+  for (let i = 0; i < 20; i++) {
+    const a = (i / 20) * Math.PI * 2;
+    const post = box(0.07, RAIL_H, 0.07);
+    post.translate(Math.cos(a) * 2.75, H + 0.26 + RAIL_H / 2, Math.sin(a) * 2.75);
     metal.push(post);
   }
   for (const [ox, oz, w, d] of [
-    [0, 4.6, 9.4, 0.14], [0, -4.6, 9.4, 0.14], [4.6, 0, 0.14, 9.4], [-4.6, 0, 0.14, 9.4],
+    [0, 2.85, 5.7, 0.08], [0, -2.85, 5.7, 0.08], [2.85, 0, 0.08, 5.7], [-2.85, 0, 0.08, 5.7],
   ] as [number, number, number, number][]) {
-    const rail = box(w, 0.14, d);
-    rail.translate(ox, 17.85, oz);
-    metal.push(rail);
+    for (const y of [H + 0.26 + RAIL_H, H + 0.26 + RAIL_H * 0.55]) {
+      const rail = box(w, 0.07, d);
+      rail.translate(ox, y, oz);
+      metal.push(rail);
+    }
   }
+  void EYE;
 
   // Variant 2 is a collapse: the deck and everything above it on the ground.
   const fallen: THREE.BufferGeometry[] = [];

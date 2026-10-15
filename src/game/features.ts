@@ -48,11 +48,13 @@ export const ACTIONS: Record<LandmarkKind, ActionSpec> = {
     note: "warm to the shoulders",
   },
   lookout: {
-    // The deck is a 9.6 m square slab centred at 16.7 with 0.5 of thickness,
-    // so its top is 16.95 — that is where your feet go, times the scale.
-    verb: "climb", badge: "Climbed", range: 9, camera: "chase",
-    lift: 16.95, inset: 0.0, instant: false,
-    deck: 4.3,
+    // The deck is a 5.8 m square slab centred at 16.53 with 0.26 of thickness,
+    // so its top is 16.66 — that is where your feet go, times the scale. The
+    // railing is at 2.85 from centre, so the walkable half-width stops just
+    // inside it.
+    verb: "climb", badge: "Climbed", range: 11, camera: "chase",
+    lift: 16.66, inset: 0.0, instant: false,
+    deck: 2.6,
     note: "the whole country, laid out",
   },
   lonetree: {
