@@ -39,6 +39,15 @@ const FOLLOW_GRACE = 0.35;
 const GLASS_FOV = 13;
 
 const VEH_GRAVITY = 26;
+/**
+ * How far past the flat top speed a full descent can take you.
+ *
+ * 0.38 puts the truck a little over 66 m/s on the steepest sustained ground
+ * worth driving, against 48 on the flat. Fast enough to feel like the hill is
+ * giving you something, short of the point where steering stops being an
+ * option.
+ */
+const OVERSPEED = 0.38;
 /** Head-on closing speed above which a bump becomes a crash. */
 const CRASH_SPEED = 7;
 /** Two circles along the spine. Radius and spacing come from the spec. */
@@ -413,12 +422,35 @@ export class Player {
     const n = normalAt(this.vehPos.x, this.vehPos.z, 2.5);
     const fwdX = Math.sin(this.vehHeading);
     const fwdZ = Math.cos(this.vehHeading);
-    if (!this.vehAir) {
-      const grade = -(n.x * fwdX + n.z * fwdZ) / Math.max(n.y, 0.2);
-      this.vehSpeed -= grade * this.spec.gradePull * dt;
-    }
+    // Positive uphill, negative nose-down. Zero in the air, where there is no
+    // slope under you to help or hinder.
+    const grade = this.vehAir ? 0 : -(n.x * fwdX + n.z * fwdZ) / Math.max(n.y, 0.2);
+    if (!this.vehAir) this.vehSpeed -= grade * this.spec.gradePull * dt;
     this.vehSpeed -= this.vehSpeed * this.spec.drag * dt;
-    this.vehSpeed = THREE.MathUtils.clamp(this.vehSpeed, -this.spec.reverse, this.spec.top);
+
+    /**
+     * Top speed is a FLATLAND cap, not an absolute one.
+     *
+     * Clyde: "driving a truck or other on ground vehicle down a big hill
+     * should allow you to surpass the top speed of the vehicle reasonably."
+     * Gravity was already pushing the vehicle along the slope — the hard clamp
+     * was throwing that away, so a long descent felt identical to flat ground
+     * and the mass the ledge physics gave the truck vanished the moment it
+     * pointed downhill.
+     *
+     * The ceiling rises with how steeply you are pointed down, and going back
+     * uphill lowers it again. Aircraft are excluded: a plane's speed is its
+     * own business and it has no wheels on the hill.
+     */
+    const descent = this.spec.flies ? 0 : Math.max(0, -grade);
+    const ceiling = this.spec.top * (1 + Math.min(descent, 1.1) * OVERSPEED);
+    if (this.vehSpeed > ceiling) {
+      // Bled off rather than snapped. Cresting out of a descent should coast
+      // back to normal, and a hard clamp there reads as the brakes coming on
+      // by themselves.
+      this.vehSpeed -= (this.vehSpeed - ceiling) * Math.min(1, dt * 1.5);
+    }
+    this.vehSpeed = Math.max(this.vehSpeed, -this.spec.reverse);
 
     // Steering authority falls off with speed, so it isn't twitchy at pace.
     const authority = this.spec.turn / (1 + Math.abs(this.vehSpeed) * 0.075);
