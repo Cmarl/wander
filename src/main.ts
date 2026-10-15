@@ -272,6 +272,9 @@ hud.onStrikeCamp = () => leaveShelter();
 function leaveShelter() {
   if (features.indoors) features.release();
   camp.strike();
+  // Releasing the place is not the same as releasing the PLAYER. This line
+  // was missing, which is the whole of the stuck-in-a-barn bug.
+  player.featureHold = null;
 }
 
 /**
@@ -1218,6 +1221,28 @@ function frame(now: number) {
   if (camp.active && player.mode === "drive") camp.strike();
   if (features.held && player.mode === "drive") {
     leaveShelter();
+    player.featureHold = null;
+  }
+
+  /**
+   * The invariant: nothing may pin the player to a place they are no longer
+   * settled into.
+   *
+   * Clyde: "I entered the barn, then left and could not walk. had to enter and
+   * leave a few times before I could move again. same happened with a mine."
+   *
+   * featureHold freezes the character exactly where a place wants them, and it
+   * was being cleared by each exit path separately — so the one path that
+   * forgot (the step-outside button) left the player held by a place they had
+   * already left. Pressing interact then RE-ENTERED, and the second press
+   * finally cleared it, which is precisely the enter-and-leave-a-few-times
+   * dance he described.
+   *
+   * Clearing it here as well makes the bug structurally impossible rather than
+   * fixed in one more place: whatever releases the feature, by whatever route,
+   * the hold cannot outlive it by more than the rest of this frame.
+   */
+  if (!features.held && player.featureHold && player.ridingHost === null) {
     player.featureHold = null;
   }
 
