@@ -16,6 +16,7 @@ import { Dog } from "./game/dog";
 import { StrayField } from "./world/strayRender";
 import { Stable } from "./game/stable";
 import { Wanderer } from "./game/wanderer";
+import { Figures } from "./game/figures";
 import { SPECS } from "./game/vehicles";
 import { Features, ACTIONS } from "./game/features";
 import { PAINTS } from "./game/paint";
@@ -86,6 +87,8 @@ const camp = new Camp();
 scene.add(camp.group);
 const wildlife = new Wildlife();
 scene.add(wildlife.group);
+const figures = new Figures();
+scene.add(figures.group);
 const wanderer = new Wanderer();
 scene.add(wanderer.group);
 const strays = new StrayField();
@@ -1112,6 +1115,7 @@ function frame(now: number) {
   dogging(dt);
   straying();
   wanderer.update(dt, player.position, player.heading);
+  figures.update(dt, player.position, player.heading);
   camera.getWorldDirection(dir);
   const headingDeg = ((((Math.atan2(dir.x, -dir.z) * 180) / Math.PI) % 360) + 360) % 360;
   for (let i = pins.length - 1; i >= 0; i--) {
