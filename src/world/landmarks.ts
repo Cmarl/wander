@@ -74,7 +74,12 @@ export const LANDMARK_NAMES: Record<LandmarkKind, string> = {
 
 /** Local-space collision circles, so you can drive *through* an arch. */
 export const LANDMARK_SOLIDS: Record<LandmarkKind, { dx: number; dz: number; r: number }[]> = {
+  // Legs alone left an 11 m gap straight through the middle of the tower. The
+  // footprint circle is what actually makes it solid; the legs keep the corners
+  // honest. Cross-bracing on the model makes this read as right rather than
+  // arbitrary.
   lookout: [
+    { dx: 0, dz: 0, r: 4.4 },
     { dx: -3.2, dz: -3.2, r: 1.1 },
     { dx: 3.2, dz: -3.2, r: 1.1 },
     { dx: -3.2, dz: 3.2, r: 1.1 },
@@ -85,12 +90,16 @@ export const LANDMARK_SOLIDS: Record<LandmarkKind, { dx: number; dz: number; r: 
     { dx: 16, dz: 0, r: 3.4 },
   ],
   mast: [
+    { dx: 0, dz: 0, r: 2.3 },
     { dx: -1.8, dz: -1.8, r: 0.9 },
     { dx: 1.8, dz: -1.8, r: 0.9 },
     { dx: -1.8, dz: 1.8, r: 0.9 },
     { dx: 1.8, dz: 1.8, r: 0.9 },
   ],
-  spring: [], // a pool is a puddle, not a wall
+  // Deliberately passable. It is a pool set into the ground, not a structure,
+  // and the whole point of it is to get in — walling it off would be worse
+  // than driving through it.
+  spring: [],
   lonetree: [{ dx: 0, dz: 0, r: 1.9 }],
   wreck: [{ dx: 0, dz: 0, r: 2.4 }],
 };
