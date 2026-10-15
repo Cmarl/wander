@@ -112,7 +112,20 @@ const peers = new PeerBodies();
 scene.add(peers.group);
 
 let myName = stored("wander.name", `wanderer-${Math.floor(1000 + Math.random() * 9000)}`);
-let myWorld = stored("wander.world", new URLSearchParams(location.search).get("world") || DEFAULT_WORLD);
+/**
+ * A dev build must never land in the shared world by default.
+ *
+ * NET_ORIGIN points at the live relay from everywhere, so every headless test
+ * page — fresh profile, no ?world=, no localStorage — was joining `overland`
+ * alongside real players and leaving ghosts behind. The relay now evicts stale
+ * sockets, but the root cause is here: local builds get their own world.
+ */
+const isDevHost =
+  ["localhost", "127.0.0.1", "0.0.0.0"].includes(location.hostname) || location.hostname.endsWith(".local");
+let myWorld = stored(
+  "wander.world",
+  new URLSearchParams(location.search).get("world") || (isDevHost ? "devsandbox" : DEFAULT_WORLD)
+);
 // A stable colour per name, so your truck looks like yours to everyone.
 const colourFor = (s: string) => {
   let h = 0;
@@ -139,6 +152,12 @@ const netFacade = {
 
 const hud = new Hud(controls, sound, netFacade);
 hud.onPinRequest = (id) => togglePin(id);
+// Following someone is a live bearing, not a saved place — they move, and it
+// lapses the moment they leave.
+let followId: number | null = null;
+hud.onFollow = (id) => {
+  followId = followId === id ? null : id;
+};
 hud.onRest = (t) => camp.rest(t, env.timeOfDay);
 hud.onStrikeCamp = () => camp.strike();
 hud.onJournal = () => journal.toggle();
@@ -570,18 +589,34 @@ function frame(now: number) {
   glassing();
   camera.getWorldDirection(dir);
   const headingDeg = ((((Math.atan2(dir.x, -dir.z) * 180) / Math.PI) % 360) + 360) % 360;
-  hud.setPins(
-    pins.map((p) => {
-      const dx = p.x - player.position.x;
-      const dz = p.z - player.position.z;
-      return {
-        name: p.name,
+  const marks: { name: string; bearing: number; km: number; live?: boolean }[] = pins.map((p) => {
+    const dx = p.x - player.position.x;
+    const dz = p.z - player.position.z;
+    return {
+      name: p.name,
+      bearing: ((Math.atan2(dx, -dz) * 180) / Math.PI + 360) % 360,
+      km: Math.hypot(dx, dz) / 1000,
+    };
+  });
+
+  const roster: { id: number; name: string; km: number }[] = [];
+  for (const peer of net.peers.values()) {
+    const dx = peer.next.x - player.position.x;
+    const dz = peer.next.z - player.position.z;
+    roster.push({ id: peer.id, name: peer.name, km: Math.hypot(dx, dz) / 1000 });
+    if (peer.id === followId) {
+      marks.push({
+        name: peer.name,
         bearing: ((Math.atan2(dx, -dz) * 180) / Math.PI + 360) % 360,
         km: Math.hypot(dx, dz) / 1000,
-      };
-    }),
-    headingDeg
-  );
+        live: true,
+      });
+    }
+  }
+  roster.sort((a, b) => a.km - b.km);
+  if (followId !== null && !net.peers.has(followId)) followId = null;
+  hud.setWho(roster, followId);
+  hud.setPins(marks, headingDeg);
 
   // Sunrise and sunset each get a phrase, once per crossing.
   const dayPhase = env.timeOfDay;

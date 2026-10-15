@@ -196,6 +196,8 @@ html, body {
   white-space: nowrap;
 }
 .pin i { font-style: normal; font-size: 9px; opacity: 0.95; }
+/* A person, not a place. */
+.pin.live { color: #7fd6ff; }
 .pin s { text-decoration: none; font-size: 9px; font-weight: 600; opacity: 0.8; }
 
 /* Outside the compass, so it can never be clipped or masked. */
@@ -685,3 +687,24 @@ html, body {
   padding-left: max(0px, env(safe-area-inset-left));
   padding-right: max(0px, env(safe-area-inset-right));
 }
+
+/* who's here */
+.who { margin: 2px 0 14px; display: flex; flex-direction: column; gap: 6px; }
+.who-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 9px 12px;
+  border-radius: 10px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: rgba(255, 255, 255, 0.05);
+  color: var(--ink);
+  font: inherit;
+  text-align: left;
+}
+.who-row b { font-size: 13px; font-weight: 600; }
+.who-row s { font-size: 11px; text-decoration: none; opacity: 0.55; white-space: nowrap; }
+.who-row.on { border-color: rgba(127, 214, 255, 0.55); background: rgba(127, 214, 255, 0.12); }
+.who-row.on s { color: #7fd6ff; opacity: 0.9; }
+.who-empty { margin: 0; font-size: 12px; opacity: 0.45; }

@@ -82,6 +82,10 @@ export class Hud {
   onPinRequest?: (id: string) => void;
   onRest?: (target: "dawn" | "dusk") => void;
   onJournal?: () => void;
+  /** Tapping a name in the who's-here list. */
+  onFollow?: (id: number) => void;
+  private whoEl!: HTMLElement;
+  private whoSig = "";
   onStrikeCamp?: () => void;
   private campEl!: HTMLElement;
   private campWhereEl!: HTMLElement;
@@ -144,6 +148,7 @@ export class Hud {
           <label class="field"><span>Your name</span><input id="h-name" maxlength="16" autocomplete="off" spellcheck="false"></label>
           <label class="field"><span>World code</span><input id="h-code" maxlength="24" autocomplete="off" spellcheck="false"></label>
           <p class="note">Anyone who enters the same world code roams the same map and can see you. The map itself is identical for everybody — only players are shared.</p>
+          <div class="who" id="h-who"></div>
           <button class="sheet-close" id="h-join">join world</button>
           <button class="sheet-close ghost" id="h-solo">play solo</button>
         </div>
@@ -199,6 +204,12 @@ export class Hud {
     this.marksEl = document.getElementById("h-marks")!;
     this.toastEl = document.getElementById("h-toast")!;
     this.toastNameEl = document.getElementById("h-toast-name")!;
+    this.whoEl = document.getElementById("h-who")!;
+    this.whoEl.addEventListener("pointerdown", (e) => {
+      e.stopPropagation();
+      const row = (e.target as HTMLElement).closest(".who-row") as HTMLElement | null;
+      if (row?.dataset.id) this.onFollow?.(Number(row.dataset.id));
+    });
     this.onlineEl = document.getElementById("h-online")!;
     this.dotEl = document.getElementById("h-dot")!;
 
@@ -261,6 +272,29 @@ export class Hud {
       controls.bindButton(document.getElementById("b-camp")!, "camp");
       controls.bindButton(document.getElementById("b-cruise")!, "cruise");
     }
+  }
+
+  /**
+   * Who else is in this world. Tapping one puts a chevron on the compass
+   * pointing at them — optional, self-selected, and it goes away the moment
+   * they leave or you tap again.
+   */
+  setWho(peers: { id: number; name: string; km: number }[], following: number | null) {
+    // Distance is rounded before signing, so the list only rebuilds when
+    // something a human would notice has actually changed.
+    const sig = peers.map((q) => `${q.id}:${q.km.toFixed(1)}:${q.id === following}`).join("|");
+    if (sig === this.whoSig) return;
+    this.whoSig = sig;
+
+    this.whoEl.innerHTML = peers.length
+      ? peers
+          .map(
+            (q) => `<button class="who-row${q.id === following ? " on" : ""}" data-id="${q.id}">
+              <b>${q.name}</b><s>${q.km.toFixed(1)} km${q.id === following ? " · following" : ""}</s>
+            </button>`
+          )
+          .join("")
+      : `<p class="who-empty">Nobody else is out here right now.</p>`;
   }
 
   /** `count` excludes you. */
@@ -339,7 +373,7 @@ export class Hud {
    * goes on its own line below the compass, outside the clipping box, for
    * whichever pin you're actually facing.
    */
-  setPins(pins: { name: string; bearing: number; km: number }[], headingDeg: number) {
+  setPins(pins: { name: string; bearing: number; km: number; live?: boolean }[], headingDeg: number) {
     while (this.pinEls.length < pins.length) {
       const el = document.createElement("span");
       el.className = "pin";
@@ -360,6 +394,8 @@ export class Hud {
       }
       el.style.display = "";
       el.style.left = `${p.bearing * 2}px`;
+      el.classList.toggle("live", !!p.live);
+      el.querySelector("i")!.textContent = p.live ? "●" : "▾";
       el.querySelector("s")!.textContent = `${p.km.toFixed(1)}km`;
 
       // Signed shortest angle, so wrapping past north doesn't pick the wrong pin.
