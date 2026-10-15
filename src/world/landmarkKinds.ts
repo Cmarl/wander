@@ -152,12 +152,53 @@ export function adit(): Layer[] {
     head.translate(0, 3.5 * s, z);
     timber.push(head);
   }
-  // The hole itself. The terrain is a pure function and cannot be excavated,
-  // so the dark is a box standing in a frame rather than a true void — read
-  // head-on, which is how you meet it, it is indistinguishable.
-  const hole = box(3.0, 3.2, 5.4);
-  hole.translate(0, 1.6, -2.6);
-  dark.push(hole);
+  /**
+   * The drift itself — a tunnel you stand in rather than a dark box you look
+   * at. Terrain is a pure function and cannot be excavated, so the workings
+   * are built: floor, two walls and a roof running back into the hill, closed
+   * off at the far end. From the portal, and from inside, it reads as a hole
+   * in the ground because every direction you can look is rock.
+   */
+  const D = 22;
+  const W = 1.6;
+  const H = 2.9;
+  const floor = box(W * 2, 0.3, D);
+  floor.translate(0, 0.15, -D / 2 - 1);
+  dark.push(floor);
+  const roof = box(W * 2 + 0.6, 0.4, D);
+  roof.translate(0, H, -D / 2 - 1);
+  dark.push(roof);
+  for (const sx of [-1, 1]) {
+    const wall = box(0.5, H, D);
+    wall.translate(sx * (W + 0.25), H / 2, -D / 2 - 1);
+    dark.push(wall);
+  }
+  const face = box(W * 2 + 1, H + 0.5, 0.6);
+  face.translate(0, H / 2, -D - 1);
+  dark.push(face);
+
+  // Timber sets at intervals, receding — the thing that gives a tunnel depth.
+  for (let i = 1; i <= 6; i++) {
+    const z = -3.4 - i * 3.0;
+    for (const sx of [-1, 1]) {
+      const post = box(0.3, H - 0.3, 0.3);
+      post.translate(sx * W, (H - 0.3) / 2, z);
+      timber.push(post);
+    }
+    const cap = box(W * 2 + 0.4, 0.3, 0.3);
+    cap.translate(0, H - 0.3, z);
+    timber.push(cap);
+  }
+
+  // Rails running in, and a cart stopped partway down.
+  for (const sx of [-0.55, 0.55]) {
+    const rail = box(0.1, 0.1, D - 2);
+    rail.translate(sx, 0.32, -D / 2 - 1);
+    metal.push(rail);
+  }
+  const inCart = box(1.4, 0.95, 2.0);
+  inCart.translate(0, 0.85, -12);
+  metal.push(inCart);
 
   for (let i = 0; i < 16; i++) {
     const a = (i / 16) * Math.PI * 2;
@@ -177,11 +218,32 @@ export function adit(): Layer[] {
   cart.translate(0, 0.8, 7.4);
   metal.push(cart);
 
+  /**
+   * The seam, at the far end. This is the payoff for walking in: the one thing
+   * down there that is not grey, catching what little light reaches it.
+   */
+  const seam: THREE.BufferGeometry[] = [];
+  for (let i = 0; i < 14; i++) {
+    const g = new THREE.IcosahedronGeometry(0.12 + (i % 4) * 0.05, 0);
+    g.translate(
+      (i % 2 ? -1 : 1) * (W - 0.15),
+      0.7 + (i % 5) * 0.42,
+      -D - 0.7 + ((i % 3) - 1) * 0.5
+    );
+    seam.push(g);
+  }
+  // A lamp left hanging on the first timber set, which is what makes the
+  // inside legible at all once you are past the daylight.
+  const lamp = new THREE.IcosahedronGeometry(0.17, 0);
+  lamp.translate(1.2, 1.9, -4.2);
+
   return [
     { geo: merge(timber), colour: 0x6f5a42 },
     { geo: merge(dark), colour: 0x15171a },
     { geo: merge(spoil), colour: 0x7e7a70 },
     { geo: merge(metal), colour: 0x6d7378 },
+    { geo: merge(seam), colour: 0x7fe3c8, unlit: true },
+    { geo: lamp, colour: 0xffcf8a, unlit: true },
   ];
 }
 

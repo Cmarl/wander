@@ -79,8 +79,8 @@ export const ACTIONS: Record<LandmarkKind, ActionSpec> = {
     note: "older than anything else out here",
   },
   adit: {
-    verb: "go in", badge: "Went in", range: 8, camera: "chase",
-    lift: 0, inset: 0.4, instant: false,
+    verb: "go in", badge: "Went in", range: 8, camera: "inside",
+    lift: 0, inset: 0.92, instant: false,
     note: "cold air coming out of the dark",
   },
   windpump: {
@@ -124,11 +124,14 @@ export const ACTIONS: Record<LandmarkKind, ActionSpec> = {
  * steading variant — cabin, barn, line shack. A barn has no stove, so its fire
  * goes on the floor where anyone sheltering in a barn would build one.
  */
-const INTERIORS: {
+interface Interior {
   eye: [number, number, number];
   look: [number, number, number];
   hearth: [number, number, number];
-}[] = [
+}
+
+/** The three steading builds, indexed by variant. */
+const STEADING_INTERIORS: Interior[] = [
   // cabin
   { eye: [1.7, 1.6, 1.5], look: [-1.8, 0.95, -0.9], hearth: [-2.4, 0.95, -1.1] },
   // barn
@@ -136,6 +139,24 @@ const INTERIORS: {
   // line shack
   { eye: [0.9, 1.5, 1.1], look: [-1.1, 0.9, -0.7], hearth: [-1.3, 0.95, -0.9] },
 ];
+
+/**
+ * Interiors for kinds that are not buildings.
+ *
+ * Clyde walked into a mine and nothing happened. The one-room system built for
+ * steadings was never steading-shaped — it is a camera position, a look point
+ * and somewhere a light belongs — so a tunnel is the same idea pointed down a
+ * hole instead of across a room.
+ */
+const KIND_INTERIORS: Partial<Record<LandmarkKind, Interior>> = {
+  // Standing inside the portal looking down the drift, with the lamp on the
+  // timber beside you.
+  adit: { eye: [0, 1.6, -3.4], look: [0, 1.3, -15], hearth: [1.2, 1.5, -4.2] },
+};
+
+function interiorOf(lm: Landmark): Interior {
+  return KIND_INTERIORS[lm.kind] ?? STEADING_INTERIORS[lm.variant] ?? STEADING_INTERIORS[0];
+}
 
 export class Features {
   /** The place you're currently settled into, if any. */
@@ -222,7 +243,7 @@ export class Features {
 
   /** Where this building's fire belongs, in world space. */
   hearth(out: THREE.Vector3): THREE.Vector3 {
-    return this.place(INTERIORS[this.held!.lm.variant].hearth, out);
+    return this.place(interiorOf(this.held!.lm).hearth, out);
   }
 
   /** Where the character sits while settled. */
@@ -239,7 +260,7 @@ export class Features {
    * the room is simply there, and the camera moves into it.
    */
   interiorTarget(out: THREE.Vector3, look: THREE.Vector3) {
-    const spec = INTERIORS[this.held!.lm.variant];
+    const spec = interiorOf(this.held!.lm);
     this.place(spec.eye, out);
     this.place(spec.look, look);
     // Panning swings the look point around the eye, so you turn your head.

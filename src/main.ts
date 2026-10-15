@@ -88,6 +88,16 @@ const camp = new Camp();
 scene.add(camp.group);
 const wildlife = new Wildlife();
 scene.add(wildlife.group);
+/**
+ * A light for interiors that are not lit by a fire.
+ *
+ * A steading's hearth is a camp, which brings its own light. A mine has a lamp
+ * somebody left hanging on the first timber set, and without an actual light
+ * source the drift is a black hole you stand in and cannot read.
+ */
+const interiorLight = new THREE.PointLight(0xffcf8a, 0, 26, 2);
+scene.add(interiorLight);
+
 const aurora = new Aurora();
 scene.add(aurora.group);
 const figures = new Figures();
@@ -1072,6 +1082,21 @@ function frame(now: number) {
       awardBadge(offer, spec.badge);
       // A mast carries a voice reading out places. That is what it is for.
       if (offer.kind === "mast") hearRumour(offer.gx, offer.gz, 1301, offer.x, offer.z, "the radio says");
+      // Going into a working is worth something of its own. The badge says
+      // you went in; this says what was down there.
+      if (offer.kind === "adit") {
+        const fresh = found.add({
+          id: `seam:${offer.id}`,
+          kind: "badge",
+          name: `${offer.name} — a seam, still showing`,
+          x: Math.round(offer.x),
+          z: Math.round(offer.z),
+          at: Date.now(),
+          tod: env.timeOfDay,
+          region: regionAt(offer.x, offer.z).name,
+        });
+        if (fresh) hud.announce("green in the rock, at the end of it", "you find");
+      }
       const sustained = features.begin(offer, player.position);
       if (sustained) {
         player.featureHold = features.holdPosition(new THREE.Vector3());
@@ -1167,12 +1192,25 @@ function frame(now: number) {
   }
   // The panel has to appear on stepping inside, before there is any fire, so
   // that "light the fire" is reachable at all.
+  // Light the lamp while you are in a working, and put it out when you leave.
+  if (features.indoors && features.held!.lm.kind === "adit") {
+    features.hearth(interiorLight.position);
+    interiorLight.intensity += (26 - interiorLight.intensity) * Math.min(1, dt * 2.4);
+  } else {
+    interiorLight.intensity *= 1 - Math.min(1, dt * 4);
+  }
+
+  // The stay panel belongs to places you can settle into. A mine is somewhere
+  // you go IN, not somewhere you stop — offering to light a fire and sleep at
+  // the bottom of a working would be the panel appearing because it can,
+  // rather than because it should. You leave a working the way you came in.
+  const staying = features.indoors && features.held!.lm.kind === "steading";
   hud.setCamp(
-    camp.active || features.indoors,
-    features.indoors ? features.held!.lm.name : camp.nearby,
+    camp.active || staying,
+    staying ? features.held!.lm.name : camp.nearby,
     camp.resting,
     player.heldByCamp,
-    features.indoors ? { fire: camp.active, indoors: true } : undefined
+    staying ? { fire: camp.active, indoors: true } : undefined
   );
 
   glassing();
