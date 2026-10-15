@@ -103,6 +103,49 @@ export class Sfx {
     }
   }
 
+  /**
+   * A horn you hold down.
+   *
+   * Clyde: "fix the horn. should be continuous when I hold it." It was a
+   * one-shot fired from keydown, so holding the key retriggered it on the
+   * keyboard's auto-repeat — a stutter rather than a note.
+   *
+   * Sustained voices instead, started once and held until released. The remote
+   * horn stays a one-shot, because somebody else's honk arrives as an event
+   * and there is nothing to hold.
+   */
+  private hornVoices: { osc: OscillatorNode; gain: GainNode }[] = [];
+
+  hornOn(gain = 1) {
+    if (!this.e.ready || !this.e.ctx || this.hornVoices.length) return;
+    const t = this.e.now;
+    for (const [f, lvl] of [[372, 0.085], [442, 0.07], [186, 0.05]] as [number, number][]) {
+      const osc = this.e.ctx.createOscillator();
+      osc.type = "sawtooth";
+      osc.frequency.value = f;
+      const g = this.e.gain(0);
+      g.gain.setValueAtTime(0.0001, t);
+      g.gain.exponentialRampToValueAtTime(lvl * gain, t + 0.035);
+      osc.connect(g).connect(this.e.vehicleBus);
+      osc.start();
+      this.hornVoices.push({ osc, gain: g });
+    }
+  }
+
+  hornOff() {
+    if (!this.hornVoices.length) return;
+    const t = this.e.now;
+    for (const v of this.hornVoices) {
+      // Ramp down before stopping. Cutting a sawtooth mid-cycle is a click,
+      // which is the lesson the music already taught this project.
+      v.gain.gain.cancelScheduledValues(t);
+      v.gain.gain.setValueAtTime(Math.max(v.gain.gain.value, 0.0001), t);
+      v.gain.gain.exponentialRampToValueAtTime(0.0001, t + 0.07);
+      v.osc.stop(t + 0.12);
+    }
+    this.hornVoices.length = 0;
+  }
+
   /** Suspension hitting a rut. Level scales with how hard the hit was. */
   thump(force: number) {
     if (!this.e.ready) return;

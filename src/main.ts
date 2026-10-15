@@ -134,7 +134,11 @@ const sound = new Soundscape();
 sound.attachUnlock();
 player.onLand = () => sound.land();
 player.onMount = () => sound.mount();
-player.onDismount = () => sound.dismount();
+player.onDismount = () => {
+  sound.dismount();
+  // Stepping out with the horn held should not leave it blaring.
+  sound.hornOff();
+};
 /**
  * Summoning brings whatever you have set, or the truck.
  *
@@ -395,14 +399,24 @@ visualViewport?.addEventListener("scroll", resize);
 resize();
 
 // Dev convenience: nudge the clock without waiting an hour for dusk.
+// Releasing the key stops the horn. Also stopped on blur, because a key held
+// when the tab loses focus never delivers its keyup and the horn would be
+// left sounding into an empty room.
+addEventListener("keyup", (e) => {
+  if (e.code === "KeyB") sound.hornOff();
+});
+addEventListener("blur", () => sound.hornOff());
+
 addEventListener("keydown", (e) => {
   if (e.code === "BracketRight") env.timeOfDay = (env.timeOfDay + 1 / 24) % 1;
   if (e.code === "BracketLeft") env.timeOfDay = (env.timeOfDay + 23 / 24) % 1;
   if (e.code === "KeyM") hud.setMuted(sound.toggleMute());
   if (e.code === "KeyP") postcard.toggle();
   if (e.code === "KeyJ") journal.toggle();
-  if (e.code === "KeyB" && (player.mode === "drive" || player.ridingHost !== null)) {
-    sound.horn();
+  // Held, not tapped. e.repeat guards against the keyboard's auto-repeat
+  // starting it again every few milliseconds.
+  if (e.code === "KeyB" && !e.repeat && (player.mode === "drive" || player.ridingHost !== null)) {
+    sound.hornOn();
     net.emote("honk");
   }
   if (e.code === "KeyV" && player.mode === "foot") {

@@ -133,6 +133,14 @@ export class Soundscape {
     this.sfx.horn();
   }
 
+  hornOn() {
+    this.sfx.hornOn();
+  }
+
+  hornOff() {
+    this.sfx.hornOff();
+  }
+
   /** Someone else's horn, quieter with distance. */
   remoteHorn(level: number) {
     this.sfx.horn(level);
