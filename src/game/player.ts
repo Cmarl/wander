@@ -1,5 +1,5 @@
 import * as THREE from "three";
-import { heightAt, normalAt, slopeAt } from "../world/field";
+import { heightAt, normalAt, slopeAt, SEA_LEVEL } from "../world/field";
 import { PropQuery } from "../world/props";
 import { DynamicShadow } from "../world/shadows";
 import { makeCharacter, type Character, type Vehicle } from "./models";
@@ -7,8 +7,26 @@ import { SPECS, makeFor, type VehicleClass, type VehicleSpec } from "./vehicles"
 import { PAINTS } from "./paint";
 import type { Controls } from "../input/controls";
 
-const WALK = 2.3;
-const RUN = 5.2;
+/**
+ * On foot.
+ *
+ * Clyde: "walking speed should be increased as well." 2.3 m/s is a real
+ * walking pace and it reads as a trudge in a world this size, where the
+ * nearest anything is a kilometre off. 3.4 is a brisk walk that still looks
+ * like walking.
+ */
+const WALK = 3.4;
+const RUN = 7.0;
+/**
+ * Swimming. Slower than walking, as it should be — crossing water is a
+ * decision, not a shortcut. Fast enough that a lake is a pleasant few minutes
+ * rather than a chore.
+ */
+const SWIM = 2.2;
+/** Deeper than this and your feet are off the bottom. */
+const SWIM_DEPTH = 1.25;
+/** How much of you is under when swimming. */
+const FLOAT = 0.42;
 const GRAVITY = 24;
 const JUMP = 7.2;
 const EYE = 1.55;
@@ -234,7 +252,11 @@ export class Player {
 
   /** On foot and far enough from the truck that calling it is reasonable. */
   get canSummon(): boolean {
-    return this.mode === "foot" && this.position.distanceTo(this.vehPos) > SUMMON_MIN;
+    // Not while swimming. Calling a truck to you in the middle of a lake would
+    // drop it somewhere it cannot move, and you cannot get into it anyway.
+    return (
+      this.mode === "foot" && !this.swimming && this.position.distanceTo(this.vehPos) > SUMMON_MIN
+    );
   }
 
   /** Camp wants you stopped and out of the truck. */
@@ -277,6 +299,10 @@ export class Player {
    * never have to resolve who is riding with whom to draw us correctly.
    */
   ridingHost: number | null = null;
+  /** In water past your chest, floating. */
+  swimming = false;
+  /** In water, but still on the bottom. */
+  wading = false;
   /** Yaw of whatever camera currently owns the view, if not the chase camera. */
   holdYaw: number | null = null;
   /**
@@ -373,7 +399,10 @@ export class Player {
       dx = held.x;
       dz = held.z;
       const mag = Math.hypot(dx, dz);
-      moveSpeed = (input.sprint ? RUN : WALK) * Math.min(len, 1) * effort * mag;
+      // Wading slows you, swimming is its own pace, and you cannot sprint
+      // through either.
+      const base = this.swimming ? SWIM : this.wading ? WALK * 0.55 : input.sprint ? RUN : WALK;
+      moveSpeed = base * Math.min(len, 1) * (this.swimming ? 1 : effort) * mag;
       if (mag > 1e-4) {
         dx /= mag;
         dz /= mag;
@@ -400,6 +429,24 @@ export class Player {
      * which is what he actually asked for and what a lookout is for.
      */
     let ground = heightAt(this.position.x, this.position.z);
+
+    /**
+     * Water.
+     *
+     * Shallow enough to stand in and you wade; past your chest and you swim,
+     * floating at the surface rather than walking along the bottom. Getting
+     * out is simply walking up a shore that rises above the waterline, so
+     * there is no entering or leaving to manage and nothing to press.
+     */
+    const depth = SEA_LEVEL - ground;
+    this.wading = depth > 0.25 && depth <= SWIM_DEPTH;
+    this.swimming = depth > SWIM_DEPTH;
+    if (this.swimming) {
+      ground = SEA_LEVEL - FLOAT;
+      this.velY = 0;
+      this.grounded = true;
+    }
+
     if (this.platform) {
       const p = this.platform;
       this.position.x = THREE.MathUtils.clamp(this.position.x, p.x - p.half, p.x + p.half);
@@ -543,8 +590,28 @@ export class Player {
       this.camYaw = this.approachAngle(this.camYaw, behind, rate);
     }
 
-    this.vehPos.x += Math.sin(this.vehHeading) * this.vehSpeed * dt;
-    this.vehPos.z += Math.cos(this.vehHeading) * this.vehSpeed * dt;
+    /**
+     * Water stops a wheeled vehicle.
+     *
+     * Clyde: "can't drive or walk through water". Driving across a lake was
+     * possible because the ground function simply carried on underneath it,
+     * and a truck following the bottom of a bay looks exactly as wrong as it
+     * sounds.
+     *
+     * The move is tested before it is taken: if the far side of this step is
+     * under the waterline, the vehicle does not go there and the speed is
+     * scrubbed hard rather than stopped dead, so arriving at a shore is a
+     * halt rather than a wall. Aircraft are exempt, since they are above it.
+     */
+    const nx = this.vehPos.x + Math.sin(this.vehHeading) * this.vehSpeed * dt;
+    const nz = this.vehPos.z + Math.cos(this.vehHeading) * this.vehSpeed * dt;
+    const wet = !this.spec.flies && !this.spec.floats && heightAt(nx, nz) < SEA_LEVEL + 0.35;
+    if (wet) {
+      this.vehSpeed *= 1 - Math.min(1, dt * 7);
+    } else {
+      this.vehPos.x = nx;
+      this.vehPos.z = nz;
+    }
     this.distanceTravelled += Math.abs(this.vehSpeed) * dt;
     this.speed = Math.abs(this.vehSpeed);
 
@@ -665,8 +732,11 @@ export class Player {
   private summon() {
     const px = this.position.x;
     const pz = this.position.z;
-    let bestX = px + Math.sin(this.heading + Math.PI) * SUMMON_RANGE;
-    let bestZ = pz + Math.cos(this.heading + Math.PI) * SUMMON_RANGE;
+    // The fallback is where you stand rather than behind you: every candidate
+    // failing usually means you are hemmed in, and dry ground under your own
+    // feet beats a guess that could be over water.
+    let bestX = px;
+    let bestZ = pz;
     let bestScore = -Infinity;
 
     for (let i = 0; i < 8; i++) {

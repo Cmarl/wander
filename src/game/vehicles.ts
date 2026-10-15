@@ -63,6 +63,11 @@ export interface VehicleSpec {
   flies?: boolean;
   lift?: number;
   sink?: number;
+  /**
+   * Floats. The inverse of everything else: at home on water and useless off
+   * it, which is why a boat is found at a dock rather than summoned anywhere.
+   */
+  floats?: boolean;
   /** Plane only: how much of the sink rate airspeed cancels. */
   wing?: number;
   /**
