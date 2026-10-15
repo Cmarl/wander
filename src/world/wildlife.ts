@@ -42,6 +42,8 @@ interface SpeciesSpec {
   herd: [number, number];
   /** Worth a badge, not just a journal line. */
   rare?: boolean;
+  /** Leaves the ground when startled, rather than running. */
+  flies?: boolean;
   shape: () => THREE.BufferGeometry;
   suits: (y: number, slope: number, temp: number, moist: number) => boolean;
 }
@@ -135,6 +137,9 @@ function wader(): THREE.BufferGeometry {
     const leg = new THREE.CylinderGeometry(0.03, 0.03, 0.9, 4);
     leg.translate(sx * 0.09, 0.45, 0);
     parts.push(leg);
+    const wing = new THREE.BoxGeometry(0.46, 0.035, 0.34);
+    wing.translate(sx * 0.33, 1.1, -0.04);
+    parts.push(wing);
   }
   const m = mergeGeometries(parts.map((g) => (g.index ? g.toNonIndexed() : g)), false);
   if (!m) throw new Error("wader merge failed");
@@ -159,6 +164,9 @@ function fowl(): THREE.BufferGeometry {
     const leg = new THREE.CylinderGeometry(0.022, 0.022, 0.16, 4);
     leg.translate(sx * 0.07, 0.08, 0);
     parts.push(leg);
+    const wing = new THREE.BoxGeometry(0.3, 0.03, 0.24);
+    wing.translate(sx * 0.21, 0.3, -0.02);
+    parts.push(wing);
   }
   const m = mergeGeometries(parts.map((g) => (g.index ? g.toNonIndexed() : g)), false);
   if (!m) throw new Error("fowl merge failed");
@@ -214,12 +222,14 @@ export const SPECIES: Record<Species, SpeciesSpec> = {
     suits: (y, slope, temp, moist) => slope < 0.42 && temp > 0.18 && temp < 0.62 && moist > 0.3 && y > 20,
   },
   crane: {
-    label: "Crane", tint: 0xd8d4c8, graze: 0.35, flee: 7, alertAt: 60, fleeAt: 32, herd: [2, 5],
+    label: "Crane", tint: 0xd8d4c8, graze: 0.35, flee: 9, alertAt: 60, fleeAt: 32, herd: [2, 5],
+    flies: true,
     shape: wader,
     suits: (y, slope, temp) => y > 2 && y < 60 && slope < 0.18 && temp > 0.34,
   },
   ptarmigan: {
-    label: "Ptarmigan", tint: 0xe8ecef, graze: 0.4, flee: 8, alertAt: 40, fleeAt: 22, herd: [2, 6],
+    label: "Ptarmigan", tint: 0xe8ecef, graze: 0.4, flee: 11, alertAt: 40, fleeAt: 22, herd: [2, 6],
+    flies: true,
     shape: fowl,
     suits: (y, slope, temp) => temp < 0.34 && slope < 0.45 && y > 600,
   },
@@ -246,6 +256,9 @@ interface Animal {
   timer: number;
   scale: number;
   species: Species;
+  /** Height above the ground, for the ones that leave it. */
+  lift: number;
+  climb: number;
 }
 
 function herdInCell(gx: number, gz: number) {
@@ -337,6 +350,8 @@ export class Wildlife {
             timer: Math.random() * 4,
             scale: 0.88 + (n % 4) * 0.09,
             species: herd.species,
+            lift: 0,
+            climb: 0,
           });
         }
       }
@@ -373,8 +388,12 @@ export class Wildlife {
 
       an.timer -= dt;
       if (near < spec.fleeAt) {
+        if (an.state !== "flee" && spec.flies) {
+          // Off the ground, hard, the moment it decides to go.
+          an.climb = 10 + Math.random() * 4.5;
+        }
         an.state = "flee";
-        an.timer = 2.4 + Math.random() * 2;
+        an.timer = (spec.flies ? 4.5 : 2.4) + Math.random() * 2;
         an.heading = Math.atan2(dx, dz);
       } else if (near < spec.alertAt && an.state !== "flee") {
         an.state = "alert";
@@ -403,23 +422,42 @@ export class Wildlife {
 
       an.x += Math.sin(an.heading) * an.speed * dt;
       an.z += Math.cos(an.heading) * an.speed * dt;
-      an.phase += dt * (an.speed > 0.1 ? 7 : 1.1);
+
+      if (spec.flies) {
+        // Climb away, level off, then settle back down once it feels safe.
+        if (an.state === "flee") {
+          an.climb -= dt * 5.2;
+          an.lift += Math.max(an.climb, -1.7) * dt;
+        } else {
+          an.lift -= dt * 2.4;
+        }
+        an.lift = Math.max(0, Math.min(26, an.lift));
+        if (an.lift <= 0) an.climb = 0;
+      }
+      // Wings beat hard on the climb and barely at all on a glide.
+      an.phase += dt * (an.lift > 0 ? (an.climb > 0 ? 16 : 5) : an.speed > 0.1 ? 7 : 1.1);
 
       const ground = heightAt(an.x, an.z);
       const mesh = this.meshes.get(an.species)!;
       const n = counts.get(an.species) ?? 0;
       if (n >= PER_SPECIES) continue;
 
-      const bob = an.speed > 0.1 ? Math.abs(Math.sin(an.phase)) * 0.1 * (an.speed / spec.flee + 0.3) : 0;
-      const pitch = an.state === "alert" ? -0.2 : an.speed > 4 ? 0.14 : 0;
-      pos.set(an.x, ground + bob, an.z);
-      q.setFromEuler(new THREE.Euler(pitch, an.heading, 0));
+      const flying = an.lift > 0.05;
+      const bob = an.speed > 0.1 && !flying ? Math.abs(Math.sin(an.phase)) * 0.1 * (an.speed / spec.flee + 0.3) : 0;
+      const pitch = flying
+        ? an.climb > 0 ? -0.42 : 0.06
+        : an.state === "alert" ? -0.2 : an.speed > 4 ? 0.14 : 0;
+      // Rolling with the wingbeat is what sells a bird at distance — the
+      // instance matrix can't animate a wing on its own.
+      const roll = flying ? Math.sin(an.phase) * (an.climb > 0 ? 0.42 : 0.14) : 0;
+      pos.set(an.x, ground + bob + an.lift, an.z);
+      q.setFromEuler(new THREE.Euler(pitch, an.heading, roll));
       scl.setScalar(an.scale);
       m.compose(pos, q, scl);
       mesh.setMatrixAt(n, m);
       counts.set(an.species, n + 1);
 
-      if (shadowN < this.shadows.instanceMatrix.count) {
+      if (!flying && shadowN < this.shadows.instanceMatrix.count) {
         pos.set(an.x, ground + 0.05, an.z);
         q.setFromAxisAngle(up, an.heading);
         scl.set(an.scale * 0.8, 1, an.scale * 1.25);
