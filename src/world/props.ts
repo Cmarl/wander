@@ -14,12 +14,6 @@ import { heightAt, slopeAt, treeDensityAt, slotRandom, moistureAt, temperatureAt
 export const CELL = 40;
 const SLOTS = 3;
 /**
- * Horizontal scale at or above which a tree is SOLID. This governs collision
- * only — every tree bends regardless of size; big ones are simply stiffer.
- */
-const SAPLING_MAX = 1.08;
-
-/**
  * How far something gives when you drive past, 0..1.
  *
  * Continuous in size rather than gated, so there is no boundary to notice: a
@@ -80,14 +74,9 @@ export function propsInCell(gx: number, gz: number, out: Prop[]): void {
 
       const scale = 0.68 + r3 * 0.95;
       const sx = scale * (0.82 + r1 * 0.3);
-      // Between trunk and canopy: a truck clips the lower branches too, but the
-      // full canopy width would stop you a metre short of anything.
-      const grab = kind === "dead" ? 0.32 : kind === "broadleaf" ? 0.8 : 0.7;
-      // A sapling is not an obstacle. Below this it has no collision at all —
-      // stopping a truck dead on a whip-thin trunk is the single most annoying
-      // thing open country can do to you. Bigger trees stay solid, because
-      // hitting something that hits back is the good part.
-      const solid = sx >= SAPLING_MAX;
+      // No tree stops you. Every one of them bends out of the way instead, a
+      // big one stiffly and a sapling right over. Driving through open country
+      // should never end against a trunk.
       out.push({
         kind,
         x,
@@ -98,7 +87,7 @@ export function propsInCell(gx: number, gz: number, out: Prop[]): void {
         rot: r0 * Math.PI * 2,
         tint: r1,
         shade: r3,
-        radius: solid ? grab * sx : 0,
+        radius: 0,
         bend: whippiness(sx),
       });
       continue;
