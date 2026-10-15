@@ -76,6 +76,10 @@ void main() {
            * smoothstep(0.06, 0.24, moist)
            * (1.0 - smoothstep(snowLine - 220.0, snowLine, y));
 
+  // Nothing grows in a wheel rut. This is what actually makes a track read as
+  // worn rather than painted on — the colour alone looked like a decal.
+  ok *= 1.0 - wWay(wp) * 0.92;
+
   float dist = distance(cameraPosition.xz, wp);
   ok *= 1.0 - smoothstep(uRadius * 0.45, uRadius, dist);
 

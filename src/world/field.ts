@@ -117,6 +117,32 @@ export const reliefAt = (x: number, z: number) =>
 export const densityAt = (x: number, z: number) =>
   stretch(wFbm(x / 31000, z / 31000, 3, 223), 1.5);
 
+/**
+ * Ways — faint tracks worn across the country.
+ *
+ * Clyde said "sure" to roads, "faint/sparse/discontinuous". The risk the
+ * brainstorm named is real: a road network would turn trackless wandering into
+ * route-following, which is the opposite of the point.
+ *
+ * So this is not a network and nothing is routed. A track is the CONTOUR of a
+ * slow noise field, which gives a long meandering line for the cost of one
+ * fBm, and a second slower field gates it so tracks fade out and pick up again
+ * later. They are a hint that somebody came this way, not a thing to follow to
+ * a destination.
+ *
+ * It is a pure function of position like everything else, which is what lets
+ * the terrain shader draw it without the CPU telling it anything.
+ */
+export function wayAt(x: number, z: number): number {
+  const v = wFbm(x * (1 / 5200), z * (1 / 5200), 3, 241) - 0.5;
+  // 0.02 here gave a 295 m smear — a motorway, not a track. The width scales
+  // with this threshold, and 0.001 measures out at about fifteen metres, which
+  // is a pair of ruts wide enough to drive.
+  const line = 1 - smoothstep(0, 0.001, Math.abs(v));
+  const gate = smoothstep(0.42, 0.62, wFbm(x * (1 / 9000), z * (1 / 9000), 2, 251));
+  return line * gate;
+}
+
 export const SEA_LEVEL = 0;
 
 export function heightAt(x: number, z: number): number {

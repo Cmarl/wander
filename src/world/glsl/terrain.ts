@@ -46,6 +46,17 @@ float wMoisture(vec2 p) {
  * region still reads as one coherent place for tens of kilometres.
  * MIRROR: src/world/field.ts
  */
+/**
+ * Ways — see wayAt in world/field.ts for why this is a contour and not a
+ * route. Mirrored exactly: same scales, same seeds, same thresholds.
+ */
+float wWay(vec2 p) {
+  float v = wFbm(p * (1.0 / 5200.0), 3, 241u) - 0.5;
+  float line = 1.0 - smoothstep(0.0, 0.001, abs(v));
+  float gate = smoothstep(0.42, 0.62, wFbm(p * (1.0 / 9000.0), 2, 251u));
+  return line * gate;
+}
+
 float wRelief(vec2 p)  { return wStretch(wFbm(p * (1.0 / 46000.0), 3, 211u), 1.7); }
 float wDensity(vec2 p) { return wStretch(wFbm(p * (1.0 / 31000.0), 3, 223u), 1.5); }
 
@@ -105,6 +116,15 @@ vec3 terrainAlbedo(vec2 p, float h, vec3 n) {
   float snowLine = mix(2300.0, 820.0, 1.0 - clamp(temp, 0.0, 1.0));
   float snowAmt = smoothstep(snowLine, snowLine + 320.0, h) * smoothstep(0.78, 0.46, slope);
   c = mix(c, SNOW, snowAmt);
+
+  // A worn track. Faint on purpose, and it gives up on rock, on snow and on
+  // anything steep — the places nobody would have driven in the first place.
+  const vec3 TRACK = SRGB(0.44, 0.38, 0.30);
+  float way = wWay(p)
+            * (1.0 - rockAmt) * (1.0 - snowAmt)
+            * smoothstep(0.34, 0.14, slope)
+            * smoothstep(2.0, 12.0, h);
+  c = mix(c, TRACK * (0.86 + 0.28 * wFbm(p * (1.0 / 40.0), 2, 163u)), way * 0.62);
 
   return c;
 }

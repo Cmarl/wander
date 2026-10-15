@@ -1,0 +1,99 @@
+<!doctype html><meta charset=utf8>
+<!--
+  CPU/GPU mirror probe.
+
+  The world being a pure function only works if the TypeScript and the GLSL
+  agree. Everything downstream depends on it — collision uses the surface the
+  vertex shader draws. This renders the GPU side into a float target, reads it
+  back, and the harness compares it against the CPU side.
+
+  Run: npm run dev, then open /tools/mirror-probe.html (or drive it headless).
+  Not a build entry: vite builds index.html only, so this never ships.
+-->
+<body><pre id=out></pre>
+<script type="module">
+import { NOISE_GLSL } from "../src/world/glsl/noise.ts";
+import { TERRAIN_GLSL } from "../src/world/glsl/terrain.ts";
+const out = document.getElementById("out");
+
+// The coordinates to compare. Spread across scales, including far from the
+// origin where float32 precision is worst.
+const PTS = [];
+for (let i = 0; i < 256; i++) {
+  const r = [[0, 0], [1, 1], [-1, 1], [1, -1]][i % 4];
+  const m = [7, 131, 1013, 9173, 48000, 211000][Math.floor(i / 4) % 6];
+  PTS.push([r[0] * ((i * 37) % 97) * m * 0.11, r[1] * ((i * 53) % 89) * m * 0.13]);
+}
+
+const canvas = document.createElement("canvas");
+canvas.width = PTS.length;
+canvas.height = 1;
+const gl = canvas.getContext("webgl2");
+if (!gl) { out.textContent = "no webgl2"; throw new Error("no webgl2"); }
+if (!gl.getExtension("EXT_color_buffer_float")) { out.textContent = "no float targets"; throw new Error("no float"); }
+
+const vs = `#version 300 es
+in vec2 a; void main() { gl_Position = vec4(a, 0.0, 1.0); }`;
+const fs = `#version 300 es
+precision highp float; precision highp int;
+${NOISE_GLSL}
+${TERRAIN_GLSL}
+uniform highp sampler2D uCoords;
+out vec4 fragColor;
+void main() {
+  ivec2 t = ivec2(int(gl_FragCoord.x), 0);
+  vec2 p = texelFetch(uCoords, t, 0).xy;
+  fragColor = vec4(wWay(p), terrainHeight(p), wRelief(p), wDensity(p));
+}`;
+
+const sh = (type, src) => {
+  const s = gl.createShader(type);
+  gl.shaderSource(s, src); gl.compileShader(s);
+  if (!gl.getShaderParameter(s, gl.COMPILE_STATUS)) throw new Error(gl.getShaderInfoLog(s));
+  return s;
+};
+const prog = gl.createProgram();
+gl.attachShader(prog, sh(gl.VERTEX_SHADER, vs));
+gl.attachShader(prog, sh(gl.FRAGMENT_SHADER, fs));
+gl.linkProgram(prog);
+if (!gl.getProgramParameter(prog, gl.LINK_STATUS)) throw new Error(gl.getProgramInfoLog(prog));
+gl.useProgram(prog);
+
+// Coordinates in, via a float texture so they arrive exactly.
+const coordData = new Float32Array(PTS.length * 2);
+PTS.forEach(([x, z], i) => { coordData[i * 2] = x; coordData[i * 2 + 1] = z; });
+const ctex = gl.createTexture();
+gl.bindTexture(gl.TEXTURE_2D, ctex);
+gl.texImage2D(gl.TEXTURE_2D, 0, gl.RG32F, PTS.length, 1, 0, gl.RG, gl.FLOAT, coordData);
+gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
+gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
+gl.uniform1i(gl.getUniformLocation(prog, "uCoords"), 0);
+
+const rt = gl.createTexture();
+gl.bindTexture(gl.TEXTURE_2D, rt);
+gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA32F, PTS.length, 1, 0, gl.RGBA, gl.FLOAT, null);
+const fb = gl.createFramebuffer();
+gl.bindFramebuffer(gl.FRAMEBUFFER, fb);
+gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, rt, 0);
+
+const buf = gl.createBuffer();
+gl.bindBuffer(gl.ARRAY_BUFFER, buf);
+gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1,-1, 3,-1, -1,3]), gl.STATIC_DRAW);
+const loc = gl.getAttribLocation(prog, "a");
+gl.enableVertexAttribArray(loc);
+gl.vertexAttribPointer(loc, 2, gl.FLOAT, false, 0, 0);
+
+gl.activeTexture(gl.TEXTURE0);
+gl.bindTexture(gl.TEXTURE_2D, ctex);
+gl.viewport(0, 0, PTS.length, 1);
+gl.drawArrays(gl.TRIANGLES, 0, 3);
+
+const px = new Float32Array(PTS.length * 4);
+gl.readPixels(0, 0, PTS.length, 1, gl.RGBA, gl.FLOAT, px);
+
+const rows = PTS.map(([x, z], i) => ({
+  x, z, way: px[i*4], height: px[i*4+1], relief: px[i*4+2], density: px[i*4+3],
+}));
+out.textContent = JSON.stringify(rows);
+fetch("http://127.0.0.1:8912/?d=" + encodeURIComponent(out.textContent)).catch(() => {});
+</script>
