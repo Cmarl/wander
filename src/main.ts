@@ -478,8 +478,14 @@ function frame(now: number) {
       (ACTIONS[offer.kind].range * offer.scale)
     : Infinity;
   const liftProx = lift ? lift.d / RIDE_RANGE : Infinity;
+  // Both sides of these comparisons can be Infinity — vehicleProximity is
+  // Infinity whenever you aren't on foot, and the other two are Infinity when
+  // there is nothing on offer. Infinity <= Infinity is true, so without the
+  // explicit null checks a driver "won" a ride against their own truck every
+  // frame and the press to get out was swallowed.
   const placeWins = !!features.held || (offer !== null && offerProx <= player.vehicleProximity);
-  const rideWins = !placeWins && (player.ridingHost !== null || liftProx <= player.vehicleProximity);
+  const rideWins =
+    !placeWins && (player.ridingHost !== null || (lift !== null && liftProx <= player.vehicleProximity));
   player.suppressInteract = placeWins || rideWins;
 
   if (controls.interact && rideWins) {
