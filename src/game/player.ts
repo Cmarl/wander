@@ -87,6 +87,8 @@ export class Player {
 
   /** Hooks for audio and anything else that cares about discrete moments. */
   onLand?: () => void;
+  /** Leaving the ground, on foot or in a vehicle. */
+  onJump?: (inVehicle: boolean) => void;
   onMount?: () => void;
   onDismount?: () => void;
   /** Fired on a real impact. `force` is 0..1. */
@@ -341,6 +343,7 @@ export class Player {
 
     const ground = heightAt(this.position.x, this.position.z);
     if (this.grounded && input.jump) {
+      this.onJump?.(false);
       this.velY = JUMP;
       this.grounded = false;
     }
@@ -415,6 +418,7 @@ export class Player {
     if (input.jump && !this.vehAir && !this.spec.flies) {
       this.vehVelY = this.spec.jump;
       this.vehAir = true;
+      this.onJump?.(true);
     }
 
     // Rolling resistance, plus gravity along the slope. In the air there is no

@@ -133,6 +133,7 @@ scene.add(player.group);
 const sound = new Soundscape();
 sound.attachUnlock();
 player.onLand = () => sound.land();
+player.onJump = (inVehicle) => sound.jump(inVehicle);
 player.onMount = () => sound.mount();
 player.onDismount = () => {
   sound.dismount();

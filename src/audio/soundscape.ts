@@ -133,6 +133,10 @@ export class Soundscape {
     this.sfx.horn();
   }
 
+  jump(inVehicle: boolean) {
+    this.sfx.jump(inVehicle);
+  }
+
   hornOn() {
     this.sfx.hornOn();
   }
@@ -152,7 +156,10 @@ export class Soundscape {
   }
 
   vehicleLand(force: number) {
-    this.sfx.thump(force);
+    // Was a bare suspension thump, the same sound a rut makes. A landing and a
+    // pothole should not be the same event — this one has the springs taking
+    // the weight and the tyres scrubbing.
+    this.sfx.touchdown(force);
   }
 
   mount() {

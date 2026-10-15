@@ -51,6 +51,49 @@ export class Sfx {
     this.e.tone({ dest: this.e.sfxBus, from: s.body * 0.9, to: s.body * 0.55, level: 0.07, decay: 0.12 });
   }
 
+  /**
+   * Leaving the ground.
+   *
+   * Clyde asked for "sounds for jump and another for when the truck lands".
+   * On foot it is an exhale and a bit of kit shifting. In a vehicle it is the
+   * suspension unloading — springs letting go all at once, which is a low
+   * thump with the pitch sweeping UP as the weight comes off, the opposite
+   * shape to a landing.
+   */
+  jump(inVehicle: boolean) {
+    if (!this.e.ready) return;
+    const dest = inVehicle ? this.e.vehicleBus : this.e.sfxBus;
+    if (inVehicle) {
+      this.e.tone({ dest, type: "sine", from: 62, to: 120, level: 0.1, attack: 0.008, decay: 0.3 });
+      this.e.burst({ dest, type: "bandpass", freq: 900, q: 0.8, level: 0.05, decay: 0.22, sweepTo: 2100 });
+      // A rattle off the body as it unloads.
+      this.e.burst({ dest, type: "highpass", freq: 2600, q: 0.6, level: 0.022, decay: 0.13 });
+    } else {
+      this.e.burst({ dest, type: "bandpass", freq: 520, q: 0.7, level: 0.03, decay: 0.16, sweepTo: 900 });
+      this.e.tone({ dest, type: "sine", from: 180, to: 260, level: 0.025, attack: 0.01, decay: 0.12 });
+    }
+  }
+
+  /**
+   * A vehicle meeting the ground again.
+   *
+   * Deliberately the mirror of the jump: pitch sweeping DOWN as the springs
+   * take the weight, with the thump scaled by how hard it was and a tyre
+   * scuff on top. The ledge physics mean this now fires on its own from a fast
+   * descent rather than only when you pressed jump.
+   */
+  touchdown(force: number) {
+    if (!this.e.ready) return;
+    const dest = this.e.vehicleBus;
+    const f = Math.min(1, Math.max(0.12, force));
+    this.e.tone({ dest, type: "sine", from: 140 - f * 50, to: 46, level: 0.055 + f * 0.1, attack: 0.004, decay: 0.26 + f * 0.2 });
+    this.e.burst({ dest, type: "lowpass", freq: 320 + f * 260, q: 0.9, level: 0.05 + f * 0.09, decay: 0.2 + f * 0.18 });
+    // Tyres scrubbing, only when it actually arrived hard.
+    if (f > 0.35) {
+      this.e.burst({ dest, type: "bandpass", freq: 1500, q: 1.3, level: 0.03 * f, decay: 0.3, sweepTo: 700 });
+    }
+  }
+
   doorOpen() {
     if (!this.e.ready) return;
     const dest = this.e.sfxBus;
