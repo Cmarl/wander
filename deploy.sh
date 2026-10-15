@@ -15,6 +15,11 @@ echo "==> building game"
 cd "$GAME_DIR"
 npm run build
 
+# Never ship a game that does not start. This is the check that was missing
+# when six deploys went out on a boot crash.
+echo "==> checking it boots"
+"$GAME_DIR/bootcheck.sh"
+
 echo "==> staging into $SITE_DIR/public"
 rm -rf "$SITE_DIR/public/wander" "$SITE_DIR/public/wander.html"
 cp -r dist "$SITE_DIR/public/wander"

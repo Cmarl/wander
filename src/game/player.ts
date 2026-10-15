@@ -110,6 +110,9 @@ export class Player {
   private vehAir = false;
   /** Jump held while flying, i.e. "up". */
   private vehClimb = false;
+  /** Ground height under the vehicle last frame, and how fast it was moving. */
+  private vehGroundY = 0;
+  private vehGroundRate = 0;
   private vehQuat = new THREE.Quaternion();
 
   private camYaw = 0;
@@ -667,9 +670,51 @@ export class Player {
         }
       }
     } else {
-      this.vehPos.y = groundY;
-      this.vehAir = false;
+      /**
+       * On the ground — but only while the ground can actually hold it.
+       *
+       * Clyde: "when driving fast off a ledge, truck sticks to the ground, it
+       * should jump out. I can fake this if I jump at the right moment, but
+       * inertia is missing?" He was exactly right: this branch pinned the
+       * truck to the surface no matter how fast the surface fell away, so a
+       * ledge at speed was a slide rather than a launch.
+       *
+       * A wheel leaves the ground when the surface curves away faster than
+       * gravity can pull the vehicle after it. So: track how fast the ground
+       * under the truck is rising or falling, and how fast THAT is changing.
+       * When the surface's own downward acceleration exceeds gravity, it has
+       * dropped out from under the truck and the truck is already flying —
+       * carrying the vertical velocity it had at the lip, which is what makes
+       * a ramp throw you upward and a cliff edge carry you out.
+       *
+       * It scales with speed for free: the faster you cross a lip, the bigger
+       * the rate of change, with no speed term written anywhere.
+       */
+      const rate = (groundY - this.vehGroundY) / Math.max(dt, 1e-4);
+      const accel = (rate - this.vehGroundRate) / Math.max(dt, 1e-4);
+
+      // The acceleration test alone fired on every small ripple at speed —
+      // 129 launches in thirty seconds, which is chatter, not air. The ground
+      // also has to be genuinely dropping away, which is what distinguishes a
+      // ledge from a bumpy surface.
+      // Two ways to leave the ground, and both want the same test for the
+      // curvature: the ground falling away under you (a ledge), or the crest
+      // of something you were driving UP, which throws you off the top. The
+      // second is the one that gives a ramp its pop.
+      const leaving = rate < -3.5 || rate > 2.0;
+      if (this.warmedUp && accel < -VEH_GRAVITY && leaving) {
+        this.vehAir = true;
+        // Keep what the ground gave us. Damped, because a raw terrain
+        // derivative at 48 m/s is spikier than a real suspension would be.
+        this.vehVelY = THREE.MathUtils.clamp(rate * 0.55, -14, 9);
+        this.vehPos.y += this.vehVelY * dt;
+      } else {
+        this.vehPos.y = groundY;
+        this.vehAir = false;
+      }
+      this.vehGroundRate = rate;
     }
+    this.vehGroundY = groundY;
 
     // A flying machine in the air has no ground to sit on, so it stays level
     // and lets its own model do the banking.
