@@ -27,6 +27,7 @@ const GROUND: Record<string, string> = {
 
 const KIND_LABEL: Record<string, string> = {
   badge: "badge",
+  sighting: "wildlife",
   camp: "camp",
   biome: "country",
   feat: "milestone",

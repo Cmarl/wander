@@ -155,6 +155,24 @@ hud.onPinRequest = (id) => togglePin(id);
 // Following someone is a live bearing, not a saved place — they move, and it
 // lapses the moment they leave.
 let followId: number | null = null;
+// Seeing a species for the first time is worth remembering. No total, no
+// checklist — the journal just gains a line, and the rare ones a badge.
+wildlife.onSight = (species, spec, x, z) => {
+  const fresh = found.add({
+    id: `saw:${species}`,
+    kind: spec.rare ? "badge" : "sighting",
+    name: spec.rare ? `Saw a ${spec.label.toLowerCase()}` : spec.label,
+    x: Math.round(x),
+    z: Math.round(z),
+    at: Date.now(),
+    tod: env.timeOfDay,
+  });
+  if (fresh) {
+    hud.announce(spec.label);
+    if (spec.rare) haptics.discover();
+  }
+};
+
 hud.onFollow = (id) => {
   followId = followId === id ? null : id;
 };
@@ -416,7 +434,7 @@ function frame(now: number) {
   water.update(camera.position.x, camera.position.z);
   scatter.update(player.position.x, player.position.z);
   landmarks.update(player.position.x, player.position.z, env.elapsed, camera);
-  wildlife.update(dt, player.position.x, player.position.z, env.sunDir.y);
+  wildlife.update(dt, player.position.x, player.position.z, env.sunDir.y, player.glassing);
 
   // Only landmarks you could actually touch take part in collision, and only
   // the nearest is a candidate for discovery.

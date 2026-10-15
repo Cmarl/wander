@@ -56,12 +56,26 @@ export class Net {
   private sinceKeepalive = 0;
   private last = { x: 0, y: 0, z: 0, h: 0, driving: false };
   private retry = 0;
+  /** Stable per-browser identity, so the relay can recognise a reconnect. */
+  private cid = (() => {
+    let v = localStorage.getItem("wander.cid");
+    if (!v) {
+      v = Math.random().toString(36).slice(2) + Date.now().toString(36);
+      localStorage.setItem("wander.cid", v);
+    }
+    return v;
+  })();
   private reconnectAt = 0;
   private wantConnection = false;
   private colour = 0xd8c04a;
 
   connect(world: string, name: string, colour = 0xd8c04a) {
-    this.world = world || DEFAULT_WORLD;
+    const nextWorld = world || DEFAULT_WORLD;
+    // Joining the world you're already in is not a reconnect, it's a no-op.
+    // Reopening would have torn down a perfectly good socket for nothing.
+    if (this.ws && this.status === "online" && nextWorld === this.world && name === this.name) return;
+
+    this.world = nextWorld;
     this.name = name;
     this.colour = colour;
     this.wantConnection = true;
@@ -79,6 +93,18 @@ export class Net {
 
   private open() {
     if (!this.wantConnection) return;
+    // Drop any previous socket first. Assigning over it left the old one live
+    // on the relay, which is exactly how one person became two.
+    if (this.ws) {
+      const stale = this.ws;
+      this.ws = null;
+      try {
+        stale.close(1000, "reconnecting");
+      } catch {
+        // Already closing.
+      }
+    }
+    this.clearPeers();
     this.setStatus("connecting");
 
     // ?net= lets a tester point at a local wrangler dev instance.
@@ -86,7 +112,8 @@ export class Net {
     const origin = override || NET_ORIGIN;
     const url =
       `${origin}/ws?world=${encodeURIComponent(this.world)}` +
-      `&name=${encodeURIComponent(this.name)}&colour=${this.colour}`;
+      `&name=${encodeURIComponent(this.name)}&colour=${this.colour}` +
+      `&cid=${encodeURIComponent(this.cid)}`;
 
     let ws: WebSocket;
     try {

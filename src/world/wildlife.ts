@@ -4,68 +4,77 @@ import { heightAt, slopeAt, moistureAt, temperatureAt, slotRandom } from "./fiel
 import { blobGeometry, blobMaterial } from "./shadows";
 
 /**
- * Herds.
+ * Herds, flocks and the odd solitary animal.
  *
  * The single thing that most makes a world feel inhabited rather than
  * generated — and the one place where the game looks back at you. Graze, lift
  * a head when you get close, scatter if you keep coming.
  *
- * Herds are placed by hashing a cell grid like everything else, so they cost
- * nothing to store. Only the handful near the player is simulated; the rest
- * are a coordinate and a species until you arrive.
- *
  * Nothing here can hurt you and nothing can be hunted. They're scenery that
- * happens to notice you, which is the whole point.
+ * happens to notice you, which is the whole point: the reward for finding a
+ * seal is having seen a seal.
+ *
+ * Placed by hashing a cell grid like everything else, so a world full of
+ * animals costs nothing to store. Only the handful near you is simulated.
  */
 
 const HERD_CELL = 900;
 const SIM_RANGE = 460;
-const MAX_DRAWN = 64;
+const PER_SPECIES = 26;
 
-/** Distances at which an animal changes its mind about you. */
-const ALERT_AT = 70;
-const FLEE_AT = 38;
+/** Noticing something with the naked eye, versus through the glass. */
+const SIGHT_NEAR = 70;
+const SIGHT_GLASSED = 430;
 
-export type Species = "deer" | "ibex";
+export type Species =
+  | "deer" | "ibex" | "hare" | "bison" | "fox" | "crane" | "ptarmigan" | "seal";
 
-interface Animal {
-  x: number;
-  z: number;
-  /** Where it drifts back to when calm. */
-  homeX: number;
-  homeZ: number;
-  heading: number;
-  speed: number;
-  phase: number;
-  state: "graze" | "alert" | "flee";
-  timer: number;
-  scale: number;
-  species: Species;
+interface SpeciesSpec {
+  /** How the journal names it. */
+  label: string;
+  tint: number;
+  /** Wander and bolt speeds. */
+  graze: number;
+  flee: number;
+  /** Distances at which it looks up, and at which it leaves. */
+  alertAt: number;
+  fleeAt: number;
+  herd: [number, number];
+  /** Worth a badge, not just a journal line. */
+  rare?: boolean;
+  shape: () => THREE.BufferGeometry;
+  suits: (y: number, slope: number, temp: number, moist: number) => boolean;
 }
 
-function quadruped(opts: {
+function body(opts: {
   body: [number, number, number];
   neck: number;
   head: [number, number, number];
   legs: number;
-  horns: boolean;
+  horns?: boolean;
+  ears?: number;
+  tail?: number;
 }): THREE.BufferGeometry {
   const parts: THREE.BufferGeometry[] = [];
   const [bw, bh, bl] = opts.body;
 
-  const body = new THREE.BoxGeometry(bw, bh, bl);
-  body.translate(0, opts.legs + bh / 2, 0);
-  parts.push(body);
+  const torso = new THREE.BoxGeometry(bw, bh, bl);
+  torso.translate(0, opts.legs + bh / 2, 0);
+  parts.push(torso);
 
   // Neck and head lean forward, which is most of what reads as "an animal".
-  const neck = new THREE.BoxGeometry(bw * 0.42, opts.neck, bw * 0.42);
-  neck.translate(0, opts.neck / 2, 0);
-  neck.rotateX(-0.5);
-  neck.translate(0, opts.legs + bh * 0.85, bl * 0.42);
-  parts.push(neck);
+  if (opts.neck > 0.01) {
+    const neck = new THREE.BoxGeometry(bw * 0.42, opts.neck, bw * 0.42);
+    neck.translate(0, opts.neck / 2, 0);
+    neck.rotateX(-0.5);
+    neck.translate(0, opts.legs + bh * 0.85, bl * 0.42);
+    parts.push(neck);
+  }
 
+  const headY = opts.legs + bh * 0.85 + opts.neck * 0.82;
+  const headZ = bl * 0.42 + opts.neck * 0.46;
   const head = new THREE.BoxGeometry(...opts.head);
-  head.translate(0, opts.legs + bh * 0.85 + opts.neck * 0.82, bl * 0.42 + opts.neck * 0.46);
+  head.translate(0, headY, headZ);
   parts.push(head);
 
   if (opts.horns) {
@@ -74,9 +83,23 @@ function quadruped(opts: {
       horn.translate(0, 0.26, 0);
       horn.rotateZ(sx * 0.42);
       horn.rotateX(-0.9);
-      horn.translate(sx * 0.09, opts.legs + bh * 0.85 + opts.neck + 0.1, bl * 0.42 + opts.neck * 0.42);
+      horn.translate(sx * 0.09, headY + 0.1, headZ - 0.04);
       parts.push(horn);
     }
+  }
+  if (opts.ears) {
+    for (const sx of [-1, 1]) {
+      const ear = new THREE.BoxGeometry(0.045, opts.ears, 0.09);
+      ear.translate(0, opts.ears / 2, 0);
+      ear.rotateZ(sx * 0.2);
+      ear.translate(sx * 0.07, headY + opts.head[1] * 0.4, headZ - 0.05);
+      parts.push(ear);
+    }
+  }
+  if (opts.tail) {
+    const tail = new THREE.BoxGeometry(opts.tail * 0.4, opts.tail * 0.4, opts.tail);
+    tail.translate(0, opts.legs + bh * 0.7, -bl * 0.5 - opts.tail * 0.4);
+    parts.push(tail);
   }
 
   for (const [sx, sz] of [[-1, 1], [1, 1], [-1, -1], [1, -1]] as [number, number][]) {
@@ -90,36 +113,166 @@ function quadruped(opts: {
   return merged;
 }
 
-const SHAPE: Record<Species, () => THREE.BufferGeometry> = {
-  deer: () => quadruped({ body: [0.52, 0.62, 1.5], neck: 0.58, head: [0.26, 0.26, 0.5], legs: 0.84, horns: true }),
-  ibex: () => quadruped({ body: [0.5, 0.56, 1.2], neck: 0.4, head: [0.24, 0.24, 0.44], legs: 0.6, horns: true }),
+/** Long legs, long neck, a beak. Stands in the shallows. */
+function wader(): THREE.BufferGeometry {
+  const parts: THREE.BufferGeometry[] = [];
+  const torso = new THREE.BoxGeometry(0.3, 0.34, 0.64);
+  torso.translate(0, 1.05, 0);
+  parts.push(torso);
+  const neck = new THREE.CylinderGeometry(0.055, 0.075, 0.72, 5);
+  neck.translate(0, 0.36, 0);
+  neck.rotateX(-0.22);
+  neck.translate(0, 1.2, 0.26);
+  parts.push(neck);
+  const head = new THREE.BoxGeometry(0.14, 0.15, 0.24);
+  head.translate(0, 1.76, 0.42);
+  parts.push(head);
+  const beak = new THREE.ConeGeometry(0.045, 0.3, 4);
+  beak.rotateX(Math.PI / 2);
+  beak.translate(0, 1.74, 0.66);
+  parts.push(beak);
+  for (const sx of [-1, 1]) {
+    const leg = new THREE.CylinderGeometry(0.03, 0.03, 0.9, 4);
+    leg.translate(sx * 0.09, 0.45, 0);
+    parts.push(leg);
+  }
+  const m = mergeGeometries(parts.map((g) => (g.index ? g.toNonIndexed() : g)), false);
+  if (!m) throw new Error("wader merge failed");
+  return m;
+}
+
+/** Squat, round, almost no legs. A bird that would rather walk. */
+function fowl(): THREE.BufferGeometry {
+  const parts: THREE.BufferGeometry[] = [];
+  const torso = new THREE.IcosahedronGeometry(0.24, 0);
+  torso.scale(0.85, 0.82, 1.15);
+  torso.translate(0, 0.26, 0);
+  parts.push(torso);
+  const head = new THREE.IcosahedronGeometry(0.11, 0);
+  head.translate(0, 0.42, 0.2);
+  parts.push(head);
+  const beak = new THREE.ConeGeometry(0.03, 0.1, 4);
+  beak.rotateX(Math.PI / 2);
+  beak.translate(0, 0.41, 0.31);
+  parts.push(beak);
+  for (const sx of [-1, 1]) {
+    const leg = new THREE.CylinderGeometry(0.022, 0.022, 0.16, 4);
+    leg.translate(sx * 0.07, 0.08, 0);
+    parts.push(leg);
+  }
+  const m = mergeGeometries(parts.map((g) => (g.index ? g.toNonIndexed() : g)), false);
+  if (!m) throw new Error("fowl merge failed");
+  return m;
+}
+
+/** No legs at all. Lies on the sand and can barely be bothered. */
+function pinniped(): THREE.BufferGeometry {
+  const parts: THREE.BufferGeometry[] = [];
+  const torso = new THREE.IcosahedronGeometry(0.42, 0);
+  torso.scale(0.8, 0.62, 1.9);
+  torso.translate(0, 0.26, 0);
+  parts.push(torso);
+  const head = new THREE.IcosahedronGeometry(0.2, 0);
+  head.scale(0.9, 0.85, 1.1);
+  head.translate(0, 0.42, 0.72);
+  parts.push(head);
+  const tail = new THREE.ConeGeometry(0.17, 0.4, 5);
+  tail.rotateX(-Math.PI / 2);
+  tail.translate(0, 0.24, -0.92);
+  parts.push(tail);
+  const m = mergeGeometries(parts.map((g) => (g.index ? g.toNonIndexed() : g)), false);
+  if (!m) throw new Error("pinniped merge failed");
+  return m;
+}
+
+export const SPECIES: Record<Species, SpeciesSpec> = {
+  deer: {
+    label: "Red deer", tint: 0x8a6440, graze: 0.7, flee: 11, alertAt: 70, fleeAt: 38, herd: [3, 7],
+    shape: () => body({ body: [0.52, 0.62, 1.5], neck: 0.58, head: [0.26, 0.26, 0.5], legs: 0.84, horns: true }),
+    suits: (y, slope, temp, moist) => slope < 0.34 && temp > 0.26 && moist > 0.22 && y < 1700,
+  },
+  ibex: {
+    label: "Ibex", tint: 0x6d6457, graze: 0.55, flee: 8, alertAt: 64, fleeAt: 34, herd: [2, 5],
+    shape: () => body({ body: [0.5, 0.56, 1.2], neck: 0.4, head: [0.24, 0.24, 0.44], legs: 0.6, horns: true }),
+    suits: (y, slope) => slope > 0.3 && y > 700,
+  },
+  hare: {
+    // Tiny and jumpy: it sees you long before you see it.
+    label: "Hare", tint: 0xa08a68, graze: 0.5, flee: 9, alertAt: 44, fleeAt: 26, herd: [1, 3],
+    shape: () => body({ body: [0.2, 0.22, 0.4], neck: 0.08, head: [0.13, 0.13, 0.2], legs: 0.17, ears: 0.26 }),
+    suits: (y, slope, temp, moist) => slope < 0.4 && temp > 0.3 && moist < 0.62 && y > 10 && y < 1400,
+  },
+  bison: {
+    // Big enough not to care much. Looks up, rarely bothers to run.
+    label: "Bison", tint: 0x5c4634, graze: 0.4, flee: 6, alertAt: 56, fleeAt: 20, herd: [4, 9],
+    shape: () => body({ body: [0.9, 1.0, 2.0], neck: 0.42, head: [0.5, 0.46, 0.6], legs: 0.82, horns: true }),
+    suits: (y, slope, temp, moist) => slope < 0.2 && temp > 0.4 && moist < 0.52 && y > 30 && y < 900,
+  },
+  fox: {
+    label: "Fox", tint: 0xb06434, graze: 0.8, flee: 10, alertAt: 52, fleeAt: 30, herd: [1, 2],
+    shape: () => body({ body: [0.26, 0.28, 0.72], neck: 0.16, head: [0.18, 0.17, 0.3], legs: 0.3, ears: 0.14, tail: 0.42 }),
+    suits: (y, slope, temp, moist) => slope < 0.42 && temp > 0.18 && temp < 0.62 && moist > 0.3 && y > 20,
+  },
+  crane: {
+    label: "Crane", tint: 0xd8d4c8, graze: 0.35, flee: 7, alertAt: 60, fleeAt: 32, herd: [2, 5],
+    shape: wader,
+    suits: (y, slope, temp) => y > 2 && y < 60 && slope < 0.18 && temp > 0.34,
+  },
+  ptarmigan: {
+    label: "Ptarmigan", tint: 0xe8ecef, graze: 0.4, flee: 8, alertAt: 40, fleeAt: 22, herd: [2, 6],
+    shape: fowl,
+    suits: (y, slope, temp) => temp < 0.34 && slope < 0.45 && y > 600,
+  },
+  seal: {
+    // The rarest thing out here, and it barely acknowledges you.
+    label: "Seal", tint: 0x6b7076, graze: 0.12, flee: 2.6, alertAt: 34, fleeAt: 13, herd: [1, 4],
+    rare: true,
+    shape: pinniped,
+    suits: (y, slope, temp) => y > 1 && y < 14 && slope < 0.14 && temp > 0.3,
+  },
 };
 
-const TINT: Record<Species, number> = { deer: 0x8a6440, ibex: 0x6d6457 };
-const PACE: Record<Species, { graze: number; flee: number }> = {
-  deer: { graze: 0.7, flee: 11 },
-  ibex: { graze: 0.55, flee: 8 },
-};
+const SPECIES_KEYS = Object.keys(SPECIES) as Species[];
 
-/** Which animal, if any, belongs in this cell. */
-function herdInCell(gx: number, gz: number): { x: number; z: number; species: Species; count: number } | null {
-  if (slotRandom(gx, gz, 1297) > 0.42) return null;
+interface Animal {
+  x: number;
+  z: number;
+  homeX: number;
+  homeZ: number;
+  heading: number;
+  speed: number;
+  phase: number;
+  state: "graze" | "alert" | "flee";
+  timer: number;
+  scale: number;
+  species: Species;
+}
+
+function herdInCell(gx: number, gz: number) {
+  if (slotRandom(gx, gz, 1297) > 0.46) return null;
   const x = (gx + (slotRandom(gx, gz, 1301) - 0.5) * 0.7) * HERD_CELL;
   const z = (gz + (slotRandom(gx, gz, 1303) - 0.5) * 0.7) * HERD_CELL;
   const y = heightAt(x, z);
-  if (y < 12) return null;
+  if (y < 1) return null;
 
   const slope = slopeAt(x, z, 8);
   const temp = temperatureAt(x, z) - y / 9000;
   const moist = moistureAt(x, z);
 
-  // Ibex take the steep high ground, deer the gentler country below.
-  let species: Species | null = null;
-  if (slope > 0.3 && y > 700) species = "ibex";
-  else if (slope < 0.34 && temp > 0.26 && moist > 0.22 && y < 1700) species = "deer";
-  if (!species) return null;
+  // Everything this ground suits, then one of them by hash — so the same spot
+  // always holds the same animals, and the mix shifts as the country does.
+  const fits = SPECIES_KEYS.filter((k) => SPECIES[k].suits(y, slope, temp, moist));
+  if (!fits.length) return null;
 
-  return { x, z, species, count: 3 + Math.floor(slotRandom(gx, gz, 1307) * 5) };
+  const pick = slotRandom(gx, gz, 1319);
+  const species = fits[Math.min(fits.length - 1, Math.floor(pick * fits.length))];
+  const spec = SPECIES[species];
+  // The rare ones are rare even where they fit.
+  if (spec.rare && slotRandom(gx, gz, 1321) > 0.3) return null;
+
+  const [lo, hi] = spec.herd;
+  const count = lo + Math.floor(slotRandom(gx, gz, 1307) * (hi - lo + 1));
+  return { x, z, species, count };
 }
 
 export class Wildlife {
@@ -130,20 +283,24 @@ export class Wildlife {
   private cellX = NaN;
   private cellZ = NaN;
 
+  /** Called the first time each species is seen. */
+  onSight?: (species: Species, spec: SpeciesSpec, x: number, z: number) => void;
+
   constructor() {
-    for (const species of Object.keys(SHAPE) as Species[]) {
+    for (const key of SPECIES_KEYS) {
+      const spec = SPECIES[key];
       const mesh = new THREE.InstancedMesh(
-        SHAPE[species](),
-        new THREE.MeshLambertMaterial({ color: TINT[species], flatShading: true }),
-        MAX_DRAWN
+        spec.shape(),
+        new THREE.MeshLambertMaterial({ color: spec.tint, flatShading: true }),
+        PER_SPECIES
       );
       mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
       mesh.frustumCulled = false;
       mesh.count = 0;
-      this.meshes.set(species, mesh);
+      this.meshes.set(key, mesh);
       this.group.add(mesh);
     }
-    this.shadows = new THREE.InstancedMesh(blobGeometry(10), blobMaterial(), MAX_DRAWN * 2);
+    this.shadows = new THREE.InstancedMesh(blobGeometry(10), blobMaterial(), PER_SPECIES * SPECIES_KEYS.length);
     this.shadows.frustumCulled = false;
     this.shadows.count = 0;
     this.shadows.renderOrder = 3;
@@ -155,15 +312,19 @@ export class Wildlife {
     const cx = Math.round(px / HERD_CELL);
     const cz = Math.round(pz / HERD_CELL);
     const reach = Math.ceil(SIM_RANGE / HERD_CELL);
+    const used = new Map<Species, number>();
 
     for (let j = -reach; j <= reach; j++) {
       for (let i = -reach; i <= reach; i++) {
         const herd = herdInCell(cx + i, cz + j);
         if (!herd) continue;
         if (Math.hypot(herd.x - px, herd.z - pz) > SIM_RANGE) continue;
-        for (let n = 0; n < herd.count && this.animals.length < MAX_DRAWN; n++) {
+        for (let n = 0; n < herd.count; n++) {
+          const taken = used.get(herd.species) ?? 0;
+          if (taken >= PER_SPECIES) break;
+          used.set(herd.species, taken + 1);
           const a = (n / herd.count) * Math.PI * 2;
-          const r = 4 + (n % 3) * 5;
+          const r = 3 + (n % 3) * 4.5;
           this.animals.push({
             x: herd.x + Math.cos(a) * r,
             z: herd.z + Math.sin(a) * r,
@@ -182,7 +343,7 @@ export class Wildlife {
     }
   }
 
-  update(dt: number, px: number, pz: number, sunElevation: number) {
+  update(dt: number, px: number, pz: number, sunElevation: number, glassing = false) {
     const cx = Math.round(px / HERD_CELL);
     const cz = Math.round(pz / HERD_CELL);
     if (cx !== this.cellX || cz !== this.cellZ) {
@@ -197,45 +358,47 @@ export class Wildlife {
     const scl = new THREE.Vector3();
     const up = new THREE.Vector3(0, 1, 0);
     const counts = new Map<Species, number>();
+    // Binoculars are for watching animals, so they genuinely extend what you
+    // can claim to have seen.
+    const sightRange = glassing ? SIGHT_GLASSED : SIGHT_NEAR;
     let shadowN = 0;
 
     for (const an of this.animals) {
+      const spec = SPECIES[an.species];
       const dx = an.x - px;
       const dz = an.z - pz;
       const near = Math.hypot(dx, dz);
-      const pace = PACE[an.species];
+
+      if (near < sightRange) this.onSight?.(an.species, spec, an.x, an.z);
 
       an.timer -= dt;
-      if (near < FLEE_AT) {
+      if (near < spec.fleeAt) {
         an.state = "flee";
         an.timer = 2.4 + Math.random() * 2;
         an.heading = Math.atan2(dx, dz);
-      } else if (near < ALERT_AT && an.state !== "flee") {
-        // Head up, watching, not yet committed to running.
+      } else if (near < spec.alertAt && an.state !== "flee") {
         an.state = "alert";
         an.heading = Math.atan2(dx, dz) + Math.PI;
       } else if (an.state === "flee" && an.timer <= 0) {
         an.state = "graze";
-        // Wherever it fled to becomes the new home ground.
         an.homeX = an.x;
         an.homeZ = an.z;
-      } else if (an.state === "alert" && near > ALERT_AT * 1.25) {
+      } else if (an.state === "alert" && near > spec.alertAt * 1.25) {
         an.state = "graze";
       }
 
       if (an.state === "graze") {
         if (an.timer <= 0) {
           an.timer = 2 + Math.random() * 5;
-          // Drift back toward home so a herd stays a herd.
           const toHome = Math.atan2(an.homeX - an.x, an.homeZ - an.z);
           const far = Math.hypot(an.homeX - an.x, an.homeZ - an.z);
           an.heading = far > 16 ? toHome : Math.random() * Math.PI * 2;
-          an.speed = Math.random() < 0.45 ? 0 : pace.graze;
+          an.speed = Math.random() < 0.45 ? 0 : spec.graze;
         }
       } else if (an.state === "alert") {
         an.speed = 0;
       } else {
-        an.speed = pace.flee;
+        an.speed = spec.flee;
       }
 
       an.x += Math.sin(an.heading) * an.speed * dt;
@@ -245,10 +408,9 @@ export class Wildlife {
       const ground = heightAt(an.x, an.z);
       const mesh = this.meshes.get(an.species)!;
       const n = counts.get(an.species) ?? 0;
-      if (n >= MAX_DRAWN) continue;
+      if (n >= PER_SPECIES) continue;
 
-      // A vertical bob plus a pitch is enough gait without per-leg rigging.
-      const bob = an.speed > 0.1 ? Math.abs(Math.sin(an.phase)) * 0.1 * (an.speed / pace.flee + 0.3) : 0;
+      const bob = an.speed > 0.1 ? Math.abs(Math.sin(an.phase)) * 0.1 * (an.speed / spec.flee + 0.3) : 0;
       const pitch = an.state === "alert" ? -0.2 : an.speed > 4 ? 0.14 : 0;
       pos.set(an.x, ground + bob, an.z);
       q.setFromEuler(new THREE.Euler(pitch, an.heading, 0));
@@ -257,7 +419,7 @@ export class Wildlife {
       mesh.setMatrixAt(n, m);
       counts.set(an.species, n + 1);
 
-      if (shadowN < MAX_DRAWN * 2) {
+      if (shadowN < this.shadows.instanceMatrix.count) {
         pos.set(an.x, ground + 0.05, an.z);
         q.setFromAxisAngle(up, an.heading);
         scl.set(an.scale * 0.8, 1, an.scale * 1.25);
@@ -266,8 +428,8 @@ export class Wildlife {
       }
     }
 
-    for (const [species, mesh] of this.meshes) {
-      mesh.count = counts.get(species) ?? 0;
+    for (const [key, mesh] of this.meshes) {
+      mesh.count = counts.get(key) ?? 0;
       mesh.instanceMatrix.needsUpdate = true;
     }
     this.shadows.count = shadowN;
@@ -277,7 +439,7 @@ export class Wildlife {
     mat.visible = mat.opacity > 0.01;
   }
 
-  /** How many animals are currently aware of you — used for the journal. */
+  /** How many animals are currently aware of you. */
   get watching(): number {
     return this.animals.filter((a) => a.state === "alert").length;
   }

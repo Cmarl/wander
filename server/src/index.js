@@ -82,6 +82,7 @@ export class WorldRoom {
         return {
           id: a?.id ?? null,
           name: a?.name ?? "?",
+          cid: a?.cid ? a.cid.slice(0, 8) : null,
           quietFor: seen === undefined ? null : Math.round((now - seen) / 1000),
           at: pos ? [Math.round(pos[0]), Math.round(pos[2])] : null,
           readyState: ws.readyState,
@@ -93,7 +94,7 @@ export class WorldRoom {
     }
 
     this.sweep();
-    const existing = this.state.getWebSockets();
+    let existing = this.state.getWebSockets();
     if (existing.length >= MAX_PLAYERS) {
       return new Response("world full", { status: 503 });
     }
@@ -102,14 +103,35 @@ export class WorldRoom {
     const name = sanitizeName(url.searchParams.get("name"));
     const colour = Number.parseInt(url.searchParams.get("colour") || "", 10) || 0xd8c04a;
     const id = Math.floor(Math.random() * 0x7fffffff);
+    // A stable per-browser id, so a reconnect is understood as the same person
+    // coming back rather than a second one arriving.
+    const cid = (url.searchParams.get("cid") || "").slice(0, 40);
+
+    // Rejoining replaces your previous presence instead of adding to it. A
+    // refresh, a dropped connection or tapping "join" twice all used to leave
+    // the old socket live and standing in the world as a duplicate of you.
+    if (cid) {
+      for (const old of this.state.getWebSockets()) {
+        const a = old.deserializeAttachment();
+        if (!a || a.cid !== cid) continue;
+        this.live.delete(a.id);
+        this.lastSeen.delete(a.id);
+        this.broadcast(JSON.stringify(["l", a.id]), old);
+        try {
+          old.close(1000, "replaced");
+        } catch {
+          // Already gone.
+        }
+      }
+    }
 
     const { 0: client, 1: server } = new WebSocketPair();
     this.state.acceptWebSocket(server);
     // Identity has to survive hibernation; position does not.
-    server.serializeAttachment({ id, name, colour });
+    server.serializeAttachment({ id, name, colour, cid });
 
     const peers = [];
-    for (const ws of existing) {
+    for (const ws of this.state.getWebSockets()) {
       const a = ws.deserializeAttachment();
       if (!a) continue;
       const p = this.live.get(a.id) || [0, 0, 0, 0, 0, 0];
