@@ -20,8 +20,17 @@ const EYE = 1.55;
 // exactly like a truck is just a truck with a different mesh.
 
 const MOUNT_RANGE = 4.5;
-/** Far enough that walking back would be a chore rather than a stroll. */
-const SUMMON_MIN = 40;
+/**
+ * Far enough away that calling it is the sensible thing.
+ *
+ * This was 40 m, which opened a DEAD ZONE: between stepping-in range and forty
+ * metres, the interact key did nothing at all and showed no prompt. Clyde hit
+ * exactly that — "I'm itching to fly my plane. no idea how and E didn't work".
+ *
+ * Just past stepping-in range now. If you cannot get in, you can call it, and
+ * there is no gap between the two where the key is dead.
+ */
+const SUMMON_MIN = 7;
 /** Inside MOUNT_RANGE so you can step straight in, clear of the body itself. */
 const SUMMON_RANGE = 4.2;
 

@@ -134,7 +134,18 @@ const sound = new Soundscape();
 sound.attachUnlock();
 player.onLand = () => sound.land();
 player.onJump = (inVehicle) => sound.jump(inVehicle);
-player.onMount = () => sound.mount();
+player.onMount = () => {
+  sound.mount();
+  // Flying has one control and no way to guess it. Said on every boarding of
+  // an aircraft rather than once ever, because "once ever" is a thing you
+  // miss while looking at the scenery.
+  if (SPECS[player.spec.cls].flies) {
+    hud.announce(
+      controls.isTouch ? "hold ⤴ to climb, let go to come down" : "hold SPACE to climb, let go to come down",
+      "to get airborne"
+    );
+  }
+};
 player.onDismount = () => {
   sound.dismount();
   // Stepping out with the horn held should not leave it blaring.
@@ -1331,6 +1342,21 @@ function frame(now: number) {
 
   stampJournal();
   camera.getWorldDirection(dir);
+  /**
+   * Two different vehicles, and the prompt has to tell them apart.
+   *
+   * `mine` is the body standing in front of you — what you would get into.
+   * `coming` is what SUMMONING would bring, which is whatever is set in the
+   * garage and is not necessarily the same thing.
+   *
+   * Clyde: "when I was far enough from the truck to summon, the tooltip said
+   * 'summon the truck' even though I had plane set. I summoned and the plane
+   * came (good) but we should fix that tip". Exactly that case — the body was
+   * a truck, the choice was a plane, and naming the body would still have been
+   * wrong. The summon prompt names the choice.
+   */
+  const mine = SPECS[player.spec.cls].label.toLowerCase();
+  const coming = SPECS[stable.chosen].label.toLowerCase();
   hud.update({
     clock: env.clockString(),
     biome: biomeNameAt(player.position.x, player.position.z),
@@ -1353,7 +1379,7 @@ function frame(now: number) {
         : camp.active
         ? null
         : player.canSummon
-          ? controls.isTouch ? "⏎  call the truck" : "E  call the truck"
+          ? `${controls.isTouch ? "⏎" : "E"}  call the ${coming}`
         : player.canCamp && !player.nearVehicle
           ? controls.isTouch ? "CAMP  make camp" : "C  make camp"
           : player.mode === "drive"
@@ -1361,9 +1387,7 @@ function frame(now: number) {
           ? "⏎  step out"
           : "E  step out"
         : player.nearVehicle
-          ? controls.isTouch
-            ? "⏎  drive"
-            : "E  drive"
+          ? `${controls.isTouch ? "⏎" : "E"}  ${SPECS[player.spec.cls].flies ? "fly the" : "drive the"} ${mine}`
           : null,
     driving: player.mode === "drive",
   });
