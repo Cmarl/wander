@@ -205,7 +205,13 @@ export interface Landmark {
   gz: number;
 }
 
-export function landmarkInCell(gx: number, gz: number): Landmark | null {
+/**
+ * A landmark placed on its own merits, ignoring its neighbours.
+ *
+ * Kept separate so pairing has something to ask about a neighbouring cell
+ * without that question asking its own questions.
+ */
+function baseInCell(gx: number, gz: number): Landmark | null {
   if (slotRandom(gx, gz, 907) > OCCUPANCY) return null;
 
   const jx = slotRandom(gx, gz, 911);
@@ -324,6 +330,96 @@ function build(
 }
 
 /** Every landmark whose cell lies within `cells` of the given point. */
+/**
+ * Pairing — occasionally two landmarks relate.
+ *
+ * Brainstorm 3.4. Everything else here is placed in isolation, so the world is
+ * a scatter of unrelated objects; a mast standing over a settlement, or a
+ * wreck at the foot of an arch, turns two objects into a small story about how
+ * they came to be near each other.
+ *
+ * Done by letting a cell SEE ITS NEIGHBOURS before deciding — which is the
+ * only mechanism available when nothing is stored. A cell looks at the one
+ * north and the one west of it, and if that neighbour is something worth
+ * sitting beside, this cell sometimes becomes its companion and moves in
+ * The host is resolved with baseInCell, which does NOT pair. That is what
+ * stops this recursing: a companion's host is always an unpaired landmark, so
+ * the lookup terminates immediately instead of walking north-west forever.
+ * It also means you never get chains of three, which would stop reading as a
+ * pair and start reading as a cluster.
+ */
+const COMPANIONS: Partial<Record<LandmarkKind, LandmarkKind[]>> = {
+  // Somebody put a mast on the high ground above where they lived.
+  steading: ["mast"],
+  // A truck that did not make it to the obvious landmark.
+  arch: ["wreck"],
+  // People leave a lookout and a hut together.
+  lookout: ["steading"],
+  spring: ["steading"],
+  windpump: ["steading"],
+};
+
+/**
+ * How often an eligible cell actually pairs up.
+ *
+ * At 0.34 this put a quarter of all landmarks into a pair, which is not
+ * "occasionally" — it reads as the world being built in twos. 0.16 lands
+ * nearer one in ten, which is often enough to notice and rare enough to be
+ * worth noticing.
+ */
+const PAIR_CHANCE = 0.16;
+/** How close a companion sits to the thing it belongs to. */
+const PAIR_RANGE = 90;
+
+function pairedWith(gx: number, gz: number): { host: Landmark; kind: LandmarkKind } | null {
+  for (const [dx, dz, salt] of [[-1, 0, 1531], [0, -1, 1543]] as [number, number, number][]) {
+    if (slotRandom(gx, gz, salt) > PAIR_CHANCE) continue;
+    const host = baseInCell(gx + dx, gz + dz);
+    if (!host) continue;
+    const options = COMPANIONS[host.kind];
+    if (!options) continue;
+    const kind = options[Math.floor(slotRandom(gx, gz, salt + 2) * options.length) % options.length];
+    if (!LANDMARK_NAMES[kind]) continue;
+    return { host, kind };
+  }
+  return null;
+}
+
+/**
+ * What is in this cell, pairing included.
+ *
+ * A companion wins over whatever the cell would otherwise have held: it only
+ * happens a third of the time on an eligible neighbour, and a mast that stands
+ * over a steading is worth more than another unrelated lone tree.
+ */
+export function landmarkInCell(gx: number, gz: number): Landmark | null {
+  const pair = pairedWith(gx, gz);
+  if (pair) {
+    const a = slotRandom(gx, gz, 1549) * Math.PI * 2;
+    const r = 34 + slotRandom(gx, gz, 1553) * PAIR_RANGE;
+    const x = pair.host.x + Math.cos(a) * r;
+    const z = pair.host.z + Math.sin(a) * r;
+    const y = heightAt(x, z);
+    // Still has to be somewhere it could stand. If the ground beside the host
+    // will not take it, the cell falls back to whatever it would have been.
+    if (y >= 6 && slopeAt(x, z, 14) <= 0.3) {
+      return build(
+        gx,
+        gz,
+        x,
+        z,
+        y,
+        slotRandom(gx, gz, 1559),
+        slotRandom(gx, gz, 1567),
+        pair.kind,
+        temperatureAt(x, z) - y / 9000,
+        moistureAt(x, z)
+      );
+    }
+  }
+  return baseInCell(gx, gz);
+}
+
 export function landmarksNear(x: number, z: number, cells: number): Landmark[] {
   const cx = Math.round(x / LANDMARK_CELL);
   const cz = Math.round(z / LANDMARK_CELL);
