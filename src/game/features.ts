@@ -68,6 +68,46 @@ export const ACTIONS: Record<LandmarkKind, ActionSpec> = {
     lift: 0, inset: 0.55, instant: false,
     note: "out of the weather, for a while",
   },
+  shipwreck: {
+    verb: "climb aboard", badge: "Boarded", range: 13, camera: "orbit",
+    lift: 3.4, inset: 0.2, instant: false,
+    note: "aground a long time",
+  },
+  stones: {
+    verb: "walk the ring", badge: "Walked the ring", range: 13, camera: "orbit",
+    lift: 0, inset: 0.1, instant: false,
+    note: "older than anything else out here",
+  },
+  adit: {
+    verb: "go in", badge: "Went in", range: 8, camera: "chase",
+    lift: 0, inset: 0.4, instant: false,
+    note: "cold air coming out of the dark",
+  },
+  windpump: {
+    verb: "work the pump", badge: "Worked the pump", range: 9, camera: "chase",
+    lift: 0, inset: 0.5, instant: true,
+    note: "",
+  },
+  sinkhole: {
+    verb: "look down", badge: "Looked down", range: 17, camera: "orbit",
+    lift: 0, inset: 0.78, instant: false,
+    note: "no sign of the bottom",
+  },
+  bonefield: {
+    verb: "walk the ribs", badge: "Walked the ribs", range: 14, camera: "orbit",
+    lift: 0, inset: 0.2, instant: false,
+    note: "whatever this was, it was enormous",
+  },
+  orchard: {
+    verb: "pick something", badge: "Picked something", range: 16, camera: "chase",
+    lift: 0, inset: 0.3, instant: true,
+    note: "",
+  },
+  frozenlake: {
+    verb: "walk out on it", badge: "Walked out on it", range: 30, camera: "orbit",
+    lift: 0, inset: 0.45, instant: false,
+    note: "it holds, and it creaks",
+  },
   // The arch has no prompt. Driving through one IS the action, and asking
   // permission first would spoil the only landmark you meet at speed.
   arch: {

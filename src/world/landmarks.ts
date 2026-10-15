@@ -25,7 +25,15 @@ export type LandmarkKind =
   | "spring"
   | "lonetree"
   | "wreck"
-  | "steading";
+  | "steading"
+  | "shipwreck"
+  | "stones"
+  | "adit"
+  | "windpump"
+  | "sinkhole"
+  | "bonefield"
+  | "orchard"
+  | "frozenlake";
 
 /**
  * Naming.
@@ -78,6 +86,14 @@ export const LANDMARK_NAMES: Record<LandmarkKind, string> = {
   lonetree: "Lone Tree",
   wreck: "Abandoned Truck",
   steading: "Steading",
+  shipwreck: "Wreck",
+  stones: "Standing Stones",
+  adit: "Mine Adit",
+  windpump: "Windpump",
+  sinkhole: "Sinkhole",
+  bonefield: "Bone Field",
+  orchard: "Orchard",
+  frozenlake: "Frozen Lake",
 };
 
 /**
@@ -89,6 +105,8 @@ export const LANDMARK_NAMES: Record<LandmarkKind, string> = {
  */
 export const VARIANT_NAMES: Partial<Record<LandmarkKind, string[]>> = {
   steading: ["Cabin", "Barn", "Line Shack"],
+  stones: ["Stone Ring", "Stone Avenue", "Fallen Stones"],
+  shipwreck: ["Shipwreck", "Broken Hull", "Ship's Bones"],
 };
 
 /** Local-space collision circles, so you can drive *through* an arch. */
@@ -128,6 +146,43 @@ export const LANDMARK_SOLIDS: Record<LandmarkKind, { dx: number; dz: number; r: 
     { dx: -3.4, dz: 0, r: 2.1 },
     { dx: 3.4, dz: 0, r: 2.1 },
   ],
+  // A hull along its spine, like the truck but very much larger.
+  shipwreck: [
+    { dx: 0, dz: -7, r: 3.0 },
+    { dx: 0, dz: 0, r: 3.4 },
+    { dx: 0, dz: 7, r: 3.0 },
+  ],
+  // Individual stones, so you drive BETWEEN them — a ring you can enter is
+  // worth far more than a solid disc you bounce off.
+  stones: Array.from({ length: 9 }, (_, i) => {
+    const a = (i / 9) * Math.PI * 2;
+    return { dx: Math.cos(a) * 9.5, dz: Math.sin(a) * 9.5, r: 1.2 };
+  }),
+  adit: [
+    { dx: -1.6, dz: 0, r: 1.0 },
+    { dx: 1.6, dz: 0, r: 1.0 },
+  ],
+  windpump: [
+    { dx: 0, dz: 0, r: 2.0 },
+    { dx: 5.5, dz: 1.5, r: 2.4 },
+  ],
+  // The rim is solid; the hole is not, because the only interesting thing you
+  // can do with a sinkhole is get too close to it.
+  sinkhole: Array.from({ length: 14 }, (_, i) => {
+    const a = (i / 14) * Math.PI * 2;
+    return { dx: Math.cos(a) * 13, dz: Math.sin(a) * 13, r: 2.2 };
+  }),
+  // Ribs are bone, not wall. Driving through a skeleton is the better feeling.
+  bonefield: [{ dx: 0, dz: 11.5, r: 2.4 }],
+  // Trunks only, on the outer rows — an orchard you can drive down is the
+  // whole appeal of rows.
+  orchard: Array.from({ length: 12 }, (_, i) => {
+    const col = i % 6;
+    const row = i < 6 ? -2 : 2;
+    return { dx: (col - 2.5) * 6.2, dz: row * 6.6, r: 0.6 };
+  }),
+  // Deliberately passable. Walking out onto it is the point.
+  frozenlake: [],
 };
 
 export interface Landmark {
@@ -163,7 +218,10 @@ export function landmarkInCell(gx: number, gz: number): Landmark | null {
   const x = (gx + (jx - 0.5) * 0.7) * LANDMARK_CELL;
   const z = (gz + (jz - 0.5) * 0.7) * LANDMARK_CELL;
   const y = heightAt(x, z);
-  if (y < 6) return null; // not in the sea
+  // Below this the ground is tidal or submerged. Two kinds belong down there
+  // and nothing else does — shorelines previously had to borrow the inland kit.
+  const shore = y >= 1 && y < 7;
+  if (y < 1) return null;
 
   // Wide sample: these are big structures and need ground to stand on.
   if (slopeAt(x, z, 14) > 0.3) return null;
@@ -172,10 +230,31 @@ export function landmarkInCell(gx: number, gz: number): Landmark | null {
   const temp = temperatureAt(x, z) - y / 9000;
 
   const options: LandmarkKind[] = [];
+  if (shore) {
+    options.push("shipwreck");
+    if (temp < 0.45) options.push("bonefield");
+    // Nothing inland is eligible on tidal ground, so this returns early.
+    const kindShore = options[Math.min(options.length - 1, Math.floor(pick * options.length))];
+    return build(gx, gz, x, z, y, spin, size, kindShore, temp, moist);
+  }
   if (y > 150 && y < 1700) options.push("lookout");
   if (moist < 0.52 && y > 40 && y < 1300) options.push("arch");
   if (y > 420) options.push("mast");
   if (y > 15 && y < 700 && temp > 0.38) options.push("spring");
+  // Human but ancient, which is a different register from "somebody built
+  // this" — open grazing country, where real ones are.
+  if (moist > 0.3 && moist < 0.72 && y > 40 && y < 900) options.push("stones");
+  // A hole you can stand in, up where the rock is.
+  if (y > 500 && y < 2200) options.push("adit");
+  if (moist < 0.5 && y > 30 && y < 800) options.push("windpump");
+  if (moist < 0.35 && y > 60 && y < 1400) options.push("sinkhole");
+  // Somebody farmed here. Needs the good ground, same as the steadings.
+  if (moist > 0.5 && y > 20 && y < 600 && temp > 0.35) options.push("orchard");
+  if (temp < 0.3 && y > 20) options.push("frozenlake");
+  // Tundra as well as shoreline, which the brief called for and the shoreline
+  // path alone could not deliver — cold tidal ground is a thin slice of a
+  // thin slice, and the kind was landing at 0.3% of places.
+  if (temp < 0.26 && y > 20 && y < 1100) options.push("bonefield");
   if (moist < 0.70 && y > 80 && y < 1500) options.push("lonetree");
   // Rarer than the rest, or every other cell would be a dead truck.
   if (slotRandom(gx, gz, 967) > 0.82) options.push("wreck");
@@ -186,7 +265,27 @@ export function landmarkInCell(gx: number, gz: number): Landmark | null {
   if (!options.length) return null;
 
   const kind = options[Math.min(options.length - 1, Math.floor(pick * options.length))];
+  return build(gx, gz, x, z, y, spin, size, kind, temp, moist);
+}
 
+/**
+ * Name it, pick its build, and hand back the landmark.
+ *
+ * Shared because shoreline kinds are chosen on a separate early path — tidal
+ * ground has its own eligible set and nothing inland qualifies there.
+ */
+function build(
+  gx: number,
+  gz: number,
+  x: number,
+  z: number,
+  y: number,
+  spin: number,
+  size: number,
+  kind: LandmarkKind,
+  temp: number,
+  moist: number
+): Landmark {
   // Roughly half the places are named for where they lie, the rest for how
   // they look. A map that was all compass points would read as a spreadsheet.
   const wordPick = slotRandom(gx, gz, 971);

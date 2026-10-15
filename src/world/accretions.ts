@@ -50,6 +50,15 @@ const ELIGIBLE: Record<LandmarkKind, AccretionKind[]> = {
   lonetree: ["cairn", "firepit", "woodpile", "kennel"],
   // A place somebody lived gets the most of everything.
   steading: ["woodpile", "firepit", "signpost", "drums", "kennel", "line"],
+  shipwreck: ["firepit", "cairn", "drums"],
+  // People leave stones at stones.
+  stones: ["cairn", "firepit", "signpost"],
+  adit: ["drums", "woodpile", "firepit", "signpost"],
+  windpump: ["drums", "signpost", "firepit"],
+  sinkhole: ["cairn", "signpost"],
+  bonefield: ["cairn", "firepit"],
+  orchard: ["woodpile", "firepit", "kennel", "line"],
+  frozenlake: ["firepit", "cairn", "signpost"],
 };
 
 /** Roughly how often an eligible accretion actually shows up. */

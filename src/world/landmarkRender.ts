@@ -1,9 +1,19 @@
 import * as THREE from "three";
-import { mergeGeometries } from "three/examples/jsm/utils/BufferGeometryUtils.js";
 import { blobTexture } from "./shadows";
 import { slotRandom } from "./field";
+import { box, merge, strut, type Layer } from "./geom";
 import { LANDMARK_CELL, landmarksNear, type Landmark, type LandmarkKind } from "./landmarks";
 import { ACCRETION_KINDS, accretionsAt, type AccretionKind } from "./accretions";
+import {
+  adit,
+  bonefield,
+  frozenLake as frozenlake,
+  orchard,
+  shipwreck,
+  sinkhole,
+  stones,
+  windpump,
+} from "./landmarkKinds";
 
 /**
  * Draws landmarks.
@@ -20,6 +30,12 @@ import { ACCRETION_KINDS, accretionsAt, type AccretionKind } from "./accretions"
  * more draw calls across a few dozen objects, and they look like things
  * somebody built rather than grey blocks on a hill.
  */
+
+/**
+ * Where a windpump's fan sits relative to the tower base: at the top, a little
+ * forward of centre, which is where the boom puts it.
+ */
+const SAIL_HUB = [0, 11.5, -0.8];
 
 /** Keep this many cells of landmarks loaded — about 15 km of horizon. */
 const RANGE_CELLS = 7;
@@ -62,46 +78,6 @@ interface Plume {
   smoke: boolean;
 }
 
-interface Layer {
-  geo: THREE.BufferGeometry;
-  colour: number;
-  /** Emissive things — a warning lamp shouldn't take shading. */
-  unlit?: boolean;
-  /**
-   * Which variants include this layer. Absent means all of them.
-   *
-   * Instances whose variant omits a layer get a zero-scale matrix in it, which
-   * costs an index and draws nothing — so one mesh per layer still covers
-   * every structural build of a kind.
-   */
-  on?: number[];
-}
-
-const box = (w: number, h: number, d: number) => new THREE.BoxGeometry(w, h, d);
-
-function merge(parts: THREE.BufferGeometry[]): THREE.BufferGeometry {
-  const flat = parts.map((g) => (g.index ? g.toNonIndexed() : g));
-  const m = mergeGeometries(flat, false);
-  if (!m) throw new Error("landmark geometry merge failed");
-  return m;
-}
-
-/** A strut between two points, for bracing, stairs and guy wires. */
-function strut(
-  from: [number, number, number],
-  to: [number, number, number],
-  r: number,
-  sides = 4
-): THREE.BufferGeometry {
-  const a = new THREE.Vector3(...from);
-  const b = new THREE.Vector3(...to);
-  const g = new THREE.CylinderGeometry(r, r, a.distanceTo(b), sides);
-  const dir = b.clone().sub(a).normalize();
-  g.applyQuaternion(new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 1, 0), dir));
-  const mid = a.clone().add(b).multiplyScalar(0.5);
-  g.translate(mid.x, mid.y, mid.z);
-  return g;
-}
 
 /**
  * Fire lookout: braced timber frame, a stair flight, a glazed cabin, tin roof.
@@ -700,6 +676,14 @@ const BUILDERS: Record<LandmarkKind, () => Layer[]> = {
   lonetree: loneTree,
   wreck,
   steading,
+  shipwreck,
+  stones,
+  adit,
+  windpump,
+  sinkhole,
+  bonefield,
+  orchard,
+  frozenlake,
 };
 
 export class LandmarkField {
@@ -709,6 +693,19 @@ export class LandmarkField {
   /** Parallel to meshes — which variants each layer belongs to. */
   private layers = new Map<LandmarkKind, Layer[]>();
   private accretions = new Map<AccretionKind, THREE.InstancedMesh[]>();
+  /**
+   * Layers that turn. Their instance matrix is recomposed every frame from a
+   * stored base transform, which is why they can't just ride along with the
+   * static ones.
+   */
+  private spinners: {
+    mesh: THREE.InstancedMesh;
+    index: number;
+    base: THREE.Matrix4;
+    /** Radians per second. Varied per instance so a plain of them never syncs. */
+    rate: number;
+    phase: number;
+  }[] = [];
   /** Signposts in range, for the walk-up read. */
   signs: { x: number; z: number; text: string }[] = [];
   private steam: THREE.InstancedMesh;
@@ -787,6 +784,29 @@ export class LandmarkField {
       this.rebuild(px, pz);
     }
     this.animateSteam(time, camera);
+    this.animateSpinners(time);
+  }
+
+  /**
+   * The windpump's sails.
+   *
+   * Hub offset and rotation are applied AFTER the landmark's own transform, so
+   * the fan turns on its own axis at the top of its own tower however the
+   * tower is rotated or scaled on the hill.
+   */
+  private animateSpinners(time: number) {
+    if (!this.spinners.length) return;
+    const local = new THREE.Matrix4();
+    const out = new THREE.Matrix4();
+    const touched = new Set<THREE.InstancedMesh>();
+    for (const sp of this.spinners) {
+      local.makeRotationY(sp.phase + time * sp.rate);
+      local.setPosition(0, SAIL_HUB[1], SAIL_HUB[2]);
+      out.multiplyMatrices(sp.base, local);
+      sp.mesh.setMatrixAt(sp.index, out);
+      touched.add(sp.mesh);
+    }
+    for (const mesh of touched) mesh.instanceMatrix.needsUpdate = true;
   }
 
   private rebuild(px: number, pz: number) {
@@ -801,6 +821,7 @@ export class LandmarkField {
     const tint = new THREE.Color();
     const counts = new Map<LandmarkKind, number>();
     this.plumes.length = 0;
+    this.spinners.length = 0;
 
     for (const lm of this.loaded) {
       const n = counts.get(lm.kind) ?? 0;
@@ -815,9 +836,21 @@ export class LandmarkField {
       const meshes = this.meshes.get(lm.kind)!;
       instanceTint(lm, tint);
       for (let i = 0; i < meshes.length; i++) {
-        const on = layers[i].on;
-        meshes[i].setMatrixAt(n, on && !on.includes(lm.variant) ? hidden : m);
+        const layer = layers[i];
+        const off = layer.on && !layer.on.includes(lm.variant);
+        meshes[i].setMatrixAt(n, off ? hidden : m);
         meshes[i].setColorAt(n, tint);
+        if (layer.spin && !off) {
+          this.spinners.push({
+            mesh: meshes[i],
+            index: n,
+            base: m.clone(),
+            // A sail turns slowly and no two turn alike. Sign varies too, so
+            // half of them run anticlockwise.
+            rate: (0.5 + slotRandom(lm.gx, lm.gz, 1037) * 0.9) * (lm.wear > 0.5 ? 1 : -1),
+            phase: slotRandom(lm.gx, lm.gz, 1041) * Math.PI * 2,
+          });
+        }
       }
       counts.set(lm.kind, n + 1);
 
