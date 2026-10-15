@@ -496,7 +496,16 @@ function frame(now: number) {
   const placeWins = !!features.held || (offer !== null && offerProx <= player.vehicleProximity);
   const rideWins =
     !placeWins && (player.ridingHost !== null || (lift !== null && liftProx <= player.vehicleProximity));
-  player.suppressInteract = placeWins || rideWins;
+  /**
+   * While you are driving, the ONLY meaningful interact is getting out, so
+   * nothing is allowed to take the press. This is deliberately an invariant
+   * rather than an argument about which states are reachable: an earlier
+   * Infinity comparison let a non-existent ride win it and sealed the player
+   * in, and anything else that leaks in later would do the same. Other buttons
+   * bypass this arbitration entirely, which is exactly why the exit button was
+   * the only one that ever appeared broken.
+   */
+  player.suppressInteract = player.mode !== "drive" && (placeWins || rideWins);
 
   if (controls.interact && rideWins) {
     if (player.ridingHost !== null) {
@@ -675,8 +684,13 @@ function frame(now: number) {
     dust.emit(x, y, z, 2, emberTint, false);
   });
   sound.setFire(fire);
-  // Getting in the truck is leaving — pack up rather than driving off camped.
+  // Getting in the truck is leaving — pack up rather than driving off camped,
+  // and never stay settled into a place you have driven away from.
   if (camp.active && player.mode === "drive") camp.strike();
+  if (features.held && player.mode === "drive") {
+    features.release();
+    player.featureHold = null;
+  }
 
   if (features.held && features.held.spec.camera === "orbit") {
     features.cameraTarget(campPos, campLook);

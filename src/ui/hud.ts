@@ -1,5 +1,7 @@
 import type { Controls } from "../input/controls";
 
+declare const __BUILD__: string;
+
 export interface HudState {
   clock: string;
   biome: string;
@@ -161,6 +163,7 @@ export class Hud {
           <dl>${(controls.isTouch ? TOUCH_KEYS : DESK_KEYS)
             .map(([k, v]) => `<dt>${k}</dt><dd>${v}</dd>`)
             .join("")}</dl>
+          <p class="build-stamp">build ${typeof __BUILD__ === "string" ? __BUILD__ : "dev"}</p>
           <button class="sheet-close" id="h-sheet-close">close</button>
         </div>
       </div>

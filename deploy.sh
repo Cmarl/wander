@@ -23,6 +23,19 @@ cp -r dist "$SITE_DIR/public/wander"
 # both so the bare path works too; it's under a kilobyte.
 cp dist/index.html "$SITE_DIR/public/wander.html"
 
+# The HTML names the hashed bundle, so a browser holding BOTH in cache runs an
+# entire stale copy of the game with no way to notice. Assets stay immutable —
+# their names change — but the entry point must always be refetched. Scoped to
+# /wander so nothing else on the site is affected.
+cat > "$SITE_DIR/public/_headers" <<'HEADERS'
+/wander
+  Cache-Control: no-store, must-revalidate
+/wander/
+  Cache-Control: no-store, must-revalidate
+/wander.html
+  Cache-Control: no-store, must-revalidate
+HEADERS
+
 echo "==> deploying site"
 cd "$SITE_DIR"
 $NODE npm run deploy
