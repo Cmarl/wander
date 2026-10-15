@@ -850,7 +850,7 @@ export class Player {
 
     this.vehicle.root.position.copy(this.vehPos);
     this.vehicle.root.quaternion.copy(this.vehQuat);
-    this.vehicle.animate(dt, speed, this.vehSteer);
+    this.vehicle.animate(dt, speed, this.vehSteer, this.vehVelY);
   }
 
   private dismount() {

@@ -406,13 +406,16 @@ function makeChopper(paint: number): Vehicle {
   const tilt = tiltable(root);
   return {
     root,
-    animate(dt, speed, steer) {
+    animate(dt, speed, steer, climb = 0) {
       // Always turning. A helicopter with a still rotor is a helicopter that
       // has fallen out of the sky, which is not a state this game has.
       rotor.rotation.y += dt * 26;
       tailRotor.rotation.x += dt * 38;
-      // Nose down as it moves off, and bank into the turn.
-      tilt.rotation.x = Math.min(0.16, Math.abs(speed) / 42 * 0.16);
+      // Nose down as it moves off, nose up as it climbs. A helicopter tilts
+      // far less than a plane, so the climb term is much gentler.
+      tilt.rotation.x =
+        Math.min(0.16, Math.abs(speed) / 42 * 0.16) +
+        Math.max(-1, Math.min(1, -climb / 11)) * 0.18;
       tilt.rotation.z = bank(steer, speed, 20, 0.3);
     },
     setPaint(hex) {
@@ -508,16 +511,28 @@ function makePlane(paint: number): Vehicle {
   let nose = 0;
   return {
     root,
-    animate(dt, speed, steer) {
+    animate(dt, speed, steer, climb = 0) {
       prop.rotation.z += dt * (14 + Math.abs(speed) * 0.5);
       for (const w of wheels) w.rotation.x -= (speed / 0.34) * 0.016;
-      // Banks hard, because that is how an aeroplane turns.
-      // A real bank, and the nose drops into the turn the way a wing loading
-      // up actually behaves.
+      // Banks hard, because that is how an aeroplane turns, and the nose drops
+      // into the turn the way a wing loading up actually behaves.
       const want = bank(steer, speed, 34, 0.95);
       roll += (want - roll) * Math.min(1, dt * 3.2);
-      const wantNose = Math.min(0.12, Math.abs(speed) / 150 * 0.12) + Math.abs(roll) * 0.1;
-      nose += (wantNose - nose) * Math.min(1, dt * 2.4);
+      /**
+       * The nose follows the climb.
+       *
+       * Rotating about +x carries +z toward -y, so a positive angle pitches
+       * the nose DOWN — climbing therefore wants a negative one. Scaled
+       * against the descent rate, since coming down is the faster of the two,
+       * and capped so a full dive is a steep attitude rather than a somersault.
+       *
+       * Clyde: "when ascending, the nose should point up and down for decend
+       * as well". It was moving vertically with the model held dead level,
+       * which reads as an aeroplane in a lift.
+       */
+      const pitch = Math.max(-1, Math.min(1, -climb / 46)) * 0.5;
+      const wantNose = pitch + Math.min(0.08, Math.abs(speed) / 150 * 0.08) + Math.abs(roll) * 0.08;
+      nose += (wantNose - nose) * Math.min(1, dt * 2.6);
       tilt.rotation.z = roll;
       tilt.rotation.x = nose;
     },

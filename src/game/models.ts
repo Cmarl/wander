@@ -132,8 +132,14 @@ export function makeCharacter(palette: CharacterPalette = DEFAULT_PALETTE): Char
 
 export interface Vehicle {
   root: THREE.Group;
-  /** Spin the wheels and turn the fronts. */
-  animate(dt: number, speed: number, steer: number): void;
+  /**
+   * Spin the wheels and turn the fronts.
+   *
+   * `climb` is vertical speed in metres per second, so anything that flies can
+   * put its nose where it is actually going. Optional, because a truck has no
+   * use for it.
+   */
+  animate(dt: number, speed: number, steer: number, climb?: number): void;
   setPaint(hex: number): void;
   /**
    * Knock a panel out of true. Purely cosmetic and never repaired — the truck
