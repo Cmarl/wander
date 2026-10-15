@@ -17,6 +17,7 @@ import { Wildlife } from "./world/wildlife";
 import { surfaceAt, moistureAt, treeDensityAt, slopeAt } from "./world/field";
 import { findSpawn } from "./world/spawn";
 import { heightAt, biomeNameAt } from "./world/field";
+import { regionAt } from "./world/regions";
 import { Environment } from "./game/environment";
 import { Player } from "./game/player";
 import { Controls } from "./input/controls";
@@ -392,7 +393,12 @@ function stampJournal() {
   const z = player.position.z;
   const biome = biomeNameAt(x, z);
   const mark = (id: string, kind: string, name: string) =>
-    found.add({ id, kind, name, x: Math.round(x), z: Math.round(z), at: Date.now(), tod: env.timeOfDay });
+    found.add({
+      id, kind, name,
+      x: Math.round(x), z: Math.round(z),
+      at: Date.now(), tod: env.timeOfDay,
+      region: regionAt(x, z).name,
+    });
 
   if (biome !== lastBiome && biome !== "Open Water") {
     lastBiome = biome;
@@ -778,6 +784,7 @@ function frame(now: number) {
     clock: env.clockString(),
     biome: biomeNameAt(player.position.x, player.position.z),
     elevation: heightAt(player.position.x, player.position.z),
+    region: regionAt(player.position.x, player.position.z).name,
     x: player.position.x,
     z: player.position.z,
     km: player.distanceTravelled / 1000,

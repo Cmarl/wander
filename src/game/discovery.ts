@@ -23,6 +23,8 @@ export interface Found {
   at: number;
   /** In-game time of day when it was found, 0..1. Optional for older saves. */
   tod?: number;
+  /** Which region it was in. Optional for older saves. */
+  region?: string;
 }
 
 export class Discoveries {

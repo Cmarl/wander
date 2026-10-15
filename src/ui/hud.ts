@@ -6,6 +6,7 @@ export interface HudState {
   clock: string;
   biome: string;
   elevation: number;
+  region: string;
   x: number;
   z: number;
   km: number;
@@ -437,7 +438,7 @@ export class Hud {
   update(s: HudState) {
     this.clockEl.textContent = s.clock;
     this.biomeEl.textContent = s.biome;
-    this.elevEl.textContent = `${Math.round(s.elevation)} m`;
+    this.elevEl.textContent = `${s.region} · ${Math.round(s.elevation)} m`;
     this.coordEl.textContent = `${Math.round(s.x)}, ${Math.round(s.z)}`;
     this.kmEl.textContent = `${s.km.toFixed(2)} km travelled`;
     this.fpsEl.textContent = `${Math.round(s.fps)} fps`;

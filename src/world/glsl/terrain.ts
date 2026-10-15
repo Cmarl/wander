@@ -35,6 +35,20 @@ float wMoisture(vec2 p) {
   return wStretch(broad * 0.82 + local * 0.18, 2.3);
 }
 
+/**
+ * Region-scale character, sampled unwarped so it stays stable.
+ *
+ * relief  0 = country flat enough to build on, 1 = serious mountains
+ * density 0 = empty, 1 = thick with trees and places
+ *
+ * These are smooth fields rather than cells, so regions blend into one another
+ * instead of meeting at a seam — but they're low-frequency enough that a
+ * region still reads as one coherent place for tens of kilometres.
+ * MIRROR: src/world/field.ts
+ */
+float wRelief(vec2 p)  { return wStretch(wFbm(p * (1.0 / 46000.0), 3, 211u), 1.7); }
+float wDensity(vec2 p) { return wStretch(wFbm(p * (1.0 / 31000.0), 3, 223u), 1.5); }
+
 float terrainHeight(vec2 p) {
   vec2 pw = wWarp(p);
 
@@ -42,13 +56,18 @@ float terrainHeight(vec2 p) {
   float land = smoothstep(0.40, 0.52, cont);
   float base = mix(-300.0, 400.0, smoothstep(0.20, 0.86, cont));
 
-  float r = wRidged(pw * (1.0 / 6500.0), 6, 41u);
-  float mountains = pow(r, 2.3) * 2550.0 * wRangeMask(pw) * land;
+  // Relief is what gives the world its contrast: flats you could put a town
+  // on in one place, and something you'd need a day to climb in another.
+  float relief = wRelief(p);
 
-  float hills  = (wFbm(pw * (1.0 / 950.0), 5, 61u) - 0.5) * 150.0 * land;
+  float r = wRidged(pw * (1.0 / 6500.0), 6, 41u);
+  float mountains = pow(r, 2.3) * 2550.0 * wRangeMask(pw) * land * (0.14 + relief * 1.85);
+
+  float hills  = (wFbm(pw * (1.0 / 950.0), 5, 61u) - 0.5) * 150.0 * land * (0.40 + relief * 1.15);
   float detail = (wFbm(p  * (1.0 /  95.0), 4, 71u) - 0.5) * 13.0;
 
-  float h = base + mountains + hills + detail * mix(0.35, 1.0, land);
+  float h = base + mountains + hills + detail * mix(0.35, 1.0, land)
+          + (relief - 0.5) * 170.0 * land;
 
   // Flatten toward sea level so coastlines get beaches instead of cliffs.
   h = h * (1.0 - 0.5 * exp(-h * h * (1.0 / 3600.0)));

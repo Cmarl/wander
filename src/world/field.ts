@@ -105,6 +105,18 @@ export const temperatureAt = (x: number, z: number) =>
 export const moistureAt = (x: number, z: number) =>
   stretch(wFbm(x / 17000, z / 17000, 4, 137) * 0.82 + wFbm(x / 2600, z / 2600, 3, 139) * 0.18, 2.3);
 
+/**
+ * Region-scale character. MIRROR of wRelief/wDensity in glsl/terrain.ts.
+ *
+ * relief  0 = flat enough to build on, 1 = serious mountains
+ * density 0 = empty country, 1 = thick with trees and places
+ */
+export const reliefAt = (x: number, z: number) =>
+  stretch(wFbm(x / 46000, z / 46000, 3, 211), 1.7);
+
+export const densityAt = (x: number, z: number) =>
+  stretch(wFbm(x / 31000, z / 31000, 3, 223), 1.5);
+
 export const SEA_LEVEL = 0;
 
 export function heightAt(x: number, z: number): number {
@@ -116,13 +128,17 @@ export function heightAt(x: number, z: number): number {
   const land = smoothstep(0.4, 0.52, cont);
   const base = lerp(-300, 400, smoothstep(0.20, 0.86, cont));
 
-  const r = wRidged(wx * (1 / 6500), wz * (1 / 6500), 6, 41);
-  const mountains = Math.pow(r, 2.3) * 2550 * wRangeMask(wx, wz) * land;
+  // Relief is what gives the world its contrast: flats you could put a town
+  // on in one place, and something you'd need a day to climb in another.
+  const relief = reliefAt(x, z);
 
-  const hills = (wFbm(wx * (1 / 950), wz * (1 / 950), 5, 61) - 0.5) * 150 * land;
+  const r = wRidged(wx * (1 / 6500), wz * (1 / 6500), 6, 41);
+  const mountains = Math.pow(r, 2.3) * 2550 * wRangeMask(wx, wz) * land * (0.14 + relief * 1.85);
+
+  const hills = (wFbm(wx * (1 / 950), wz * (1 / 950), 5, 61) - 0.5) * 150 * land * (0.4 + relief * 1.15);
   const detail = (wFbm(x * (1 / 95), z * (1 / 95), 4, 71) - 0.5) * 13;
 
-  let h = base + mountains + hills + detail * lerp(0.35, 1, land);
+  let h = base + mountains + hills + detail * lerp(0.35, 1, land) + (relief - 0.5) * 170 * land;
   h = h * (1 - 0.5 * Math.exp((-h * h) / 3600));
   return h;
 }
@@ -189,7 +205,7 @@ export function treeDensityAt(x: number, z: number, h: number, slope: number): n
   d *= smoothstep(treeLine, treeLine - 420, h);
   d *= smoothstep(0.62, 0.30, slope);
   d *= smoothstep(4, 22, h);
-  return d;
+  return d * (0.35 + densityAt(x, z) * 1.3);
 }
 
 /** Deterministic per-slot random in [0,1). Same slot always gives the same value. */
