@@ -65,6 +65,14 @@ export interface VehicleSpec {
   sink?: number;
   /** Plane only: how much of the sink rate airspeed cancels. */
   wing?: number;
+  /**
+   * Commanded descent rate — putting the nose down on purpose.
+   *
+   * Separate from `lift` because an aircraft comes down faster than it goes
+   * up, which is both true and what it should feel like. Defaults to a little
+   * under the climb rate for anything that does not say otherwise.
+   */
+  dive?: number;
 }
 
 export const SPECS: Record<VehicleClass, VehicleSpec> = {
@@ -116,7 +124,10 @@ export const SPECS: Record<VehicleClass, VehicleSpec> = {
     jump: 0, gradePull: 2.4, turn: 2.2, turnFalloff: 0.01, pitchRate: 3.4,
     bodyR: 1.2, bodyOffset: 1.6,
     seat: [0, 1.5, 0.5], dogSeat: [0, 1.4, -0.3],
-    flies: true, lift: 26, sink: 15, wing: 0.9,
+    // wing 0.84 rather than 0.9: hands off at cruise now settles at about
+    // 2.4 m/s rather than 1.5, so letting go drifts down instead of holding
+    // altitude, while speed still being what keeps you up stays true.
+    flies: true, lift: 26, sink: 15, wing: 0.84, dive: 46,
   },
 };
 

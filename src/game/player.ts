@@ -719,8 +719,20 @@ export class Player {
       const want = this.vehClimb
         ? this.spec.lift!
         : this.vehDescend
-          ? -this.spec.lift! * 0.85
+          ? -(this.spec.dive ?? this.spec.lift! * 0.85)
           : -this.spec.sink! * wing;
+
+      /**
+       * Trading height for speed, and back.
+       *
+       * Putting the nose down should get you moving, and hauling it up should
+       * cost you — that coupling is most of why a dive feels like a dive
+       * rather than an elevator going down. It cannot run away: the airspeed
+       * ceiling still clamps a flyer at its top speed, and the commanded
+       * descent rate is fixed rather than fed by speed, so there is no loop.
+       */
+      if (this.vehDescend) this.vehSpeed += 11 * dt;
+      else if (this.vehClimb) this.vehSpeed -= 7 * dt;
       // Eased, so the controls feel like a machine with mass rather than a
       // cursor being dragged up and down.
       this.vehVelY += (want - this.vehVelY) * Math.min(1, dt * (this.spec.pitchRate ?? 2.2));
