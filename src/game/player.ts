@@ -192,6 +192,12 @@ export class Player {
    * near it.
    */
   featureHold: THREE.Vector3 | null = null;
+  /**
+   * Riding in somebody else's truck. Their client owns the driving entirely;
+   * we just place ourselves in a seat each frame and send the result, so peers
+   * never have to resolve who is riding with whom to draw us correctly.
+   */
+  ridingHost: number | null = null;
   /** Yaw of whatever camera currently owns the view, if not the chase camera. */
   holdYaw: number | null = null;
   /**

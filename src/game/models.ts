@@ -81,6 +81,7 @@ export function makeCharacter(palette: CharacterPalette = DEFAULT_PALETTE): Char
   hips.add(armL);
   const armR = limb(coat, 0.15, 0.6);
   armR.position.set(0.33, 0.6, 0);
+  armR.name = "armR"; // so a remote wave can find it
   hips.add(armR);
 
   const legL = limb(trousers, 0.18, 0.86);

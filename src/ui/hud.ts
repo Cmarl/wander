@@ -27,6 +27,7 @@ const DESK_KEYS: [string, string][] = [
   ["C", "make or break camp"],
   ["J", "field journal"],
   ["B", "horn"],
+  ["V", "wave"],
   ["K", "change the paint"],
   ["H", "show these controls"],
 ];

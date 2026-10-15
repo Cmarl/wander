@@ -27,7 +27,7 @@ import { haptics } from "./ui/haptics";
 import { Garage } from "./game/paint";
 import { Soundscape } from "./audio/soundscape";
 import { Net, DEFAULT_WORLD } from "./net/net";
-import { PeerBodies } from "./net/peers";
+import { PeerBodies, seatOf } from "./net/peers";
 
 const canvas = document.getElementById("view") as HTMLCanvasElement;
 const controls = new Controls(canvas);
@@ -157,6 +157,19 @@ hud.onPinRequest = (id) => togglePin(id);
 let followId: number | null = null;
 // Seeing a species for the first time is worth remembering. No total, no
 // checklist — the journal just gains a line, and the rare ones a badge.
+// Someone nearby honked or waved. Nothing is addressed to us, so there is
+// never anything owed back.
+net.onEmote = (peer, kind) => {
+  const d = Math.hypot(peer.next.x - player.position.x, peer.next.z - player.position.z);
+  if (kind === "wave") {
+    peers.wave(peer.id);
+    if (d < 90) hud.announce(`${peer.name} waves`);
+  } else if (kind === "honk" && d < 400) {
+    // Falls away with distance, so a honk across a valley is a far-off parp.
+    sound.remoteHorn(Math.max(0.08, 1 - d / 400));
+  }
+};
+
 wildlife.onSight = (species, spec, x, z) => {
   const fresh = found.add({
     id: `saw:${species}`,
@@ -217,7 +230,14 @@ addEventListener("keydown", (e) => {
   if (e.code === "KeyM") hud.setMuted(sound.toggleMute());
   if (e.code === "KeyP") postcard.toggle();
   if (e.code === "KeyJ") journal.toggle();
-  if (e.code === "KeyB" && player.mode === "drive") sound.horn();
+  if (e.code === "KeyB" && (player.mode === "drive" || player.ridingHost !== null)) {
+    sound.horn();
+    net.emote("honk");
+  }
+  if (e.code === "KeyV" && player.mode === "foot") {
+    peers.wave(net.selfId);
+    net.emote("wave");
+  }
   if (e.code === "KeyK") {
     const paint = garage.cycle(player.distanceTravelled / 1000);
     player.vehicle.setPaint(paint.hex);
@@ -396,6 +416,11 @@ function awardBadge(lm: { id: string; name: string; x: number; z: number }, badg
   }
 }
 
+/** How close you must be to a moving truck to climb aboard. */
+const RIDE_RANGE = 6;
+const seatSample = { x: 0, y: 0, z: 0, h: 0 };
+const seatPos = new THREE.Vector3();
+
 const campPos = new THREE.Vector3();
 const campLook = new THREE.Vector3();
 const emberTint = new THREE.Color();
@@ -414,6 +439,33 @@ function frame(now: number) {
   controls.beginFrame();
   player.freeCamera = postcard.active;
 
+  // --- riding with someone -------------------------------------------------
+  // The driver's client owns the truck entirely. We just put ourselves in a
+  // seat each frame and transmit the result, so nobody has to resolve who is
+  // riding with whom in order to draw us.
+  const host = player.ridingHost !== null ? net.peers.get(player.ridingHost) : undefined;
+  if (player.ridingHost !== null && (!host || host.next.mode !== 1)) {
+    // They stopped driving, or left. Step off wherever we are.
+    player.ridingHost = null;
+    player.featureHold = null;
+  } else if (host) {
+    net.sample(host, seatSample);
+    seatOf(net.selfId, seatSample.x, seatSample.y, seatSample.z, seatSample.h, seatPos);
+    player.featureHold = seatPos;
+    player.heading = seatSample.h;
+  }
+
+  // A truck with somebody at the wheel has a seat in it. No invite, no accept:
+  // walk up and use the same key you'd use on your own.
+  let lift: { id: number; name: string; d: number } | null = null;
+  if (player.mode === "foot" && player.ridingHost === null && !camp.active && !features.held) {
+    for (const peer of net.peers.values()) {
+      if (peer.next.mode !== 1) continue;
+      const d = Math.hypot(peer.next.x - player.position.x, peer.next.z - player.position.z);
+      if (d < RIDE_RANGE && (!lift || d < lift.d)) lift = { id: peer.id, name: peer.name, d };
+    }
+  }
+
   // Work out who owns this frame's interact BEFORE the player consumes it.
   // Normalised proximity, so being deep inside a hot spring beats standing at
   // the very edge of reach of the truck, and vice versa.
@@ -425,8 +477,23 @@ function frame(now: number) {
     ? Math.hypot(offer.x - player.position.x, offer.z - player.position.z) /
       (ACTIONS[offer.kind].range * offer.scale)
     : Infinity;
+  const liftProx = lift ? lift.d / RIDE_RANGE : Infinity;
   const placeWins = !!features.held || (offer !== null && offerProx <= player.vehicleProximity);
-  player.suppressInteract = placeWins;
+  const rideWins = !placeWins && (player.ridingHost !== null || liftProx <= player.vehicleProximity);
+  player.suppressInteract = placeWins || rideWins;
+
+  if (controls.interact && rideWins) {
+    if (player.ridingHost !== null) {
+      // Step off beside the truck rather than inside it.
+      player.ridingHost = null;
+      player.featureHold = null;
+      player.position.x += Math.cos(player.heading) * 2.6;
+      player.position.z -= Math.sin(player.heading) * 2.6;
+    } else if (lift) {
+      player.ridingHost = lift.id;
+      hud.announce(`riding with ${lift.name}`);
+    }
+  }
   env.advance(dt);
   player.update(dt, controls);
 
@@ -509,10 +576,18 @@ function frame(now: number) {
     y: player.position.y,
     z: player.position.z,
     h: player.heading,
-    driving: player.mode === "drive",
+    mode: player.ridingHost !== null ? 2 : player.mode === "drive" ? 1 : 0,
     speed: player.speed,
+    host: player.ridingHost ?? 0,
   });
-  peers.update(dt, net, camera);
+  peers.update(
+    dt,
+    net,
+    camera,
+    player.mode === "drive"
+      ? { id: net.selfId, x: player.position.x, y: player.position.y, z: player.position.z, h: player.heading }
+      : undefined
+  );
 
   // --- what this place offers ---------------------------------------------
   if (controls.interact && placeWins) {
@@ -679,7 +754,11 @@ function frame(now: number) {
     fps,
     headingDeg,
     prompt:
-      features.held
+      player.ridingHost !== null
+        ? `${controls.isTouch ? "⏎" : "E"}  hop out`
+        : rideWins && lift
+          ? `${controls.isTouch ? "⏎" : "E"}  ride with ${lift.name}`
+        : features.held
         ? `${controls.isTouch ? "⏎" : "E"}  ${features.held.spec.note || "stay a while"}`
         : placeWins && offer
           ? `${controls.isTouch ? "⏎" : "E"}  ${ACTIONS[offer.kind].verb}`

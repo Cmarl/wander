@@ -18,14 +18,19 @@ const KEEPALIVE = 2.0;
 /** How far behind the newest packet we render peers. */
 const INTERP_DELAY = 0.14;
 
+/** 0 on foot, 1 driving, 2 riding in someone else's truck. */
+export type PeerMode = 0 | 1 | 2;
+
 export interface Snapshot {
   t: number;
   x: number;
   y: number;
   z: number;
   h: number;
-  driving: boolean;
+  mode: PeerMode;
   speed: number;
+  /** Whose truck, when riding. */
+  host: number;
 }
 
 export interface Peer {
@@ -50,11 +55,13 @@ export class Net {
   onPeerJoin?: (p: Peer) => void;
   onPeerLeave?: (id: number) => void;
   onStatus?: (s: NetStatus) => void;
+  /** Someone nearby honked or waved. */
+  onEmote?: (peer: Peer, kind: string) => void;
 
   private ws: WebSocket | null = null;
   private sendTimer = 0;
   private sinceKeepalive = 0;
-  private last = { x: 0, y: 0, z: 0, h: 0, driving: false };
+  private last = { x: 0, y: 0, z: 0, h: 0, mode: 0 as PeerMode };
   private retry = 0;
   /** Stable per-browser identity, so the relay can recognise a reconnect. */
   private cid = (() => {
@@ -185,25 +192,41 @@ export class Net {
         break;
       }
       case "s":
-        this.applyState(m as [string, number, number, number, number, number, number, number]);
+        this.applyState(m as [string, number, number, number, number, number, number, number, number]);
         break;
+      case "e": {
+        const peer = this.peers.get(m[1] as number);
+        if (peer) this.onEmote?.(peer, String(m[2]));
+        break;
+      }
     }
   }
 
   private addPeer(p: [number, string, number, ...number[]]) {
-    const [id, name, colour, x = 0, y = 0, z = 0, h = 0, mode = 0, speed = 0] = p;
+    const [id, name, colour, x = 0, y = 0, z = 0, h = 0, mode = 0, speed = 0, host = 0] = p;
     if (id === this.selfId || this.peers.has(id)) return;
-    const snap: Snapshot = { t: now(), x, y, z, h, driving: mode === 1, speed };
+    const snap: Snapshot = { t: now(), x, y, z, h, mode: (mode as PeerMode) ?? 0, speed, host };
     const peer: Peer = { id, name, colour, prev: snap, next: { ...snap } };
     this.peers.set(id, peer);
     this.onPeerJoin?.(peer);
   }
 
-  private applyState(m: [string, number, number, number, number, number, number, number]) {
+  private applyState(m: [string, number, number, number, number, number, number, number, number]) {
     const peer = this.peers.get(m[1]);
     if (!peer) return;
     peer.prev = peer.next;
-    peer.next = { t: now(), x: m[2], y: m[3], z: m[4], h: m[5], driving: m[6] === 1, speed: m[7] };
+    peer.next = {
+      t: now(),
+      x: m[2], y: m[3], z: m[4], h: m[5],
+      mode: (m[6] as PeerMode) ?? 0,
+      speed: m[7],
+      host: m[8] ?? 0,
+    };
+  }
+
+  /** Honk, wave — broadcast to the room, addressed to nobody. */
+  emote(kind: string) {
+    if (this.ws?.readyState === WebSocket.OPEN) this.ws.send(JSON.stringify(["e", kind]));
   }
 
   /** Where a peer should be drawn this frame. */
@@ -220,7 +243,10 @@ export class Net {
     out.h = peer.prev.h + dh * t;
   }
 
-  update(dt: number, self: { x: number; y: number; z: number; h: number; driving: boolean; speed: number }) {
+  update(
+    dt: number,
+    self: { x: number; y: number; z: number; h: number; mode: PeerMode; speed: number; host: number }
+  ) {
     if (this.reconnectAt && now() >= this.reconnectAt && !this.ws) {
       this.reconnectAt = 0;
       this.open();
@@ -237,17 +263,17 @@ export class Net {
       Math.abs(self.y - this.last.y) > 0.04 ||
       Math.abs(self.z - this.last.z) > 0.04 ||
       Math.abs(self.h - this.last.h) > 0.01 ||
-      self.driving !== this.last.driving;
+      self.mode !== this.last.mode;
 
     if (!moved && this.sinceKeepalive < KEEPALIVE) return;
     this.sinceKeepalive = 0;
-    this.last = { x: self.x, y: self.y, z: self.z, h: self.h, driving: self.driving };
+    this.last = { x: self.x, y: self.y, z: self.z, h: self.h, mode: self.mode };
 
     // Rounded: centimetres and milliradians are far below what anyone can see,
     // and it roughly halves the packet.
     const r = (v: number) => Math.round(v * 100) / 100;
     this.ws.send(
-      JSON.stringify(["m", r(self.x), r(self.y), r(self.z), r(self.h), self.driving ? 1 : 0, r(self.speed)])
+      JSON.stringify(["m", r(self.x), r(self.y), r(self.z), r(self.h), self.mode, r(self.speed), self.host])
     );
   }
 }

@@ -158,9 +158,21 @@ export class WorldRoom {
     } catch {
       return;
     }
-    if (!Array.isArray(m) || m[0] !== "m") return;
+    if (!Array.isArray(m)) return;
 
-    const st = [num(m[1]), num(m[2]), num(m[3]), num(m[4]), m[5] === 1 ? 1 : 0, num(m[6])];
+    // A gesture: a honk or a wave. Nothing is addressed to anyone, it just
+    // happens near you, so there is never a reply owed.
+    if (m[0] === "e") {
+      const kind = typeof m[1] === "string" ? m[1].slice(0, 8) : "";
+      if (kind) this.broadcast(JSON.stringify(["e", a.id, kind]), ws);
+      return;
+    }
+    if (m[0] !== "m") return;
+
+    // mode: 0 on foot, 1 driving, 2 riding in someone else's truck.
+    // host: whose truck, so the HUD can say who you're riding with.
+    const mode = m[5] === 1 ? 1 : m[5] === 2 ? 2 : 0;
+    const st = [num(m[1]), num(m[2]), num(m[3]), num(m[4]), mode, num(m[6]), num(m[7])];
     this.live.set(a.id, st);
     this.sweep();
     this.broadcast(JSON.stringify(["s", a.id, ...st]), ws);
