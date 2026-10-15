@@ -15,6 +15,7 @@ import { Camp } from "./game/camp";
 import { Dog } from "./game/dog";
 import { StrayField } from "./world/strayRender";
 import { Stable } from "./game/stable";
+import { Wanderer } from "./game/wanderer";
 import { SPECS } from "./game/vehicles";
 import { Features, ACTIONS } from "./game/features";
 import { PAINTS } from "./game/paint";
@@ -85,6 +86,8 @@ const camp = new Camp();
 scene.add(camp.group);
 const wildlife = new Wildlife();
 scene.add(wildlife.group);
+const wanderer = new Wanderer();
+scene.add(wanderer.group);
 const strays = new StrayField();
 scene.add(strays.group);
 const stable = new Stable();
@@ -299,6 +302,25 @@ const VEHICLE_NOTES: Record<string, string> = {
   chopper: "hold jump to climb, and it can stop in mid-air",
   plane: "fastest thing out here; speed is what keeps it up",
 };
+// Seeing one is worth a line. The brainstorm's rule is no meeting and nothing
+// owed, and a memory of having passed somebody breaks neither.
+wanderer.onSeen = (cls) => {
+  const fresh = found.add({
+    id: "wanderer",
+    kind: "badge",
+    name: "Passed another wanderer",
+    x: Math.round(player.position.x),
+    z: Math.round(player.position.z),
+    at: Date.now(),
+    tod: env.timeOfDay,
+    region: regionAt(player.position.x, player.position.z).name,
+  });
+  hud.announce(
+    fresh ? "somebody else is out here" : `a ${SPECS[cls].label.toLowerCase()}, going the other way`,
+    "you pass"
+  );
+};
+
 journal.stable = () => ({
   owned: stable.owned,
   chosen: stable.chosen,
@@ -1089,6 +1111,7 @@ function frame(now: number) {
   signposts();
   dogging(dt);
   straying();
+  wanderer.update(dt, player.position, player.heading);
   camera.getWorldDirection(dir);
   const headingDeg = ((((Math.atan2(dir.x, -dir.z) * 180) / Math.PI) % 360) + 360) % 360;
   for (let i = pins.length - 1; i >= 0; i--) {
