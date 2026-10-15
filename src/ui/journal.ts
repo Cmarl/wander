@@ -342,21 +342,28 @@ export class Journal {
       return;
     }
     this.note.textContent = "summoning brings whichever is set";
-    this.list.innerHTML = st.owned
-      .map(
-        (cls) => `<div class="entry garage-row${cls === st.chosen ? " set" : ""}">
-          <div class="entry-text">
-            <b>${st.labels[cls]}</b>
-            <s class="dim">${st.stats[cls]}</s>
-          </div>
-          ${
-            cls === st.chosen
-              ? `<span class="veh-set">yours</span>`
-              : `<button class="pin-it" data-veh="${cls}">set as yours</button>`
-          }
-        </div>`
-      )
-      .join("");
+    // Its own card rather than a journal entry with the picture taken out.
+    // Borrowing .entry meant the set and unset rows were two different
+    // components — one in a box, one loose on the page — instead of two
+    // states of one thing.
+    this.list.innerHTML =
+      `<div class="garage">` +
+      st.owned
+        .map(
+          (cls) => `<div class="veh${cls === st.chosen ? " on" : ""}">
+            <span class="veh-text">
+              <b>${st.labels[cls]}</b>
+              <s>${st.stats[cls]}</s>
+            </span>
+            ${
+              cls === st.chosen
+                ? `<span class="veh-tag">yours</span>`
+                : `<button class="veh-pick" data-veh="${cls}">set as yours</button>`
+            }
+          </div>`
+        )
+        .join("") +
+      `</div>`;
   }
 
   /**

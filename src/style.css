@@ -648,16 +648,61 @@ html, body {
 .region-head b { font-size: 12px; letter-spacing: 0.06em; }
 .region-head s { text-decoration: none; font-size: 10.5px; opacity: 0.5; }
 
-.garage-row { align-items: center; }
-.garage-row.set { box-shadow: inset 0 0 0 1px rgba(226, 192, 105, 0.45); }
-.veh-set {
+/* The garage: one card per vehicle, two states of the same thing. */
+.garage { display: flex; flex-direction: column; gap: 8px; }
+.veh {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-height: 54px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.045);
+  /* A transparent border on the unset card, so selecting one does not change
+     the layout by a pixel — the old outline was drawn on the set row only. */
+  border: 1px solid transparent;
+}
+.veh.on {
+  background: rgba(226, 192, 105, 0.09);
+  border-color: rgba(226, 192, 105, 0.42);
+}
+.veh-text { display: flex; flex-direction: column; gap: 3px; min-width: 0; flex: 1 1 auto; }
+.veh-text b { font-size: 13px; font-weight: 600; letter-spacing: 0.02em; }
+.veh-text s {
+  text-decoration: none;
+  font-size: 11px;
+  opacity: 0.58;
+  line-height: 1.3;
+  /* Long notes wrap inside the card instead of pushing the button off it. */
+  overflow-wrap: anywhere;
+}
+.veh.on .veh-text b { color: #e2c069; }
+
+/* The tag and the button are the same pill, so the two states weigh the same. */
+.veh-tag,
+.veh-pick {
+  flex: 0 0 auto;
+  font: inherit;
   font-size: 10px;
   letter-spacing: 0.1em;
   text-transform: uppercase;
-  color: #e2c069;
-  flex: 0 0 auto;
-  padding-right: 4px;
+  padding: 6px 12px;
+  border-radius: 999px;
+  white-space: nowrap;
 }
+.veh-tag {
+  color: #e2c069;
+  background: rgba(226, 192, 105, 0.16);
+  border: 1px solid transparent;
+}
+.veh-pick {
+  appearance: none;
+  color: var(--ink);
+  background: transparent;
+  border: 1px solid rgba(255, 255, 255, 0.22);
+  cursor: pointer;
+}
+.veh-pick:hover { border-color: rgba(226, 192, 105, 0.6); color: #e2c069; }
 
 /* Who is with you, rather than somewhere you went. */
 .dog-row {

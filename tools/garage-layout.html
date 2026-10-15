@@ -1,0 +1,56 @@
+<!doctype html><meta charset=utf8>
+<!--
+  Measures the garage card layout.
+
+  Brave's --screenshot hangs in this environment, so the look cannot be
+  eyeballed headlessly. The complaints were all geometric though — cards of
+  different heights, text not aligned, a button overflowing its card — and
+  geometry can be measured. This renders the real markup against the real
+  stylesheet and reports boxes.
+-->
+<link rel="stylesheet" href="../src/style.css">
+<body style="margin:0;background:#1a1f26">
+<div id="ui"><div class="sheet journal open"><div class="sheet-card">
+  <h2>Field Journal</h2>
+  <div class="journal-list" id="j-list"></div>
+  <p class="journal-note">summoning brings whichever is set</p>
+</div></div></div>
+<script type="module">
+const owned = [["truck","Truck","steady, carries anything, good anywhere"],
+               ["plane","Aeroplane","fastest thing out here; speed is what keeps it up"],
+               ["rover","Rover","slow, but a mountain barely notices it"]];
+const chosen = "plane";
+document.getElementById("j-list").innerHTML = `<div class="garage">` + owned.map(([c,l,n]) =>
+  `<div class="veh${c===chosen?" on":""}"><span class="veh-text"><b>${l}</b><s>${n}</s></span>` +
+  (c===chosen ? `<span class="veh-tag">yours</span>` : `<button class="veh-pick" data-veh="${c}">set as yours</button>`) +
+  `</div>`).join("") + `</div>`;
+
+await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
+const out = [];
+const cards = [...document.querySelectorAll(".veh")];
+const boxes = cards.map((c) => c.getBoundingClientRect());
+out.push(`cards: ${cards.length}`);
+out.push(`heights: ${boxes.map((b) => Math.round(b.height)).join(", ")}  (equal: ${new Set(boxes.map((b)=>Math.round(b.height))).size === 1})`);
+out.push(`left edges: ${boxes.map((b) => Math.round(b.left)).join(", ")}  (aligned: ${new Set(boxes.map((b)=>Math.round(b.left))).size === 1})`);
+out.push(`widths: ${boxes.map((b) => Math.round(b.width)).join(", ")}  (equal: ${new Set(boxes.map((b)=>Math.round(b.width))).size === 1})`);
+// Titles must share a left edge across set and unset.
+const titles = [...document.querySelectorAll(".veh-text b")].map((e) => Math.round(e.getBoundingClientRect().left));
+out.push(`title left edges: ${titles.join(", ")}  (aligned: ${new Set(titles).size === 1})`);
+// Pills must sit inside their card, and be the same height as each other.
+let overflow = 0, pillH = new Set();
+for (const c of cards) {
+  const pill = c.querySelector(".veh-tag, .veh-pick");
+  const cb = c.getBoundingClientRect(), pb = pill.getBoundingClientRect();
+  if (pb.right > cb.right + 0.6 || pb.left < cb.left - 0.6 || pb.top < cb.top - 0.6 || pb.bottom > cb.bottom + 0.6) overflow++;
+  pillH.add(Math.round(pb.height));
+}
+out.push(`pills overflowing their card: ${overflow}  (must be 0)`);
+out.push(`pill heights: ${[...pillH].join(", ")}  (equal: ${pillH.size === 1})`);
+// Description must not be clipped.
+let clipped = 0;
+for (const s of document.querySelectorAll(".veh-text s")) {
+  if (s.scrollWidth > s.clientWidth + 1) clipped++;
+}
+out.push(`descriptions clipped: ${clipped}  (must be 0)`);
+fetch("http://127.0.0.1:8914/", { method: "POST", body: "garage|" + out.join("\n") }).catch(() => {});
+</script>
