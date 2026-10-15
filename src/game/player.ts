@@ -108,6 +108,8 @@ export class Player {
   private vehSteer = 0;
   private vehVelY = 0;
   private vehAir = false;
+  /** Jump held while flying, i.e. "up". */
+  private vehClimb = false;
   private vehQuat = new THREE.Quaternion();
 
   private camYaw = 0;
@@ -395,7 +397,10 @@ export class Player {
       const rate = this.vehSpeed > 0.5 ? this.spec.brake : this.spec.accel * 0.6;
       this.vehSpeed += rate * throttle * dt;
     }
-    if (input.jump && !this.vehAir) {
+    // For a flyer, jump is the climb control. Latched here because the
+    // altitude is integrated in placeVehicle, which never sees the input.
+    this.vehClimb = input.jump;
+    if (input.jump && !this.vehAir && !this.spec.flies) {
       this.vehVelY = this.spec.jump;
       this.vehAir = true;
     }
@@ -609,7 +614,45 @@ export class Player {
     }
     const groundY = sum / 4;
 
-    if (airborne && this.vehAir) {
+    if (this.spec.flies) {
+      /**
+       * Flight.
+       *
+       * Altitude is COMMANDED, not thrown: hold jump and it climbs, let go and
+       * it comes down. That is the whole control scheme, which is the point —
+       * one thumb, and nothing to manage.
+       *
+       * A plane's sink is cancelled by airspeed, so going fast keeps you up
+       * and slowing down brings you down. There is no stall and no crash:
+       * touching the ground is a landing at any speed, because a landing that
+       * can fail would be a fail state and this game has none.
+       */
+      const wing = this.spec.wing
+        ? 1 - Math.min(1, Math.abs(this.vehSpeed) / this.spec.top) * this.spec.wing
+        : 1;
+      const want = this.vehClimb ? this.spec.lift! : -this.spec.sink! * wing;
+      // Eased, so the controls feel like a machine with mass rather than a
+      // cursor being dragged up and down.
+      this.vehVelY += (want - this.vehVelY) * Math.min(1, dt * 2.2);
+      this.vehPos.y += this.vehVelY * dt;
+
+      if (this.vehPos.y <= groundY) {
+        const impact = Math.max(0, -this.vehVelY);
+        this.vehPos.y = groundY;
+        this.vehVelY = 0;
+        this.vehAir = false;
+        // Settling onto the ground scrubs speed off hard, which is what makes
+        // a bad landing merely untidy instead of fatal.
+        if (impact > 3) {
+          this.vehSpeed *= 0.55;
+          const force = Math.min(impact / 18, 1);
+          this.shake = Math.max(this.shake, force * 0.45);
+          this.onVehicleLand?.(force);
+        }
+      } else {
+        this.vehAir = true;
+      }
+    } else if (airborne && this.vehAir) {
       this.vehVelY -= VEH_GRAVITY * dt;
       this.vehPos.y += this.vehVelY * dt;
       if (this.vehPos.y <= groundY) {
@@ -628,7 +671,12 @@ export class Player {
       this.vehAir = false;
     }
 
-    const n = normalAt(this.vehPos.x, this.vehPos.z, 2.5);
+    // A flying machine in the air has no ground to sit on, so it stays level
+    // and lets its own model do the banking.
+    const n =
+      this.spec.flies && this.vehAir
+        ? { x: 0, y: 1, z: 0 }
+        : normalAt(this.vehPos.x, this.vehPos.z, 2.5);
     const up = new THREE.Vector3(n.x, n.y, n.z);
     const fwd = new THREE.Vector3(hx, 0, hz);
     fwd.addScaledVector(up, -fwd.dot(up)).normalize();

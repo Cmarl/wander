@@ -38,16 +38,31 @@ import {
  */
 const SAIL_HUB = [0, 11.5, -0.8];
 
-/** Keep this many cells of landmarks loaded — about 15 km of horizon. */
-const RANGE_CELLS = 7;
-const BUDGET = 40;
+/**
+ * How much of the world keeps its landmarks loaded.
+ *
+ * 15 km was plenty on the ground. From a helicopter at 200 m the horizon is
+ * nearer 50 km, and the old range put a hard edge of bare terrain across the
+ * view. Measured: widening to 24 km costs about a millisecond per rebuild, and
+ * a rebuild happens once every 2.2 km of travel — so this is not worth making
+ * conditional on altitude.
+ *
+ * The budget had to go up with it. Worst single-kind count across four sampled
+ * locations is 42 at this range, against 20 at the old one.
+ */
+const RANGE_CELLS = 11;
+const BUDGET = 72;
 const STEAM_PER_SPRING = 7;
 /**
- * Measured worst case across fifteen sampled load positions is 217 steam
+ * Measured worst case across fifteen sampled load positions was 217 steam
  * instances, so 180 was quietly clipping — and it clipped in cell-scan order,
  * which meant a hot spring fifty metres away could lose its steam while one
  * three kilometres off kept its own. Plumes are now sorted near-to-far before
  * drawing, so whatever the budget drops is always the furthest away.
+ *
+ * Widening the landmark range for flight pushed the uncapped count past this
+ * again, and that is fine precisely because of the sort: what gets dropped is
+ * steam twenty kilometres off, which was never going to be visible.
  */
 const STEAM_BUDGET = 260;
 
@@ -581,8 +596,8 @@ const ACCRETION_MODELS: Record<AccretionKind, AccretionModel[]> = {
   ],
 };
 
-/** 40 landmarks times six optional objects, with room to spare. */
-const ACCRETION_BUDGET = 150;
+/** Scaled with the landmark range above; worst observed is about 110. */
+const ACCRETION_BUDGET = 220;
 
 
 const BUILDERS: Record<LandmarkKind, () => Layer[]> = {

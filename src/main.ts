@@ -296,6 +296,8 @@ const VEHICLE_NOTES: Record<string, string> = {
   truck: "steady, carries anything, good anywhere",
   bike: "quickest thing out here, poor on a climb",
   rover: "slow, but a mountain barely notices it",
+  chopper: "hold jump to climb, and it can stop in mid-air",
+  plane: "fastest thing out here; speed is what keeps it up",
 };
 journal.stable = () => ({
   owned: stable.owned,
@@ -654,7 +656,10 @@ function dogging(dt: number) {
   // vehicle's live transform or it trails its own seat by a frame.
   if (player.mode === "drive") {
     const root = player.vehicle.root;
-    dogSeat.pos.set(0.62, 0.82, -0.15).applyQuaternion(root.quaternion).add(root.position);
+    // From the spec, so the dog sits in the right place in each of them
+    // rather than hovering beside a motorcycle at truck height.
+    const seat = player.spec.dogSeat;
+    dogSeat.pos.set(seat[0], seat[1], seat[2]).applyQuaternion(root.quaternion).add(root.position);
     dogSeat.yaw = root.rotation.y;
     dog.update(dt, player.position, dogSeat);
   } else {
