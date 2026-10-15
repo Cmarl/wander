@@ -267,7 +267,19 @@ function baseInCell(gx: number, gz: number): Landmark | null {
   // Somebody chose to live here, so the ground has to be worth living on:
   // low, sheltered, with something growing. Gated to keep a lone building on a
   // far slope an event rather than scenery.
-  if (y > 20 && y < 1100 && moist > 0.3 && slotRandom(gx, gz, 1013) > 0.72) options.push("steading");
+  // Somebody levelled a site before they built on it, so the ground has to be
+  // flat enough to have been worth levelling — measured as the actual drop
+  // across the footprint, not as a slope. A wide slope sample smooths over
+  // precisely the local relief that buries one corner of a building, which is
+  // why tightening it changed nothing.
+  if (
+    y > 20 &&
+    y < 1100 &&
+    moist > 0.3 &&
+    footprintDrop(x, z, 7) < 2.6 &&
+    slotRandom(gx, gz, 1013) > 0.72
+  )
+    options.push("steading");
   if (!options.length) return null;
 
   const kind = options[Math.min(options.length - 1, Math.floor(pick * options.length))];
@@ -313,15 +325,36 @@ function build(
   const noun = VARIANT_NAMES[kind]?.[variant] ?? LANDMARK_NAMES[kind];
   const name = `${lead} ${middle} ${noun}`;
 
+  /**
+   * Anything with a flat base sits on the LOWEST ground under it.
+   *
+   * These are placed at one height, so on a slope half the footprint floats
+   * and the other half buries itself. Taking the lowest of the corners means
+   * nothing ever hovers; the plinth under each building fills whatever gap
+   * that leaves on the downhill side, and the ground hides the rest.
+   *
+   * Clyde: "all the landmarks are quite jank TBH. esp if not on flat ground".
+   */
+  let base = y;
+  if (kindNeedsFlatGround(kind)) {
+    const r = kind === "steading" ? 6 : 4;
+    for (const [dx, dz] of [[-r, -r], [r, -r], [-r, r], [r, r]] as [number, number][]) {
+      base = Math.min(base, heightAt(x + dx, z + dz));
+    }
+  }
+
   return {
     id: `${gx},${gz}`,
     name,
     kind,
     x,
     z,
-    y,
+    y: base,
     rot: spin * Math.PI * 2,
-    scale: 0.85 + size * 0.4,
+    // Was 0.85 to 1.25, which is barely a difference. Clyde asked for bigger
+    // and for more variation between them; collision scales with this, so a
+    // big one is big to drive into as well as to look at.
+    scale: 1.0 + size * 0.85,
     variant,
     wear,
     gx,
@@ -392,6 +425,28 @@ function pairedWith(gx: number, gz: number): { host: Landmark; kind: LandmarkKin
  * happens a third of the time on an eligible neighbour, and a mast that stands
  * over a steading is worth more than another unrelated lone tree.
  */
+/**
+ * How much the ground rises and falls across a footprint, corner to corner.
+ *
+ * The honest measure for "can a flat-based thing sit here". slopeAt is a
+ * gradient over a radius and happily reports a gentle slope for ground that
+ * has two metres of lump in the middle of it.
+ */
+/** Kinds with a flat base, which cannot stand on lumpy ground. */
+const FLAT_BASED: LandmarkKind[] = ["steading", "windpump", "lookout", "adit", "mast"];
+const kindNeedsFlatGround = (k: LandmarkKind) => FLAT_BASED.includes(k);
+
+function footprintDrop(x: number, z: number, r: number): number {
+  let lo = Infinity;
+  let hi = -Infinity;
+  for (const [dx, dz] of [[-r, -r], [r, -r], [-r, r], [r, r], [0, 0]] as [number, number][]) {
+    const h = heightAt(x + dx, z + dz);
+    lo = Math.min(lo, h);
+    hi = Math.max(hi, h);
+  }
+  return hi - lo;
+}
+
 export function landmarkInCell(gx: number, gz: number): Landmark | null {
   const pair = pairedWith(gx, gz);
   if (pair) {
@@ -400,9 +455,18 @@ export function landmarkInCell(gx: number, gz: number): Landmark | null {
     const x = pair.host.x + Math.cos(a) * r;
     const z = pair.host.z + Math.sin(a) * r;
     const y = heightAt(x, z);
-    // Still has to be somewhere it could stand. If the ground beside the host
-    // will not take it, the cell falls back to whatever it would have been.
-    if (y >= 6 && slopeAt(x, z, 14) <= 0.3) {
+    /**
+     * Still has to be somewhere it could stand, and a companion is placed
+     * beside its host rather than by the suitability rules — so it has to be
+     * checked here too.
+     *
+     * This was the leak behind buildings on impossible ground: a steading
+     * paired to a lookout or a spring skipped the flatness test completely and
+     * landed wherever the ring put it, up to fourteen metres of drop across
+     * its own footprint.
+     */
+    const needsFlat = kindNeedsFlatGround(pair.kind);
+    if (y >= 6 && slopeAt(x, z, 14) <= 0.3 && (!needsFlat || footprintDrop(x, z, 7) < 2.6)) {
       return build(
         gx,
         gz,

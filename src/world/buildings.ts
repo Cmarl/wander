@@ -11,10 +11,22 @@ import type { Form } from "./settlements";
  * lone cabin on the next hill is a world with two different vernaculars in it.
  */
 
-/** Walls, a doorway and a pitched roof — the shape every form shares. */
+/**
+ * Walls, a doorway and a pitched roof — the shape every form shares.
+ *
+ * Every building also gets a PLINTH running well below the floor. Landmarks
+ * sit at a single height, so on a slope the downhill wall floats and the
+ * uphill one buries itself — which is most of what "jank, esp if not on flat
+ * ground" was. The plinth is four metres deep and the ground hides whatever
+ * it does not need, so a building meets the hill instead of hovering over it.
+ */
 function shell(w: number, d: number, h: number, pitch: number, door: number) {
   const walls: THREE.BufferGeometry[] = [];
   const t = 0.22;
+
+  const plinth = box(w + 0.5, 4.4, d + 0.5);
+  plinth.translate(0, -2.2 + 0.18, 0);
+  walls.push(plinth);
   for (const [ox, oz, ww, dd] of [
     [0, -d / 2, w, t],
     [-w / 2, 0, t, d],
@@ -35,12 +47,41 @@ function shell(w: number, d: number, h: number, pitch: number, door: number) {
   lintel.translate(0, h - h * 0.13, d / 2);
   walls.push(lintel);
 
-  const roof = new THREE.CylinderGeometry(pitch, pitch, d + 0.9, 3, 1);
-  roof.rotateZ(Math.PI / 2);
-  roof.rotateY(Math.PI / 2);
-  roof.scale(1, 1, (w + 0.8) / (pitch * Math.sqrt(3)));
-  roof.translate(0, h + pitch * 0.42, 0);
-  return { walls: merge(walls), roof };
+  /**
+   * A proper gable: two slabs meeting at a ridge, with triangles closing the
+   * ends.
+   *
+   * What was here was a three-sided cylinder SCALED ON ITS RADIUS AXIS to
+   * reach the wall width — 2.23x on the barn — which ballooned it into a huge
+   * dark wedge hanging far past the building. Clyde's screenshot is mostly
+   * roof. Geometry that has to be scaled to fit was the wrong geometry.
+   */
+  const over = 0.45;
+  const span = w / 2 + over;
+  const rise = pitch * 0.95;
+  const slope = Math.hypot(span, rise);
+  const parts: THREE.BufferGeometry[] = [];
+  for (const sx of [-1, 1]) {
+    const slab = box(slope, 0.2, d + over * 2);
+    slab.translate(0, -0.1, 0);
+    slab.rotateZ(-sx * Math.atan2(rise, span));
+    slab.translate((sx * span) / 2, h + rise / 2, 0);
+    parts.push(slab);
+  }
+  // Gable ends, so you cannot see straight into the roof void.
+  const tri = new THREE.Shape();
+  tri.moveTo(-w / 2, 0);
+  tri.lineTo(w / 2, 0);
+  tri.lineTo(0, rise);
+  tri.closePath();
+  const gable = new THREE.ExtrudeGeometry(tri, { depth: 0.18, bevelEnabled: false });
+  gable.translate(0, h, d / 2 - 0.09);
+  parts.push(gable);
+  const back = gable.clone();
+  back.translate(0, 0, -d + 0.18);
+  parts.push(back);
+
+  return { walls: merge(walls), roof: merge(parts) };
 }
 
 /**
