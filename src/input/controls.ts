@@ -35,6 +35,11 @@ export class Controls {
     (navigator.maxTouchPoints ?? 0) > 0;
 
   private keys = new Set<string>();
+  /** Latched by the touch buttons, OR-ed with the keyboard each frame. */
+  private sprintToggle = false;
+  private glassToggle = false;
+  /** True while the keyboard is driving movement, so release can zero it. */
+  private keyMoving = false;
   private pointerLook: number | null = null;
   private lastLook = { x: 0, y: 0 };
   private stick: { id: number; ox: number; oy: number } | null = null;
@@ -90,15 +95,15 @@ export class Controls {
       this.lastTap.set(el, now);
       el.classList.add("held");
       if (action === "sprint") {
-        this.sprint = !this.sprint;
-        el.classList.toggle("on", this.sprint);
+        this.sprintToggle = !this.sprintToggle;
+        el.classList.toggle("on", this.sprintToggle);
       } else if (action === "cruise") {
         this.cruise = !this.cruise;
         el.classList.toggle("on", this.cruise);
       } else if (action === "glass") {
         // Toggle on touch — nobody wants to hold a button and steer.
-        this.glass = !this.glass;
-        el.classList.toggle("on", this.glass);
+        this.glassToggle = !this.glassToggle;
+        el.classList.toggle("on", this.glassToggle);
       } else {
         this[action] = true;
       }
@@ -167,17 +172,39 @@ export class Controls {
     if (e.pointerId === this.pointerLook) this.pointerLook = null;
   }
 
-  /** Poll held keys. Call at the top of the frame, before reading `move`. */
+  /**
+   * Poll held keys. Call at the top of the frame, before reading `move`.
+   *
+   * Both input methods are live at once rather than chosen by device class.
+   * This used to return early whenever isTouch was set, which was fine while
+   * isTouch meant "a phone" — but it now also matches touchscreen laptops and
+   * hybrids, where it killed keyboard movement outright. A keyboard and a
+   * thumbstick can coexist: whichever one you are actually using wins.
+   */
   beginFrame() {
-    if (this.isTouch) return; // touch stick writes `move` directly from events
     const k = this.keys;
+
+    // WASD and the arrows are equivalent, so a hand can sit on either while
+    // the other hand is on the mouse.
     const x = (k.has("KeyD") || k.has("ArrowRight") ? 1 : 0) - (k.has("KeyA") || k.has("ArrowLeft") ? 1 : 0);
     const y = (k.has("KeyW") || k.has("ArrowUp") ? 1 : 0) - (k.has("KeyS") || k.has("ArrowDown") ? 1 : 0);
-    const len = Math.hypot(x, y) || 1;
-    this.move.x = x / len;
-    this.move.y = y / len;
-    this.sprint = k.has("ShiftLeft") || k.has("ShiftRight");
-    this.glass = k.has("KeyQ");
+
+    if (x !== 0 || y !== 0) {
+      const len = Math.hypot(x, y);
+      this.move.x = x / len;
+      this.move.y = y / len;
+      this.keyMoving = true;
+    } else if (this.keyMoving) {
+      // Keys released. Don't stamp on a thumb that's still holding the stick.
+      this.keyMoving = false;
+      if (!this.stick) {
+        this.move.x = 0;
+        this.move.y = 0;
+      }
+    }
+
+    this.sprint = k.has("ShiftLeft") || k.has("ShiftRight") || this.sprintToggle;
+    this.glass = k.has("KeyQ") || this.glassToggle;
   }
 
   /** Clear one-shot inputs and accumulated deltas. Call at the end of the frame. */

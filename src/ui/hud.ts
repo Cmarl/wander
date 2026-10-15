@@ -16,7 +16,7 @@ export interface HudState {
 }
 
 const DESK_KEYS: [string, string][] = [
-  ["W A S D", "move"],
+  ["W A S D", "move — arrow keys do the same"],
   ["drag mouse", "look around"],
   ["Shift", "run"],
   ["Space", "jump — the truck jumps too"],
@@ -36,6 +36,7 @@ const DESK_KEYS: [string, string][] = [
 
 const TOUCH_KEYS: [string, string][] = [
   ["left thumb", "move — the stick appears where you touch"],
+  ["W A S D", "move, if you have a keyboard"],
   ["right thumb", "look around"],
   ["RUN", "hold a run"],
   ["⤴", "jump — the truck jumps too"],

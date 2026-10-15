@@ -207,7 +207,7 @@ if (localStorage.getItem("wander.solo") !== "1") {
 
 // Live handle for tuning from the console: __wander.env.timeOfDay = 0.5, etc.
 (window as Window & { __wander?: unknown }).__wander = {
-  env, terrain, water, sky, grass, landmarks, wildlife, found, camp, features, dust, birds, postcard, journal, garage, player, camera, renderer, scene, sound, net, peers,
+  env, controls, terrain, water, sky, grass, landmarks, wildlife, found, camp, features, dust, birds, postcard, journal, garage, player, camera, renderer, scene, sound, net, peers,
 };
 
 function resize() {
