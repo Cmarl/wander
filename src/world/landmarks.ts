@@ -115,6 +115,10 @@ export interface Landmark {
   y: number;
   rot: number;
   scale: number;
+  /** Which structural build this one is. Meaning is per-kind. */
+  variant: number;
+  /** 0 pristine, 1 long abandoned. Drives colour and what still stands. */
+  wear: number;
 }
 
 export function landmarkInCell(gx: number, gz: number): Landmark | null {
@@ -165,6 +169,11 @@ export function landmarkInCell(gx: number, gz: number): Landmark | null {
       : LANDFORMS[Math.min(LANDFORMS.length - 1, Math.floor(slotRandom(gx, gz, 991) * LANDFORMS.length))];
   const name = `${lead} ${middle} ${LANDMARK_NAMES[kind]}`;
 
+  // Variant and wear are independent hashes, so the same kind is rarely the
+  // same object twice: a burnt lookout, a weathered one, a pristine one.
+  const variant = Math.floor(slotRandom(gx, gz, 997) * 3) % 3;
+  const wear = slotRandom(gx, gz, 1009);
+
   return {
     id: `${gx},${gz}`,
     name,
@@ -174,6 +183,8 @@ export function landmarkInCell(gx: number, gz: number): Landmark | null {
     y,
     rot: spin * Math.PI * 2,
     scale: 0.85 + size * 0.4,
+    variant,
+    wear,
   };
 }
 

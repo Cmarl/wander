@@ -30,6 +30,14 @@ interface Layer {
   colour: number;
   /** Emissive things — a warning lamp shouldn't take shading. */
   unlit?: boolean;
+  /**
+   * Which variants include this layer. Absent means all of them.
+   *
+   * Instances whose variant omits a layer get a zero-scale matrix in it, which
+   * costs an index and draws nothing — so one mesh per layer still covers
+   * every structural build of a kind.
+   */
+  on?: number[];
 }
 
 const box = (w: number, h: number, d: number) => new THREE.BoxGeometry(w, h, d);
@@ -144,10 +152,27 @@ function lookout(): Layer[] {
     metal.push(rail);
   }
 
+  // Variant 2 is a collapse: the deck and everything above it on the ground.
+  const fallen: THREE.BufferGeometry[] = [];
+  const wreckDeck = box(9.6, 0.5, 9.6);
+  wreckDeck.rotateZ(0.36);
+  wreckDeck.rotateY(0.5);
+  wreckDeck.translate(2.4, 1.1, -1.2);
+  fallen.push(wreckDeck);
+  for (let i = 0; i < 5; i++) {
+    const beam = new THREE.CylinderGeometry(0.34, 0.46, 9 + i, 5);
+    beam.rotateZ(Math.PI / 2 - 0.18 * i);
+    beam.rotateY(i * 1.1);
+    beam.translate(-1.4 + i * 1.1, 0.5, 1.8 - i * 0.9);
+    fallen.push(beam);
+  }
+
   return [
-    { geo: merge(timber), colour: 0x8a6a4a },
-    { geo: merge(metal), colour: 0x767c82 },
-    { geo: merge(glass), colour: 0x9fc4d4 },
+    // 0 intact · 1 burnt out · 2 collapsed
+    { geo: merge(timber), colour: 0x8a6a4a, on: [0, 1] },
+    { geo: merge(metal), colour: 0x767c82, on: [0] },
+    { geo: merge(glass), colour: 0x9fc4d4, on: [0] },
+    { geo: merge(fallen), colour: 0x6d5742, on: [2] },
   ];
 }
 
@@ -298,9 +323,19 @@ function loneTree(): Layer[] {
     crown.translate(ox, oy, oz);
     leaf.push(crown);
   }
+  // Variant 1 leans everything one way, as if the wind never stops.
+  const leaned = merge(leaf.map((g) => g.clone()));
+  leaned.translate(0, -14, 0);
+  leaned.scale(1.35, 0.72, 0.78);
+  leaned.rotateZ(-0.34);
+  leaned.translate(3.4, 13.4, 0);
+
   return [
-    { geo: merge(bark), colour: 0x6b543c },
-    { geo: merge(leaf), colour: 0x4a5b36 },
+    // 0 broad · 1 wind-sculpted · 2 dead and bleached
+    { geo: merge(bark), colour: 0x6b543c, on: [0, 1] },
+    { geo: merge(leaf), colour: 0x4a5b36, on: [0] },
+    { geo: leaned, colour: 0x55633c, on: [1] },
+    { geo: merge(bark.map((g) => g.clone())), colour: 0xa49a86, on: [2] },
   ];
 }
 
@@ -347,6 +382,25 @@ function wreck(): Layer[] {
   return out;
 }
 
+/**
+ * Weathering. Nothing out here is new, and a few things are wrecks.
+ *
+ * This is a per-instance multiplier on the layer colour, so it costs no extra
+ * draw calls — the same lookout can be sun-bleached on one hill and charred on
+ * the next without a second mesh.
+ */
+const WEATHERED = new THREE.Color(0.7, 0.71, 0.65);
+
+function instanceTint(lm: Landmark, out: THREE.Color): void {
+  out.setRGB(1, 1, 1).lerp(WEATHERED, lm.wear * 0.6);
+  // A burnt-out lookout is charcoal, not merely faded; a collapsed one is
+  // weathered timber that has been lying in the grass for years.
+  if (lm.kind === "lookout" && lm.variant === 1) out.multiplyScalar(0.3);
+  if (lm.kind === "lookout" && lm.variant === 2) out.multiplyScalar(0.78);
+  // A dead tree has no business being green-tinged.
+  if (lm.kind === "lonetree" && lm.variant === 2) out.lerp(WEATHERED, 0.5);
+}
+
 const BUILDERS: Record<LandmarkKind, () => Layer[]> = {
   lookout,
   arch,
@@ -360,6 +414,8 @@ export class LandmarkField {
   readonly group = new THREE.Group();
   /** Every layer of every kind, all driven by one set of instance matrices. */
   private meshes = new Map<LandmarkKind, THREE.InstancedMesh[]>();
+  /** Parallel to meshes — which variants each layer belongs to. */
+  private layers = new Map<LandmarkKind, Layer[]>();
   private steam: THREE.InstancedMesh;
   private steamAnchors: { x: number; y: number; z: number }[] = [];
   private cellX = NaN;
@@ -369,7 +425,9 @@ export class LandmarkField {
 
   constructor() {
     for (const kind of Object.keys(BUILDERS) as LandmarkKind[]) {
-      const meshes = BUILDERS[kind]().map((layer) => {
+      const built = BUILDERS[kind]();
+      this.layers.set(kind, built);
+      const meshes = built.map((layer) => {
         const mat = layer.unlit
           ? new THREE.MeshBasicMaterial({ color: layer.colour })
           : new THREE.MeshLambertMaterial({ color: layer.colour, flatShading: true });
@@ -419,6 +477,8 @@ export class LandmarkField {
     const pos = new THREE.Vector3();
     const scl = new THREE.Vector3();
     const up = new THREE.Vector3(0, 1, 0);
+    const hidden = new THREE.Matrix4().makeScale(0, 0, 0);
+    const tint = new THREE.Color();
     const counts = new Map<LandmarkKind, number>();
     this.steamAnchors.length = 0;
 
@@ -429,8 +489,16 @@ export class LandmarkField {
       q.setFromAxisAngle(up, lm.rot);
       scl.setScalar(lm.scale);
       m.compose(pos, q, scl);
-      // Every layer of this kind shares the one instance transform.
-      for (const mesh of this.meshes.get(lm.kind)!) mesh.setMatrixAt(n, m);
+      // Every layer of this kind shares the one instance transform — except
+      // layers this variant doesn't include, which collapse to nothing.
+      const layers = this.layers.get(lm.kind)!;
+      const meshes = this.meshes.get(lm.kind)!;
+      instanceTint(lm, tint);
+      for (let i = 0; i < meshes.length; i++) {
+        const on = layers[i].on;
+        meshes[i].setMatrixAt(n, on && !on.includes(lm.variant) ? hidden : m);
+        meshes[i].setColorAt(n, tint);
+      }
       counts.set(lm.kind, n + 1);
 
       if (lm.kind === "spring") this.steamAnchors.push({ x: lm.x, y: lm.y + 1, z: lm.z });
@@ -441,6 +509,7 @@ export class LandmarkField {
       for (const mesh of meshes) {
         mesh.count = n;
         mesh.instanceMatrix.needsUpdate = true;
+        if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
       }
     }
   }
