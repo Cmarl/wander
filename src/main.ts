@@ -264,7 +264,11 @@ hud.onJournal = () => journal.toggle();
 const garage = new Garage();
 // Whatever you were driving last time, you're still driving.
 player.vehicle.setPaint(garage.current(player.distanceTravelled / 1000).hex);
-const journal = new Journal(found, (x, z) => biomeNameAt(x, z));
+const journal = new Journal(
+  found,
+  (x, z) => biomeNameAt(x, z),
+  () => ({ x: player.position.x, z: player.position.z })
+);
 const postcard = new Postcard(document.getElementById("ui")!);
 postcard.bindLink(() => ({ x: player.position.x, z: player.position.z }));
 

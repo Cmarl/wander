@@ -1,5 +1,7 @@
 import type { Discoveries, Found } from "../game/discovery";
 import { exportCode, importCode } from "../game/save";
+import { heightAt } from "../world/field";
+import { regionAt } from "../world/regions";
 
 /**
  * The field journal.
@@ -85,21 +87,71 @@ const when = (ts: number) => {
   return new Date(ts).toLocaleDateString(undefined, { day: "numeric", month: "short" });
 };
 
+const chan = (v: number) => Math.max(0, Math.min(255, v | 0));
+const rgb = (r: number, g: number, b: number) => `rgb(${chan(r)},${chan(g)},${chan(b)})`;
+
+/**
+ * Map ground colour from height, as a ramp between stops.
+ *
+ * The arithmetic version this replaces had two faults. Channels went out of
+ * range at both ends — green negative below about -480 m, red past 255
+ * approaching 1800 m — and an out-of-range rgb() string is simply IGNORED by
+ * canvas, so those pixels silently kept whatever colour was set last. The sea
+ * floor reaches -1,900 m and peaks 3,900 m, so both ends were reachable.
+ * Clamping fixed the validity and left deep water dark red, and there was a
+ * visible seam at 1800 m where pale yellow jumped straight to grey.
+ *
+ * Stops cost nothing extra and cannot do either.
+ */
+const RAMP: [number, number, number, number][] = [
+  [-900, 14, 28, 62],    // deep water
+  [-60, 52, 98, 136],    // shallows
+  [0, 72, 96, 62],       // the shore, where the land starts
+  [700, 110, 112, 74],   // grass and forest
+  [1600, 150, 142, 118], // bare slope
+  [2400, 170, 168, 164], // rock
+  [3200, 236, 240, 244], // snow
+];
+
+function shade(h: number): string {
+  if (h <= RAMP[0][0]) return rgb(RAMP[0][1], RAMP[0][2], RAMP[0][3]);
+  for (let i = 1; i < RAMP.length; i++) {
+    const [h1, r1, g1, b1] = RAMP[i];
+    if (h > h1) continue;
+    const [h0, r0, g0, b0] = RAMP[i - 1];
+    const t = (h - h0) / (h1 - h0);
+    return rgb(r0 + (r1 - r0) * t, g0 + (g1 - g0) * t, b0 + (b1 - b0) * t);
+  }
+  const last = RAMP[RAMP.length - 1];
+  return rgb(last[1], last[2], last[3]);
+}
+
 export class Journal {
   private sheet: HTMLElement;
   private list: HTMLElement;
   private note: HTMLElement;
 
+  private map!: HTMLCanvasElement;
+  private tabs!: HTMLElement;
+  private view: "register" | "map" = "register";
+
   constructor(
     private found: Discoveries,
-    private biomeOf: (x: number, z: number) => string
+    private biomeOf: (x: number, z: number) => string,
+    /** Where you are now, for the map. */
+    private locate: () => { x: number; z: number } = () => ({ x: 0, z: 0 })
   ) {
     this.sheet = document.createElement("div");
     this.sheet.className = "sheet journal";
     this.sheet.innerHTML = `
       <div class="sheet-card">
         <h2>Field Journal</h2>
+        <div class="journal-tabs" id="j-tabs">
+          <button class="jtab on" data-view="register">register</button>
+          <button class="jtab" data-view="map">map</button>
+        </div>
         <div class="journal-list" id="j-list"></div>
+        <canvas class="journal-map" id="j-map" width="420" height="420"></canvas>
         <p class="journal-note" id="j-note"></p>
         <div class="journal-acts">
           <button class="sheet-close ghost" id="j-copy">copy save</button>
@@ -110,6 +162,16 @@ export class Journal {
     `;
     document.getElementById("ui")!.appendChild(this.sheet);
     this.list = this.sheet.querySelector("#j-list")!;
+    this.map = this.sheet.querySelector("#j-map")!;
+    this.tabs = this.sheet.querySelector("#j-tabs")!;
+    this.tabs.addEventListener("pointerdown", (e) => {
+      e.stopPropagation();
+      const v = (e.target as HTMLElement).dataset?.view as "register" | "map" | undefined;
+      if (!v || v === this.view) return;
+      this.view = v;
+      for (const b of this.tabs.children) b.classList.toggle("on", (b as HTMLElement).dataset.view === v);
+      this.render();
+    });
     this.note = this.sheet.querySelector("#j-note")!;
 
     const tap = (id: string, fn: () => void) =>
@@ -136,26 +198,119 @@ export class Journal {
   }
 
   private render() {
+    const showMap = this.view === "map";
+    this.list.style.display = showMap ? "none" : "";
+    this.map.style.display = showMap ? "" : "none";
+    if (showMap) {
+      this.drawMap();
+      return;
+    }
+
     const all = this.found.all();
     this.note.textContent = "";
     if (!all.length) {
       this.list.innerHTML = `<p class="journal-empty">Nothing yet. Drive toward something you don't recognise.</p>`;
       return;
     }
-    this.list.innerHTML = all
-      .map((f) => {
-        const biome = this.biomeOf(f.x, f.z);
-        const tag = KIND_LABEL[f.kind] ?? "landmark";
-        return `<div class="entry">
-          <img src="${swatch(f, biome)}" alt="" width="72" height="48">
-          <div class="entry-text">
-            <b>${f.name}</b>
-            <s>${tag} · ${Math.round(f.x)}, ${Math.round(f.z)}</s>
-            <s class="dim">${when(f.at)}</s>
-          </div>
-        </div>`;
-      })
+    // The register: grouped by the country it happened in.
+    //
+    // Deliberately a count and never a fraction. "7 places in the Long Coast"
+    // is a record of where you have been; "7/12" is a checklist, and a
+    // checklist would poison the whole thing.
+    const groups = new Map<string, Found[]>();
+    for (const f of all) {
+      const key = f.region ?? regionAt(f.x, f.z).name;
+      const g = groups.get(key);
+      if (g) g.push(f);
+      else groups.set(key, [f]);
+    }
+
+    const entry = (f: Found) => {
+      const biome = this.biomeOf(f.x, f.z);
+      const tag = KIND_LABEL[f.kind] ?? "landmark";
+      return `<div class="entry">
+        <img src="${swatch(f, biome)}" alt="" width="72" height="48">
+        <div class="entry-text">
+          <b>${f.name}</b>
+          <s>${tag} · ${Math.round(f.x)}, ${Math.round(f.z)}</s>
+          <s class="dim">${when(f.at)}</s>
+        </div>
+      </div>`;
+    };
+
+    this.list.innerHTML = [...groups.entries()]
+      .map(
+        ([region, items]) =>
+          `<div class="region-head"><b>${region}</b><s>${items.length} ${
+            items.length === 1 ? "thing" : "things"
+          }</s></div>` + items.map(entry).join("")
+      )
       .join("");
+  }
+
+  /**
+   * The map.
+   *
+   * Opened from the journal rather than pinned to the screen, because a live
+   * minimap turns looking at the world into looking at a diagram of it — and
+   * the whole game is about the former. It is drawn by sampling the terrain
+   * function directly, so there is no fog of war and nothing to reveal: the
+   * ground was always going to be there. What the map actually records is
+   * where YOU have been, which is the part that is yours.
+   */
+  private drawMap() {
+    const ctx = this.map.getContext("2d")!;
+    const W = this.map.width;
+    const all = this.found.all();
+    const me = this.locate();
+
+    // Frame everything found, plus where you are, with a floor on the span so
+    // a first-time map isn't zoomed into a single hillside.
+    let minX = me.x, maxX = me.x, minZ = me.z, maxZ = me.z;
+    for (const f of all) {
+      minX = Math.min(minX, f.x); maxX = Math.max(maxX, f.x);
+      minZ = Math.min(minZ, f.z); maxZ = Math.max(maxZ, f.z);
+    }
+    const cx = (minX + maxX) / 2;
+    const cz = (minZ + maxZ) / 2;
+    const span = Math.max(20000, (maxX - minX) * 1.25, (maxZ - minZ) * 1.25);
+    const toPx = (x: number, z: number) => [
+      ((x - cx) / span + 0.5) * W,
+      ((z - cz) / span + 0.5) * W,
+    ];
+
+    // Terrain at one sample per four pixels — about 11,000 evaluations, which
+    // is a few tens of milliseconds for something you opened on purpose.
+    const STEP = 4;
+    for (let py = 0; py < W; py += STEP) {
+      for (let px = 0; px < W; px += STEP) {
+        const x = cx + (px / W - 0.5) * span;
+        const z = cz + (py / W - 0.5) * span;
+        ctx.fillStyle = shade(heightAt(x, z));
+        ctx.fillRect(px, py, STEP, STEP);
+      }
+    }
+
+    // Everything you have found.
+    for (const f of all) {
+      const [px, py] = toPx(f.x, f.z);
+      ctx.fillStyle = f.kind === "place" ? "#ffd27f" : f.kind === "sighting" ? "#9fe0a8" : "#e2c069";
+      ctx.beginPath();
+      ctx.arc(px, py, f.kind === "place" ? 4 : 2.6, 0, Math.PI * 2);
+      ctx.fill();
+    }
+
+    // You.
+    const [mx, my] = toPx(me.x, me.z);
+    ctx.strokeStyle = "#fff";
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.arc(mx, my, 5.5, 0, Math.PI * 2);
+    ctx.stroke();
+
+    this.note.textContent = `${all.length} ${all.length === 1 ? "thing" : "things"} found · ${(
+      span / 1000
+    ).toFixed(0)} km across`;
   }
 
   private async copy() {
