@@ -1,0 +1,56 @@
+<!doctype html><meta charset=utf8>
+<!--
+  Audio probe.
+
+  Headless Chrome has no audio DEVICE, which is why an earlier attempt to
+  measure the soundscape read RMS 0 in every state and a loudness bug had to be
+  caught by Clyde's ear instead. OfflineAudioContext needs no device — it
+  renders in software — so the real audio modules can be driven here with a
+  simulated clock and measured properly.
+
+  Run:  npm run dev
+        open http://localhost:5173/tools/audio-probe.html   (or drive it headless)
+
+  Not a build entry: vite builds index.html only, so this never ships.
+--><body><pre id=out></pre>
+<script type="module">
+import { AudioEngine } from "../src/audio/engine.ts";
+import { Drift } from "../src/audio/drift.ts";
+const out = document.getElementById("out");
+const log = (s) => { out.textContent += s + "\n"; };
+const SR = 48000;
+
+async function run(mood, secs) {
+  const ctx = new OfflineAudioContext(1, SR * secs, SR);
+  let clock = 0;
+  Object.defineProperty(ctx, "currentTime", { get: () => clock, configurable: true });
+  const real = window.AudioContext;
+  window.AudioContext = function () { return ctx; };
+  const e = new AudioEngine(); e.start();
+  Object.defineProperty(e, "ready", { get: () => true, configurable: true });
+  window.AudioContext = real;
+  e.master.gain.cancelScheduledValues(0); e.master.gain.value = 1;
+
+  const d = new Drift(e); d.build(); d.setMood(mood);
+  for (let i = 0; i < secs * 60; i++) { clock = i / 60; d.update(1 / 60, 0, 0); if (Math.abs(clock % 12) < 1 / 60) d.motif(); }
+  const buf = await ctx.startRendering();
+  const s = buf.getChannelData(0);
+
+  const a = Math.exp(-2 * Math.PI * 120 / SR);
+  let lp = 0; const low = new Float32Array(s.length);
+  for (let i = 0; i < s.length; i++) { lp = lp * a + s[i] * (1 - a); low[i] = lp; }
+  const W = (SR * 0.03) | 0; const env = [];
+  for (let i = SR * 5; i + W < s.length; i += W) { let q = 0; for (let j = 0; j < W; j++) q += low[i+j]*low[i+j]; env.push(Math.sqrt(q/W)); }
+  const mean = env.reduce((x,y)=>x+y,0)/env.length;
+  const sorted=[...env].sort((x,y)=>x-y);
+  const pump = sorted[(env.length*0.95)|0] / Math.max(sorted[(env.length*0.05)|0], 1e-9);
+  const lag = Math.round(0.42/0.03); let num=0, den=0;
+  for (let i=0;i+lag<env.length;i++) num += (env[i]-mean)*(env[i+lag]-mean);
+  for (let i=0;i<env.length;i++) den += (env[i]-mean)**2;
+  let lr=0, ar=0, peak=0, clip=0, maxStep=0, clicks=0;
+  for (let i=SR*5;i<s.length;i++){ lr+=low[i]*low[i]; ar+=s[i]*s[i]; const v=Math.abs(s[i]); if(v>peak)peak=v; if(v>=0.999)clip++; const j=Math.abs(s[i]-s[i-1]); if(j>maxStep)maxStep=j; if(j>0.03)clicks++; }
+  log(`${mood.padEnd(6)} low ${(Math.sqrt(lr/ar)*100).toFixed(0)}%  pump ${pump.toFixed(1)}x  periodicity ${(num/Math.max(den,1e-12)).toFixed(2)}  rms ${(Math.sqrt(ar/(s.length-SR*5))*1000).toFixed(1)}  peak ${peak.toFixed(3)}  clip ${clip}  maxStep ${maxStep.toFixed(4)}  clicks ${clicks}`);
+}
+for (const m of ["cold", "open", "warm", "shore"]) await run(m, 60);
+
+</script>

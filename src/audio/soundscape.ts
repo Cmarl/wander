@@ -17,6 +17,8 @@ export interface SoundscapeState {
   grounded: boolean;
   night: number;
   vehicle: { speed: number; throttle: number; y: number; topSpeed: number } | null;
+  /** Inside a building. Ducks the ambience the same way a truck cab does. */
+  indoors?: boolean;
 }
 
 /**
@@ -40,7 +42,7 @@ export class Soundscape {
     water: 0,
     warmth: 0.5,
     night: 0,
-    inVehicle: false,
+    enclosed: false,
   };
 
   /** Browsers only allow audio to begin inside a user gesture. */
@@ -89,7 +91,7 @@ export class Soundscape {
     this.drift.setMood(moodFor(s.biome));
     this.drift.update(dt, s.speed, s.musicDuck);
     this.ctx.night = s.night;
-    this.ctx.inVehicle = !s.onFoot;
+    this.ctx.enclosed = !s.onFoot || !!s.indoors;
     this.ambience.update(dt, this.ctx);
 
     if (s.onFoot) {

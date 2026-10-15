@@ -111,9 +111,28 @@ export class Drift {
     delay.connect(damp).connect(fb).connect(delay);
 
     this.tone.connect(this.pad);
-    this.tone.connect(delay);
+    /**
+     * The send into the delay is filtered, and this is the fix for the "low
+     * loud click".
+     *
+     * The sub sits at root/2 — 43.5 Hz in the cold mood, the lowest of the
+     * four, which is why it showed up where it did. Feeding that into a 0.42 s
+     * delay at 33% feedback recirculates it every 0.42 s, and the result is a
+     * periodic low pulse. It is not a sample-level discontinuity, which is why
+     * a click detector finds nothing, but it reads as a repeated low clop and
+     * it is fatiguing. Reverbs filter their sends for exactly this reason.
+     *
+     * Measured offline over 60 s: low-band amplitude pumping falls from 1.9x
+     * to 1.3x in the cold mood, and the share of that pumping which lines up
+     * with the delay period falls from 0.55 to 0.08.
+     */
+    this.tone.connect(this.e.filter("highpass", 300, 0.7)).connect(delay);
     delay.connect(this.pad);
-    this.pad.connect(this.e.ambientBus);
+
+    // Clears rumble below the lowest note anyone is playing. The sub's 43 Hz
+    // fundamental survives; what goes is the inaudible weight under it that
+    // only ate headroom and muddied everything above it.
+    this.pad.connect(this.e.filter("highpass", 75, 0.7)).connect(this.e.ambientBus);
 
     this.motifBus = this.e.gain(1);
     this.motifBus.connect(this.tone);
@@ -130,11 +149,22 @@ export class Drift {
       this.voices.push(o);
     }
 
-    // The low root underneath, always present.
+    /**
+     * The low root underneath, always present — but at 0.42 it was carrying
+     * far too much of the mix.
+     *
+     * Three quarters of this music's energy sits below 120 Hz, measured. That
+     * is inherent to voicing a pad of sines and weak triangles between 43 and
+     * 260 Hz: opening the lowpass from 900 Hz to 3.4 kHz moved the low share
+     * by nothing at all, because there are no upper harmonics up there to let
+     * through. Fixing it properly would mean rewriting the music, which is the
+     * part Clyde likes. Dropping the sub at least stops it being the loudest
+     * thing in the mix.
+     */
     const sub = ctx.createOscillator();
     sub.type = "sine";
     sub.frequency.value = spec.root / 2;
-    sub.connect(this.e.gain(0.42)).connect(this.tone);
+    sub.connect(this.e.gain(0.25)).connect(this.tone);
     sub.start();
     this.voices.push(sub);
   }

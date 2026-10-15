@@ -11,7 +11,11 @@ export interface AmbienceContext {
   warmth: number;
   /** 0..1 darkness. */
   night: number;
-  inVehicle: boolean;
+  /**
+   * Inside something — a truck cab or a building. Both duck the wind and
+   * close the sound down, and the ambience has no reason to tell them apart.
+   */
+  enclosed: boolean;
 }
 
 /**
@@ -117,7 +121,7 @@ export class Ambience {
     ease(this.surf.gain, c.water * 0.055);
     ease(this.crickets.gain, c.night * c.warmth * 0.022 * (1 - c.water * 0.4));
     // Inside the cab, the world goes muffled and distant.
-    ease(this.duck.gain, c.inVehicle ? 0.4 : 1, 0.5);
+    ease(this.duck.gain, c.enclosed ? 0.4 : 1, 0.5);
 
     // The fire sits outside the duck: when you're at camp it IS the ambience.
     ease(this.fire.gain, this.fireLevel * 0.085, 0.8);
@@ -156,7 +160,7 @@ export class Ambience {
     const dest = this.duck;
     const base = 1700 + Math.random() * 1900;
     const notes = 2 + Math.floor(Math.random() * 4);
-    const level = (0.006 + Math.random() * 0.011) * (c.inVehicle ? 0.4 : 1);
+    const level = (0.006 + Math.random() * 0.011) * (c.enclosed ? 0.4 : 1);
     const spacing = 0.055 + Math.random() * 0.07;
 
     for (let i = 0; i < notes; i++) {
