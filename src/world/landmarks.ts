@@ -119,6 +119,9 @@ export interface Landmark {
   variant: number;
   /** 0 pristine, 1 long abandoned. Drives colour and what still stands. */
   wear: number;
+  /** Its cell, so anything hanging off it can hash from the same seed. */
+  gx: number;
+  gz: number;
 }
 
 export function landmarkInCell(gx: number, gz: number): Landmark | null {
@@ -185,6 +188,8 @@ export function landmarkInCell(gx: number, gz: number): Landmark | null {
     scale: 0.85 + size * 0.4,
     variant,
     wear,
+    gx,
+    gz,
   };
 }
 

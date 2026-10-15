@@ -378,6 +378,29 @@ function togglePin(id: string) {
   sound.moment();
 }
 
+/**
+ * Walking up to a signpost reads it.
+ *
+ * Clyde asked for readable signs. Rather than a texture per sign — which would
+ * break instancing for an object you only ever read from two metres away —
+ * the text comes to the toast. It latches on approach, so walking away and
+ * back reads it again, but standing beside one doesn't repeat.
+ */
+const SIGN_RANGE = 9;
+let nearSign: string | null = null;
+
+function signposts() {
+  let text: string | null = null;
+  for (const s of landmarks.signs) {
+    if (Math.hypot(s.x - player.position.x, s.z - player.position.z) < SIGN_RANGE) {
+      text = s.text;
+      break;
+    }
+  }
+  if (text && text !== nearSign) hud.announce(text, "the sign reads");
+  nearSign = text;
+}
+
 const projected = new THREE.Vector3();
 
 function glassing() {
@@ -768,6 +791,7 @@ function frame(now: number) {
   hud.setCamp(camp.active, camp.nearby, camp.resting, player.heldByCamp);
 
   glassing();
+  signposts();
   camera.getWorldDirection(dir);
   const headingDeg = ((((Math.atan2(dir.x, -dir.z) * 180) / Math.PI) % 360) + 360) % 360;
   for (let i = pins.length - 1; i >= 0; i--) {

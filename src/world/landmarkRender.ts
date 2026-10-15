@@ -2,6 +2,7 @@ import * as THREE from "three";
 import { mergeGeometries } from "three/examples/jsm/utils/BufferGeometryUtils.js";
 import { blobTexture } from "./shadows";
 import { LANDMARK_CELL, landmarksNear, type Landmark, type LandmarkKind } from "./landmarks";
+import { ACCRETION_KINDS, accretionsAt, type AccretionKind } from "./accretions";
 
 /**
  * Draws landmarks.
@@ -401,6 +402,130 @@ function instanceTint(lm: Landmark, out: THREE.Color): void {
   if (lm.kind === "lonetree" && lm.variant === 2) out.lerp(WEATHERED, 0.5);
 }
 
+
+// --- accretions --------------------------------------------------------------
+
+/**
+ * The small-object kit. One merged geometry and one colour each, so the whole
+ * lot costs seven draw calls however many places are loaded.
+ */
+function woodpile(): THREE.BufferGeometry {
+  const logs: THREE.BufferGeometry[] = [];
+  for (let row = 0; row < 3; row++) {
+    const n = 3 - Math.floor(row / 2);
+    for (let i = 0; i < n; i++) {
+      const log = new THREE.CylinderGeometry(0.21, 0.23, 2.6 + (i % 2) * 0.4, 6);
+      log.rotateZ(Math.PI / 2);
+      log.translate((i - (n - 1) / 2) * 0.47, 0.22 + row * 0.42, 0);
+      logs.push(log);
+    }
+  }
+  // A couple of uprights to stop the stack rolling, as anyone stacking would.
+  for (const sx of [-1.45, 1.45]) {
+    const post = new THREE.CylinderGeometry(0.1, 0.12, 1.7, 5);
+    post.translate(sx, 0.85, 0);
+    logs.push(post);
+  }
+  return merge(logs);
+}
+
+function firepit(): THREE.BufferGeometry {
+  const parts: THREE.BufferGeometry[] = [];
+  for (let i = 0; i < 9; i++) {
+    const a = (i / 9) * Math.PI * 2;
+    const stone = new THREE.IcosahedronGeometry(0.26 + (i % 3) * 0.07, 0);
+    stone.scale(1, 0.75, 1);
+    stone.translate(Math.cos(a) * 1.05, 0.14, Math.sin(a) * 1.05);
+    parts.push(stone);
+  }
+  // Spent wood, crossed in the middle. Lighting one comes with Shelter & Stay.
+  for (let i = 0; i < 3; i++) {
+    const stick = new THREE.CylinderGeometry(0.07, 0.08, 1.5, 4);
+    stick.rotateZ(Math.PI / 2 - 0.1);
+    stick.rotateY((i / 3) * Math.PI);
+    stick.translate(0, 0.1, 0);
+    parts.push(stick);
+  }
+  return merge(parts);
+}
+
+function cairn(): THREE.BufferGeometry {
+  const parts: THREE.BufferGeometry[] = [];
+  let y = 0;
+  for (let i = 0; i < 6; i++) {
+    const r = 0.52 - i * 0.065;
+    const stone = new THREE.IcosahedronGeometry(r, 0);
+    stone.scale(1, 0.56, 0.9);
+    stone.rotateY(i * 1.3);
+    stone.translate(Math.sin(i * 2.1) * 0.07, y + r * 0.56, Math.cos(i * 1.7) * 0.07);
+    parts.push(stone);
+    y += r * 1.02;
+  }
+  return merge(parts);
+}
+
+function signpostParts(): [THREE.BufferGeometry, THREE.BufferGeometry] {
+  const post = new THREE.CylinderGeometry(0.11, 0.13, 2.5, 6);
+  post.translate(0, 1.25, 0);
+  const boards: THREE.BufferGeometry[] = [];
+  const top = box(1.7, 0.3, 0.07);
+  top.translate(0.72, 2.18, 0);
+  boards.push(top);
+  const low = box(1.4, 0.26, 0.07);
+  low.rotateY(Math.PI * 0.62);
+  low.translate(-0.45, 1.72, 0.38);
+  boards.push(low);
+  return [post, merge(boards)];
+}
+
+function drums(): THREE.BufferGeometry {
+  const parts: THREE.BufferGeometry[] = [];
+  for (const [ox, oz] of [[0, 0], [0.72, 0.18], [0.34, -0.66]] as [number, number][]) {
+    const d = new THREE.CylinderGeometry(0.33, 0.33, 0.92, 9);
+    d.translate(ox, 0.46, oz);
+    parts.push(d);
+  }
+  // One on its side, because nobody stacks three drums neatly and leaves.
+  const fallen = new THREE.CylinderGeometry(0.33, 0.33, 0.92, 9);
+  fallen.rotateZ(Math.PI / 2);
+  fallen.translate(-0.74, 0.33, 0.5);
+  parts.push(fallen);
+  return merge(parts);
+}
+
+function kennel(): THREE.BufferGeometry {
+  const parts: THREE.BufferGeometry[] = [];
+  const body = box(1.15, 0.85, 1.45);
+  body.translate(0, 0.42, 0);
+  parts.push(body);
+  const roof = new THREE.CylinderGeometry(0.78, 0.78, 1.5, 3);
+  roof.rotateZ(Math.PI / 2);
+  roof.rotateY(Math.PI / 2);
+  roof.translate(0, 0.98, 0);
+  parts.push(roof);
+  return merge(parts);
+}
+
+interface AccretionModel {
+  geo: THREE.BufferGeometry;
+  colour: number;
+}
+
+const ACCRETION_MODELS: Record<AccretionKind, AccretionModel[]> = {
+  woodpile: [{ geo: woodpile(), colour: 0x7d6245 }],
+  firepit: [{ geo: firepit(), colour: 0x6e6a63 }],
+  cairn: [{ geo: cairn(), colour: 0x8d8a80 }],
+  signpost: [
+    { geo: signpostParts()[0], colour: 0x7a6248 },
+    { geo: signpostParts()[1], colour: 0xb9ae95 },
+  ],
+  drums: [{ geo: drums(), colour: 0x6f7a6a }],
+  kennel: [{ geo: kennel(), colour: 0x80664b }],
+};
+
+/** 40 landmarks times six optional objects, with room to spare. */
+const ACCRETION_BUDGET = 150;
+
 const BUILDERS: Record<LandmarkKind, () => Layer[]> = {
   lookout,
   arch,
@@ -416,6 +541,9 @@ export class LandmarkField {
   private meshes = new Map<LandmarkKind, THREE.InstancedMesh[]>();
   /** Parallel to meshes — which variants each layer belongs to. */
   private layers = new Map<LandmarkKind, Layer[]>();
+  private accretions = new Map<AccretionKind, THREE.InstancedMesh[]>();
+  /** Signposts in range, for the walk-up read. */
+  signs: { x: number; z: number; text: string }[] = [];
   private steam: THREE.InstancedMesh;
   private steamAnchors: { x: number; y: number; z: number }[] = [];
   private cellX = NaN;
@@ -439,6 +567,22 @@ export class LandmarkField {
         return mesh;
       });
       this.meshes.set(kind, meshes);
+    }
+
+    for (const kind of ACCRETION_KINDS) {
+      const meshes = ACCRETION_MODELS[kind].map((m) => {
+        const mesh = new THREE.InstancedMesh(
+          m.geo,
+          new THREE.MeshLambertMaterial({ color: m.colour, flatShading: true }),
+          ACCRETION_BUDGET
+        );
+        mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+        mesh.frustumCulled = false;
+        mesh.count = 0;
+        this.group.add(mesh);
+        return mesh;
+      });
+      this.accretions.set(kind, meshes);
     }
 
     this.steam = new THREE.InstancedMesh(
@@ -502,6 +646,31 @@ export class LandmarkField {
       counts.set(lm.kind, n + 1);
 
       if (lm.kind === "spring") this.steamAnchors.push({ x: lm.x, y: lm.y + 1, z: lm.z });
+    }
+
+    // The small stuff. Placed after the structures so a signpost sitting on a
+    // slope reads against ground it was actually measured on.
+    this.signs.length = 0;
+    const acc = new Map<AccretionKind, number>();
+    for (const lm of this.loaded) {
+      for (const a of accretionsAt(lm)) {
+        const k = acc.get(a.kind) ?? 0;
+        if (k >= ACCRETION_BUDGET) continue;
+        pos.set(a.x, a.y, a.z);
+        q.setFromAxisAngle(up, a.rot);
+        scl.setScalar(a.scale);
+        m.compose(pos, q, scl);
+        for (const mesh of this.accretions.get(a.kind)!) mesh.setMatrixAt(k, m);
+        acc.set(a.kind, k + 1);
+        if (a.text) this.signs.push({ x: a.x, z: a.z, text: a.text });
+      }
+    }
+    for (const [kind, meshes] of this.accretions) {
+      const n = acc.get(kind) ?? 0;
+      for (const mesh of meshes) {
+        mesh.count = n;
+        mesh.instanceMatrix.needsUpdate = true;
+      }
     }
 
     for (const [kind, meshes] of this.meshes) {
