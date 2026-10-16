@@ -139,6 +139,17 @@ const sound = new Soundscape();
 sound.attachUnlock();
 player.onLand = () => sound.land();
 player.onJump = (inVehicle) => sound.jump(inVehicle);
+/**
+ * Spray. Rate-limited rather than fired every frame — at sixty frames a
+ * second an unthrottled splash is white noise, not a splash.
+ */
+let splashIn = 0;
+player.onSplash = (force) => {
+  if (splashIn > 0) return;
+  splashIn = 0.16;
+  sound.splash(force);
+  haptics.land(force * 0.5);
+};
 player.onMount = () => {
   sound.mount();
   // Flying has one control and no way to guess it. Said on every boarding of
@@ -1019,6 +1030,7 @@ let placeSaveIn = 4;
 function frame(now: number) {
   requestAnimationFrame(frame);
   const dt = Math.min(0.05, (now - last) / 1000);
+  splashIn -= dt;
   placeSaveIn -= dt;
   if (placeSaveIn <= 0) {
     placeSaveIn = 4;

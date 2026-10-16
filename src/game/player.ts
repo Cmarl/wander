@@ -68,6 +68,12 @@ const GLASS_FOV = 13;
 
 const VEH_GRAVITY = 26;
 /**
+ * How deep a wheeled vehicle will go before the water wins.
+ *
+ * About axle height on the truck. Below this you ford it; above it you stop.
+ */
+const VEH_WADE = 0.9;
+/**
  * How far past the flat top speed a full descent can take you.
  *
  * 0.38 puts the truck a little over 66 m/s on the steepest sustained ground
@@ -132,6 +138,10 @@ export class Player {
   onLand?: () => void;
   /** Leaving the ground, on foot or in a vehicle. */
   onJump?: (inVehicle: boolean) => void;
+  /** Driving through water, 0..1 by how hard. */
+  onSplash?: (force: number) => void;
+  /** How deep the wheels are, 0..1 of wading depth. */
+  vehWading = 0;
   onMount?: () => void;
   onDismount?: () => void;
   /** Fired on a real impact. `force` is 0..1. */
@@ -623,12 +633,40 @@ export class Player {
      */
     const nx = this.vehPos.x + Math.sin(this.vehHeading) * this.vehSpeed * dt;
     const nz = this.vehPos.z + Math.cos(this.vehHeading) * this.vehSpeed * dt;
-    const wet = !this.spec.flies && !this.spec.floats && heightAt(nx, nz) < SEA_LEVEL + 0.35;
-    if (wet) {
+    /**
+     * Where the water actually stops you.
+     *
+     * Clyde: "We need to very much so lower the shoreline threshold hitbox. I
+     * was stopped driving because of water but I was 3 truck lengths from the
+     * water."
+     *
+     * The test was `height < SEA_LEVEL + 0.35` — which is DRY LAND. It stopped
+     * the truck on ground a third of a metre above the waterline, and on a
+     * gentle shore a third of a metre of rise is many metres inland. He was
+     * not near the water at all; he was standing on a beach hitting a wall.
+     *
+     * It now blocks only where the water is deep enough to genuinely stop a
+     * vehicle, which also gives Clyde his other note for free: "I should be
+     * able to pass very shallow water (and it should splash)". Anything
+     * shallower than the axles is driven through, dragging as it goes.
+     */
+    const depth = SEA_LEVEL - heightAt(nx, nz);
+    const amphibious = this.spec.flies || this.spec.floats;
+    this.vehWading = !amphibious && depth > 0.05 ? Math.min(1, depth / VEH_WADE) : 0;
+
+    if (!amphibious && depth > VEH_WADE) {
       this.vehSpeed *= 1 - Math.min(1, dt * 7);
     } else {
       this.vehPos.x = nx;
       this.vehPos.z = nz;
+      // Water drags. Deeper water drags harder, which is what makes a ford a
+      // decision rather than a texture.
+      if (this.vehWading > 0) {
+        this.vehSpeed -= this.vehSpeed * this.vehWading * 1.6 * dt;
+        if (this.vehWading > 0.3 && Math.abs(this.vehSpeed) > 6) {
+          this.onSplash?.(Math.min(1, (Math.abs(this.vehSpeed) / 30) * this.vehWading));
+        }
+      }
     }
     this.distanceTravelled += Math.abs(this.vehSpeed) * dt;
     this.speed = Math.abs(this.vehSpeed);

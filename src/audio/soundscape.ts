@@ -133,6 +133,10 @@ export class Soundscape {
     this.sfx.horn();
   }
 
+  splash(force: number) {
+    this.sfx.splash(force);
+  }
+
   jump(inVehicle: boolean) {
     this.sfx.jump(inVehicle);
   }

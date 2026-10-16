@@ -94,6 +94,23 @@ export class Sfx {
     }
   }
 
+  /**
+   * Driving through water. Broadband noise with the filter sweeping down as
+   * the spray falls back, which is most of what a splash is.
+   */
+  splash(force: number) {
+    if (!this.e.ready) return;
+    const f = Math.min(1, Math.max(0.1, force));
+    this.e.burst({
+      dest: this.e.vehicleBus, type: "bandpass", freq: 900 + f * 1400, q: 0.55,
+      level: 0.035 + f * 0.07, decay: 0.3 + f * 0.25, sweepTo: 300,
+    });
+    this.e.burst({
+      dest: this.e.vehicleBus, type: "highpass", freq: 2600, q: 0.6,
+      level: 0.02 + f * 0.04, decay: 0.18 + f * 0.2,
+    });
+  }
+
   doorOpen() {
     if (!this.e.ready) return;
     const dest = this.e.sfxBus;
