@@ -1,0 +1,67 @@
+<!doctype html><meta charset=utf8>
+<!--
+  What the truck looks like with paint on it.
+
+  The numbers say the clearcoat is a tight spot rather than a flood. Numbers
+  without a picture have been wrong here before — the skydive poses measured
+  perfectly and had the left arm across the chest — so this renders the real
+  vehicle model and sends the pixels out.
+
+  Not a build entry: vite builds index.html only, so this never ships.
+--><body style="margin:0;background:#8fa9bd"><canvas id=cv width=720 height=400></canvas>
+<script type="module">
+import * as THREE from "three";
+import { makeFor } from "../src/game/vehicles.ts";
+import { WORLD_UNIFORMS } from "../src/world/worldMaterial.ts";
+
+const sun = new THREE.Vector3(-0.42, 0.46, 0.78).normalize();
+WORLD_UNIFORMS.uSunDir.value.copy(sun);
+WORLD_UNIFORMS.uSunColor.value.setRGB(1.75, 1.55, 1.22);
+WORLD_UNIFORMS.uFogDensity.value = 0.00009;
+WORLD_UNIFORMS.uCloudCover.value = 0.9;   // keep the cloud shadow off it
+WORLD_UNIFORMS.uTime.value = 10;
+
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0x9ab2c6);  // for the picture; the
+// statistics below exclude it by brightness, not by colour.
+scene.add(new THREE.HemisphereLight(0xdfeaf2, 0x6a6b4a, 0.85));
+const d = new THREE.DirectionalLight(0xfff2d8, 1.5);
+d.position.copy(sun).multiplyScalar(60);
+scene.add(d);
+
+// Two, side by side, so the shape of the light is readable on more than one
+// colour of paint.
+const a = makeFor("truck", 0xd8c04a);
+a.root.position.set(-3.4, 0, 0);
+a.root.rotation.y = 0.6;
+const b = makeFor("truck", 0x3a5f9e);
+b.root.position.set(3.4, 0, 0.6);
+b.root.rotation.y = -0.9;
+scene.add(a.root, b.root);
+
+const cam = new THREE.PerspectiveCamera(42, 720 / 400, 0.1, 500);
+cam.position.set(0.5, 3.4, 11);
+cam.lookAt(0, 1.2, 0);
+
+// preserveDrawingBuffer, because this renders more than once before reading
+// the canvas — without it the buffer is gone by the time toDataURL asks, and
+// the picture comes out blank white.
+const r = new THREE.WebGLRenderer({
+  canvas: document.getElementById("cv"), antialias: true, preserveDrawingBuffer: true,
+});
+r.setSize(720, 400, false);
+const cv = document.getElementById("cv");
+/**
+ * This file is for LOOKING at the vehicle. It used to compute its own
+ * statistics too, and got them wrong twice in opposite directions — first by
+ * excluding pixels near the sky colour (which threw away the bright bodywork
+ * the effect lands on, reporting 0.5% where the truth was 12%), then by
+ * including the whole sky in the denominator.
+ *
+ * The measuring belongs in shadercheck.sh, which renders the same model
+ * against black with the gloss toggled and is the thing that gates a deploy.
+ * One instrument, in one place. This one just takes the picture.
+ */
+r.render(scene, cam);
+await fetch("http://127.0.0.1:8916/", { method: "POST", body: cv.toDataURL("image/png") }).catch(() => {});
+</script>

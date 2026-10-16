@@ -28,6 +28,67 @@ import { SKY_GLSL } from "./glsl/sky";
  */
 
 /**
+ * Paint, rather than coloured cardboard.
+ *
+ * A flat-shaded Lambert has no specular at all, so the truck — the one object
+ * on screen every single second — was the same matte green as a bush. Every
+ * painted metal surface has a hard, tight highlight that slides across it as
+ * you turn, and that highlight is most of what says "this is a made thing".
+ *
+ * Two lobes, because a clearcoat really is two surfaces: a tight one for the
+ * lacquer and a broad soft one for the colour under it. One alone reads as
+ * plastic.
+ *
+ * Only emitted for materials that ask for it. Trees and rocks are not
+ * lacquered, and there are thousands of them — this is per-pixel work that
+ * the vast majority of the world should not be paying for.
+ */
+const GLOSS_GLSL = /* glsl */ `
+          {
+            // uSunDir is a WORLD direction and the normal here is view space.
+            // Mixing the two silently gives a highlight that swings around as
+            // the camera turns, which looks like a bug in the model.
+            vec3 sunV = normalize((viewMatrix * vec4(uSunDir, 0.0)).xyz);
+            vec3 hv = normalize(vDir + sunV);
+            float ndh = max(dot(nrm, hv), 0.0);
+            /**
+             * Broad lobes, because these vehicles are flat panels.
+             *
+             * Tuned first at pow 86, which is a correct clearcoat and useless
+             * here: a tight highlight needs CURVATURE to land on, and on a
+             * truck made of boxes the half-vector almost never lines up with
+             * a face normal. Measured on the real model it moved 904 pixels
+             * by 5/255 — true on a test sphere, invisible on the thing it was
+             * for.
+             *
+             * A flat painted panel does not get a spot. The whole panel
+             * flashes as you walk past it, because every point on it has the
+             * same normal. So the lobes are wide enough that a face which is
+             * roughly at the half-angle lights up as one piece, which is both
+             * what the geometry can express and what the real thing does.
+             */
+            float lacquer = pow(ndh, 26.0) * 0.52;
+            /**
+             * And the broad lobe stays small.
+             *
+             * At 0.22 the gate caught it flooding: on a SPHERE the mean
+             * brightness went from 54 to 100, because pow 5 covers an
+             * enormous solid angle and on a curved surface that is most of
+             * the object. It looked right on the flat-panelled truck and
+             * wrong on anything round — and both measurements were true.
+             * The tight lobe is what does the panel work; this one only has
+             * to stop the tight one reading as a decal.
+             */
+            float body = pow(ndh, 6.0) * 0.05;
+            float shade = cloudShade(vWorldPos, uSunDir, uTime, uCloudCover);
+            // Lambert has no specular term in its output, so this joins the
+            // diffuse. It is added light either way.
+            reflectedLight.directDiffuse +=
+              uSunColor * (lacquer + body) * uGloss * uGlossScale * shade * max(uSunDir.y, 0.0);
+          }
+`;
+
+/**
  * One set of uniform objects, SHARED BY REFERENCE across every patched
  * material. main updates these once and every tree, truck and tower in the
  * world sees it — rather than walking a scene graph of hundreds of materials,
@@ -45,6 +106,15 @@ export const WORLD_UNIFORMS = {
    * does anything, and doubles as the knob for tuning it.
    */
   uRim: { value: 0.19 },
+  /** The sun's own colour, for anything that reflects it rather than scatters it. */
+  uSunColor: { value: new THREE.Color(1, 1, 1) },
+  /**
+   * A master scale on the clearcoat, for the same reason uRim is a uniform:
+   * the only honest way to show a highlight does something is to render the
+   * same frame with it off, and a per-material constant cannot be turned off
+   * from outside.
+   */
+  uGlossScale: { value: 1 },
 };
 
 /**
@@ -54,12 +124,14 @@ export const WORLD_UNIFORMS = {
  * Idempotent: patching twice would chain two onBeforeCompile hooks and inject
  * the helpers twice, which is a compile error, so it marks what it has done.
  */
-export function worldLit<T extends THREE.Material>(mat: T): T {
+export function worldLit<T extends THREE.Material>(mat: T, gloss = 0): T {
   if ((mat as unknown as { __worldLit?: boolean }).__worldLit) return mat;
   (mat as unknown as { __worldLit?: boolean }).__worldLit = true;
+  const uGloss = { value: gloss };
 
   mat.onBeforeCompile = (shader) => {
     Object.assign(shader.uniforms, WORLD_UNIFORMS);
+    shader.uniforms.uGloss = uGloss;
 
     // The world position, which three only varies when something asks for it.
     shader.vertexShader = shader.vertexShader
@@ -107,6 +179,9 @@ export function worldLit<T extends THREE.Material>(mat: T): T {
         uniform float uTime;
         uniform float uCloudCover;
         uniform float uRim;
+        uniform float uGloss;
+        uniform float uGlossScale;
+        uniform vec3 uSunColor;
         ${NOISE_GLSL}
         ${SKY_GLSL}`
       )
@@ -144,8 +219,10 @@ export function worldLit<T extends THREE.Material>(mat: T): T {
          */
         {
           vec3 vDir = normalize(vViewPosition);
-          float rim = pow(1.0 - clamp(dot(normalize(normal), vDir), 0.0, 1.0), 4.0);
+          vec3 nrm = normalize(normal);
+          float rim = pow(1.0 - clamp(dot(nrm, vDir), 0.0, 1.0), 4.0);
           reflectedLight.indirectDiffuse += skyBase(vec3(0.0, 1.0, 0.0), uSunDir) * rim * uRim;
+${gloss > 0 ? GLOSS_GLSL : ""}
         }`
       )
       /**
@@ -170,7 +247,9 @@ export function worldLit<T extends THREE.Material>(mat: T): T {
   // three caches compiled programs by a key built from the material's state;
   // a changed onBeforeCompile has to invalidate that or the old program is
   // handed back and none of the above happens.
-  mat.customProgramCacheKey = () => "worldLit";
+  // The injected source DIFFERS between glossy and matte, so they cannot share
+  // a cache key — three would hand the second one the first one's program.
+  mat.customProgramCacheKey = () => (gloss > 0 ? "worldLit-gloss" : "worldLit");
   mat.needsUpdate = true;
   return mat;
 }

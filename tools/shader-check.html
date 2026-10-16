@@ -25,6 +25,7 @@ import { Sky } from "../src/world/sky.ts";
 import { Grass } from "../src/world/grass.ts";
 import { heightAt } from "../src/world/field.ts";
 import { worldLit, WORLD_UNIFORMS } from "../src/world/worldMaterial.ts";
+import { makeFor } from "../src/game/vehicles.ts";
 
 const out = document.getElementById("out");
 const lines = [];
@@ -267,6 +268,81 @@ lit.color.setHex(0xb4643c);
 log(`a red thing and a blue thing differ by ${nearSpread} up close, ${farSpread} at 14 km`);
 check(nearSpread > 60, "two colours look different up close", `${nearSpread}`);
 check(farSpread < nearSpread * 0.35, "and nearly the same through 14 km of air", `${farSpread} vs ${nearSpread}`);
+
+// --- is the paint painted? --------------------------------------------------
+/**
+ * The clearcoat, measured on the REAL vehicle model.
+ *
+ * This was a sphere first, and the sphere was lying in both directions. It
+ * said the highlight worked when a tight lobe was invisible on the actual
+ * truck — 904 pixels moved by 5/255 — and then said the setting that DOES
+ * work floods, because on a curved surface a broad lobe covers most of the
+ * object. Both readings were true about spheres and neither was true about
+ * anything in this game, which is made of flat panels.
+ *
+ * So it tests what ships. That is not loosening a threshold to get a pass:
+ * the sphere was a fixture I chose for convenience, and the truck is the
+ * thing the feature exists for.
+ *
+ * Two claims, and they only mean something together: there IS a highlight
+ * (peak rises a lot), and it is a highlight rather than a wash (the mean over
+ * the bodywork barely moves).
+ */
+{
+  const sc = new THREE.Scene();
+  sc.add(new THREE.HemisphereLight(0xdfeaf2, 0x6a6b4a, 0.85));
+  const dl = new THREE.DirectionalLight(0xfff2d8, 1.5);
+  dl.position.copy(sun).multiplyScalar(60);
+  sc.add(dl);
+  const truck = makeFor("truck", 0xd8c04a);
+  truck.root.rotation.y = 0.6;
+  sc.add(truck.root);
+  const vcam = new THREE.PerspectiveCamera(42, 1, 0.1, 500);
+  vcam.position.set(0.5, 3.0, 9);
+  vcam.lookAt(0, 1.1, 0);
+  vcam.updateMatrixWorld(true);
+  WORLD_UNIFORMS.uSunDir.value.copy(sun);
+  WORLD_UNIFORMS.uSunColor.value.setRGB(1.75, 1.55, 1.22);
+  WORLD_UNIFORMS.uCloudCover.value = 0.9;
+
+  const shot = () => {
+    renderer.render(sc, vcam);
+    const px = new Uint8Array(256 * 256 * 4);
+    renderer.getContext().readPixels(0, 0, 256, 256, 6408, 5121, px);
+    return px;
+  };
+  WORLD_UNIFORMS.uGlossScale.value = 0;
+  const off = shot();
+  WORLD_UNIFORMS.uGlossScale.value = 1;
+  const on = shot();
+  WORLD_UNIFORMS.uCloudCover.value = 0.52;
+
+  let worst = 0, changed = 0, body = 0, sumOff = 0, sumOn = 0;
+  for (let i = 0; i < off.length; i += 4) {
+    const a = (off[i] + off[i + 1] + off[i + 2]) / 3;
+    const b = (on[i] + on[i + 1] + on[i + 2]) / 3;
+    /**
+     * Lit bodywork only.
+     *
+     * "Anything not black" swept in the black tyres, the shadowed underside
+     * and every antialiased edge pixel — which shrinks the denominator and
+     * made a localised highlight read as a 12% wash. A wash is a statement
+     * about the PAINT, so the paint is what it has to be measured over.
+     */
+    if (a < 25 && b < 25) continue;
+    body++; sumOff += a; sumOn += b;
+    const d = b - a;
+    if (d > 4) { changed++; if (d > worst) worst = d; }
+  }
+  const rise = sumOn / Math.max(sumOff, 1) - 1;
+  log(`truck: ${changed} pixels catch the light, brightest by ${worst.toFixed(0)}/255; ` +
+      `mean over the bodywork +${(rise * 100).toFixed(1)}%`);
+  check(worst >= 18, "the paint catches a highlight", `peak +${worst.toFixed(0)}/255`);
+  check(changed > 200, "with real area, not a few stray pixels", `${changed} pixels`);
+  check(rise < 0.05, "and it stays a highlight rather than a wash",
+    `mean +${(rise * 100).toFixed(1)}%`);
+  sc.remove(truck.root);
+}
 
 // --- can you see the bottom? ------------------------------------------------
 /**

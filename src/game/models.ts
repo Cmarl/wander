@@ -1,8 +1,8 @@
 import * as THREE from "three";
 import { worldLit } from "../world/worldMaterial";
 
-export const mat = (hex: number, rough = true) =>
-  worldLit(new THREE.MeshLambertMaterial({ color: hex, flatShading: rough }));
+export const mat = (hex: number, rough = true, gloss = 0) =>
+  worldLit(new THREE.MeshLambertMaterial({ color: hex, flatShading: rough }), gloss);
 
 export function box(w: number, h: number, d: number, m: THREE.Material) {
   return new THREE.Mesh(new THREE.BoxGeometry(w, h, d), m);
@@ -316,9 +316,15 @@ export interface Vehicle {
 }
 
 export function makeVehicle(paint = 0xd8c04a): Vehicle {
-  const body = mat(paint);
+  // Paint and glass are the only lacquered things on a truck. The rubber,
+  // the crates and the roof rack are not, and giving everything a highlight
+  // is how a vehicle ends up looking like a toy.
+  const body = mat(paint, true, 1.0);
   const dark = mat(0x2a2d33);
-  const glass = worldLit(new THREE.MeshLambertMaterial({ color: 0x9fc0cc, flatShading: true }));
+  const glass = worldLit(
+    new THREE.MeshLambertMaterial({ color: 0x9fc0cc, flatShading: true }),
+    1.6
+  );
   const rack = mat(0x4a4e55);
   const crate1 = mat(0x8a5a3c);
   const crate2 = mat(0x3f6b55);

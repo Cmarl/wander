@@ -1384,6 +1384,7 @@ function frame(now: number) {
    * both slower and the sort of thing that quietly misses one.
    */
   WORLD_UNIFORMS.uSunDir.value.copy(env.sunDir);
+  WORLD_UNIFORMS.uSunColor.value.copy(env.sunColor);
   WORLD_UNIFORMS.uFogDensity.value = env.fogDensity;
   WORLD_UNIFORMS.uSunsetBoost.value = env.sunsetBoost;
   WORLD_UNIFORMS.uTime.value = env.elapsed;

@@ -271,7 +271,9 @@ const wheel = (r: number, w: number, m: THREE.Material) => {
  * idea expressed in the only way this shape can express it.
  */
 function makeBike(paint: number): Vehicle {
-  const body = mat(paint);
+  // Lacquered, like the truck's. See world/worldMaterial — the highlight is
+  // most of what makes a painted machine read as made rather than moulded.
+  const body = mat(paint, true, 1.0);
   const dark = mat(0x23262b);
   const chrome = mat(0x8e949b);
   const lamp = new THREE.MeshBasicMaterial({ color: 0xfff0c0 });
@@ -347,7 +349,9 @@ function makeBike(paint: number): Vehicle {
 
 /** A rover: short, wide, caged, and happiest pointing uphill. */
 function makeRover(paint: number): Vehicle {
-  const body = mat(paint);
+  // Lacquered, like the truck's. See world/worldMaterial — the highlight is
+  // most of what makes a painted machine read as made rather than moulded.
+  const body = mat(paint, true, 1.0);
   const dark = mat(0x26292e);
   const cage = mat(0x4a4e55);
   const lamp = new THREE.MeshBasicMaterial({ color: 0xfff0c0 });
@@ -426,7 +430,9 @@ function makeRover(paint: number): Vehicle {
 
 /** A helicopter. The rotor is the whole silhouette and it never stops. */
 function makeChopper(paint: number): Vehicle {
-  const body = mat(paint);
+  // Lacquered, like the truck's. See world/worldMaterial — the highlight is
+  // most of what makes a painted machine read as made rather than moulded.
+  const body = mat(paint, true, 1.0);
   const dark = mat(0x26292e);
   const metal = mat(0x7a8088);
   const glass = new THREE.MeshLambertMaterial({ color: 0x9fc0cc, flatShading: true });
@@ -519,7 +525,9 @@ function makeChopper(paint: number): Vehicle {
 
 /** A high-wing light aircraft — the kind that can land on a field. */
 function makePlane(paint: number): Vehicle {
-  const body = mat(paint);
+  // Lacquered, like the truck's. See world/worldMaterial — the highlight is
+  // most of what makes a painted machine read as made rather than moulded.
+  const body = mat(paint, true, 1.0);
   const dark = mat(0x26292e);
   const metal = mat(0x7a8088);
   const glass = new THREE.MeshLambertMaterial({ color: 0x9fc0cc, flatShading: true });
@@ -637,7 +645,9 @@ function makePlane(paint: number): Vehicle {
 
 /** An open boat with an outboard on the back. */
 function makeBoat(paint: number): Vehicle {
-  const body = mat(paint);
+  // Lacquered, like the truck's. See world/worldMaterial — the highlight is
+  // most of what makes a painted machine read as made rather than moulded.
+  const body = mat(paint, true, 1.0);
   const dark = mat(0x3a3028);
   const metal = mat(0x6f7a82);
   const lamp = new THREE.MeshBasicMaterial({ color: 0xfff0c0 });
@@ -711,7 +721,9 @@ function makeBoat(paint: number): Vehicle {
 
 /** A van: a box on wheels, and the box is the whole silhouette. */
 function makeVan(paint: number): Vehicle {
-  const body = mat(paint);
+  // Lacquered, like the truck's. See world/worldMaterial — the highlight is
+  // most of what makes a painted machine read as made rather than moulded.
+  const body = mat(paint, true, 1.0);
   const dark = mat(0x26292e);
   const glass = new THREE.MeshLambertMaterial({ color: 0x9fc0cc, flatShading: true });
   const lamp = new THREE.MeshBasicMaterial({ color: 0xfff0c0 });
@@ -774,7 +786,9 @@ function makeVan(paint: number): Vehicle {
 
 /** A quad: fat tyres, handlebars, and almost nothing else. */
 function makeQuad(paint: number): Vehicle {
-  const body = mat(paint);
+  // Lacquered, like the truck's. See world/worldMaterial — the highlight is
+  // most of what makes a painted machine read as made rather than moulded.
+  const body = mat(paint, true, 1.0);
   const dark = mat(0x23262b);
   const metal = mat(0x8e949b);
   const lamp = new THREE.MeshBasicMaterial({ color: 0xfff0c0 });
@@ -832,7 +846,9 @@ function makeQuad(paint: number): Vehicle {
 
 /** A tractor: enormous back wheels, small front ones, and a chimney. */
 function makeTractor(paint: number): Vehicle {
-  const body = mat(paint);
+  // Lacquered, like the truck's. See world/worldMaterial — the highlight is
+  // most of what makes a painted machine read as made rather than moulded.
+  const body = mat(paint, true, 1.0);
   const dark = mat(0x23262b);
   const metal = mat(0x6f7a82);
   const lamp = new THREE.MeshBasicMaterial({ color: 0xfff0c0 });
@@ -893,7 +909,9 @@ function makeTractor(paint: number): Vehicle {
 
 /** A glider: all wing, no engine, and a very long span. */
 function makeGlider(paint: number): Vehicle {
-  const body = mat(paint);
+  // Lacquered, like the truck's. See world/worldMaterial — the highlight is
+  // most of what makes a painted machine read as made rather than moulded.
+  const body = mat(paint, true, 1.0);
   const dark = mat(0x26292e);
   const glass = new THREE.MeshLambertMaterial({ color: 0x9fc0cc, flatShading: true });
   const lamp = new THREE.MeshBasicMaterial({ color: 0xfff0c0 });
