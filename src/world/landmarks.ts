@@ -1,4 +1,4 @@
-import { heightAt, slopeAt, moistureAt, temperatureAt, slotRandom } from "./field";
+import { heightAt, slopeAt, moistureAt, temperatureAt, slotRandom, SEA_LEVEL } from "./field";
 
 /**
  * Landmarks — the reason to steer somewhere.
@@ -250,10 +250,24 @@ function baseInCell(gx: number, gz: number): Landmark | null {
   const options: LandmarkKind[] = [];
   if (shore) {
     options.push("shipwreck");
-    // Somewhere to tie a boat up. The commonest thing on a shoreline, because
-    // a shore without a landing is a shore you cannot leave by water.
-    options.push("dock");
-    options.push("dock");
+    /**
+     * Somewhere to tie a boat up — but only where a boat could actually float.
+     *
+     * "Shoreline" here means ground from 1 to 7 m above the water, and on a
+     * gentle beach seven metres of elevation is a long way from the sea. A
+     * landing placed up there had its jetty ending on dry sand, which is why
+     * Clyde found one with no boat at it.
+     *
+     * The test is the one that matters: is there water deep enough to float a
+     * boat within reach of the end of the jetty.
+     */
+    // The seaward test already implies you are near water, so an extra height
+    // cut on top of it was doing nothing but starving the kind: both together
+    // produced two landings in seventy-six thousand landmarks.
+    if (seawardDepth(x, z) > 0.4) {
+      options.push("dock");
+      options.push("dock");
+    }
     if (temp < 0.45) options.push("bonefield");
     // Nothing inland is eligible on tidal ground, so this returns early.
     const kindShore = options[Math.min(options.length - 1, Math.floor(pick * options.length))];
@@ -353,6 +367,20 @@ function build(
   const variant = Math.floor(slotRandom(gx, gz, 997) * 3) % 3;
   const wear = slotRandom(gx, gz, 1009);
 
+  /**
+   * A jetty has to point at the water.
+   *
+   * Every landmark gets a random rotation, which is right for a stone arch
+   * and wrong for a landing: a dock facing inland puts its mooring on dry
+   * ground, and the boat tied up there ends up sitting on a hillside. Clyde:
+   * "found a boat landing, no boat."
+   *
+   * The deck runs out along -z in the model, so the dock is turned until -z
+   * points downhill — which, on a shoreline, is out to sea.
+   */
+  let spin2 = spin * Math.PI * 2;
+  if (kind === "dock") spin2 = seaward(x, z).angle;
+
   const noun = VARIANT_NAMES[kind]?.[variant] ?? LANDMARK_NAMES[kind];
   const name = `${lead} ${middle} ${noun}`;
 
@@ -381,7 +409,7 @@ function build(
     x,
     z,
     y: base,
-    rot: spin * Math.PI * 2,
+    rot: spin2,
     // Was 0.85 to 1.25, which is barely a difference. Clyde asked for bigger
     // and for more variation between them; collision scales with this, so a
     // big one is big to drive into as well as to look at.
@@ -466,6 +494,51 @@ function pairedWith(gx: number, gz: number): { host: Landmark; kind: LandmarkKin
 /** Kinds with a flat base, which cannot stand on lumpy ground. */
 const FLAT_BASED: LandmarkKind[] = ["steading", "windpump", "lookout", "adit", "mast", "airfield"];
 const kindNeedsFlatGround = (k: LandmarkKind) => FLAT_BASED.includes(k);
+
+/**
+ * The deepest water within a jetty's reach, and which way it lies.
+ *
+ * Returns depth below sea level at the best bearing; zero or less means there
+ * is nowhere to put a boat.
+ */
+export function seaward(x: number, z: number): { depth: number; angle: number } {
+  let depth = -Infinity;
+  let angle = 0;
+  for (let i = 0; i < 24; i++) {
+    const a = (i / 24) * Math.PI * 2;
+    /**
+     * Only the TIP needs water under it.
+     *
+     * This used to require depth at 10, 15 and 60 m and take the worst, which
+     * meant the jetty had to be over water along its whole length. A jetty
+     * stands on posts and crosses the beach on the way out — that is what a
+     * jetty is for. Demanding water ten metres from shore produced two
+     * landings in seventy-six thousand landmarks.
+     */
+    const tip = SEA_LEVEL - heightAt(x - Math.sin(a) * DOCK_REACH, z - Math.cos(a) * DOCK_REACH);
+    if (tip > depth) {
+      depth = tip;
+      angle = a;
+    }
+  }
+  return { depth, angle };
+}
+
+/**
+ * How far the jetty runs, and therefore how far out the mooring is.
+ *
+ * Measured rather than chosen: this coastline is very gentle. From ground
+ * one to two metres above the waterline, a 17 m jetty reaches water deep
+ * enough to float a boat at 0% of sites, 30 m at 5%, 50 m at 19%, and 80 m at
+ * 44%. A short jetty on this terrain simply ends on wet sand, which is
+ * exactly what Clyde walked out onto.
+ *
+ * 60 m, which clears about a third of candidate sites — enough that landings
+ * exist, few enough that one is worth finding.
+ */
+export const DOCK_REACH = 60;
+
+const seawardDepth = (x: number, z: number) => seaward(x, z).depth;
 
 function footprintDrop(x: number, z: number, r: number): number {
   let lo = Infinity;

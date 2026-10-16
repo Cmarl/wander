@@ -774,7 +774,9 @@ function moorings() {
 
     // Where the machine actually sits: a boat alongside the jetty, an
     // aircraft on the apron by the hangar.
-    const local: [number, number] = lm.kind === "dock" ? [-2.6, -13] : [20, 4];
+    // Alongside the END of the jetty, which is where the water is. It was 13 m
+    // out on a 60 m jetty, i.e. still over the beach.
+    const local: [number, number] = lm.kind === "dock" ? [-2.6, -54] : [20, 4];
     const c = Math.cos(lm.rot);
     const sn = Math.sin(lm.rot);
     const mx = lm.x + (local[0] * c + local[1] * sn) * lm.scale;

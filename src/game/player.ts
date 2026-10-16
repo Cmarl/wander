@@ -269,7 +269,11 @@ export class Player {
     if (this.mode !== "foot") return;
     if (cls !== this.spec.cls) this.switchTo(cls, paint);
     else this.vehicle.setPaint(paint);
-    this.vehPos.set(x, heightAt(x, z), z);
+    // A floating craft belongs on the waterline, not on the bed beneath it.
+    // Placing it at terrain height put it metres underwater at a mooring,
+    // which also made the 3D proximity test fail — so it was invisible AND
+    // could not be boarded, which is exactly what Clyde saw.
+    this.vehPos.set(x, this.spec.floats ? Math.max(SEA_LEVEL, heightAt(x, z)) : heightAt(x, z), z);
     this.vehHeading = rot;
     this.vehSpeed = 0;
     this.vehVelY = 0;
@@ -991,9 +995,14 @@ export class Player {
         }
       }
     } else if (this.spec.floats) {
-      // It rides the surface. The seabed is irrelevant to where it sits, and
-      // following it would sink the boat as the water deepened.
-      this.vehPos.y = SEA_LEVEL;
+      /**
+       * It rides the surface — but never below the ground under it.
+       *
+       * Forcing a boat to sea level is right on water and buries it on land,
+       * where the ground is above the waterline. A boat sitting on a beach
+       * should sit ON the beach, not inside it.
+       */
+      this.vehPos.y = Math.max(SEA_LEVEL, groundY);
       this.vehAir = false;
     } else {
       /**

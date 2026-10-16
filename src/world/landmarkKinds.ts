@@ -84,11 +84,13 @@ export function dock(): Layer[] {
 
   // The deck runs out from the shore. Human proportions: 1.8 m wide, planks
   // at walking height above the water.
-  const LEN = 17;
+  // Matches DOCK_REACH in world/landmarks: a jetty has to be long enough to
+  // reach water on a coastline this shallow, and 17 m was not close.
+  const LEN = 60;
   const deck = box(1.9, 0.18, LEN);
   deck.translate(0, 1.15, -LEN / 2);
   timber.push(deck);
-  for (let i = 0; i < 9; i++) {
+  for (let i = 0; i < 29; i++) {
     const z = -1.2 - i * 2;
     for (const sx of [-1, 1]) {
       const post = new THREE.CylinderGeometry(0.11, 0.13, 3.2, 6);
@@ -103,12 +105,12 @@ export function dock(): Layer[] {
     }
   }
   // Mooring bollards and a handrail on one side only, as they usually are.
-  for (const z of [-3, -9, -15]) {
+  for (const z of [-3, -20, -38, -56]) {
     const bollard = new THREE.CylinderGeometry(0.1, 0.12, 0.6, 6);
     bollard.translate(-0.95, 1.5, z);
     timber.push(bollard);
   }
-  for (let i = 0; i < 8; i++) {
+  for (let i = 0; i < 28; i++) {
     const rail = box(0.08, 0.95, 0.08);
     rail.translate(0.92, 1.72, -1.5 - i * 2.1);
     timber.push(rail);
