@@ -27,7 +27,22 @@ const SIGHT_NEAR = 70;
 const SIGHT_GLASSED = 430;
 
 export type Species =
-  | "deer" | "ibex" | "hare" | "bison" | "fox" | "crane" | "ptarmigan" | "seal";
+  | "deer"
+  | "ibex"
+  | "hare"
+  | "bison"
+  | "fox"
+  | "crane"
+  | "ptarmigan"
+  | "seal"
+  | "horse"
+  | "elk"
+  | "boar"
+  | "goat"
+  | "marmot"
+  | "heron"
+  | "grouse"
+  | "lynx";
 
 interface SpeciesSpec {
   /** How the journal names it. */
@@ -239,6 +254,69 @@ export const SPECIES: Record<Species, SpeciesSpec> = {
     rare: true,
     shape: pinniped,
     suits: (y, slope, temp) => y > 1 && y < 14 && slope < 0.14 && temp > 0.3,
+  },
+
+  /**
+   * Eight more, chosen to fill country that had nothing living in it.
+   *
+   * Nothing here hunts you and nothing here can be hunted. The whole point of
+   * an animal in this game is that noticing it is the event — so they are
+   * sized, placed and spooked differently from each other, and that is the
+   * entire design.
+   */
+  horse: {
+    // Wild horses on open ground. Big herds, and they move as one.
+    label: "Wild horses", tint: 0x7a5a42, graze: 0.62, flee: 14, alertAt: 86, fleeAt: 44, herd: [4, 9],
+    shape: () => body({ body: [0.62, 0.74, 1.8], neck: 0.72, head: [0.28, 0.3, 0.58], legs: 1.02 }),
+    suits: (y, slope, temp, moist) => slope < 0.16 && temp > 0.36 && moist > 0.26 && moist < 0.7 && y > 20 && y < 900,
+  },
+  elk: {
+    // Bigger than a red deer and far less bothered.
+    label: "Elk", tint: 0x6f5436, graze: 0.5, flee: 9.5, alertAt: 74, fleeAt: 34, herd: [2, 5],
+    shape: () => body({ body: [0.66, 0.8, 1.84], neck: 0.74, head: [0.3, 0.3, 0.6], legs: 1.0, horns: true }),
+    suits: (y, slope, temp, moist) => slope < 0.3 && temp > 0.2 && temp < 0.52 && moist > 0.5 && y > 200 && y < 1800,
+  },
+  boar: {
+    label: "Wild boar", tint: 0x4a3c30, graze: 0.75, flee: 9, alertAt: 48, fleeAt: 26, herd: [2, 6],
+    shape: () => body({ body: [0.44, 0.5, 1.1], neck: 0.18, head: [0.26, 0.24, 0.48], legs: 0.4, ears: 0.1, tail: 0.16 }),
+    suits: (y, slope, temp, moist) => slope < 0.36 && moist > 0.55 && temp > 0.3 && y > 20 && y < 1100,
+  },
+  goat: {
+    // Where nothing else will stand.
+    label: "Mountain goat", tint: 0xe2ded2, graze: 0.45, flee: 7.5, alertAt: 58, fleeAt: 30, herd: [1, 4],
+    shape: () => body({ body: [0.44, 0.54, 1.05], neck: 0.36, head: [0.22, 0.22, 0.4], legs: 0.56, horns: true }),
+    suits: (y, slope) => slope > 0.42 && y > 1100,
+  },
+  marmot: {
+    // Small, close to the ground, and gone the moment it sees you.
+    label: "Marmot", tint: 0x9c7c4e, graze: 0.4, flee: 6, alertAt: 34, fleeAt: 18, herd: [1, 4],
+    shape: () => body({ body: [0.2, 0.22, 0.38], neck: 0.07, head: [0.15, 0.14, 0.2], legs: 0.12, tail: 0.14 }),
+    suits: (y, slope, temp) => y > 900 && y < 2400 && slope < 0.5 && temp < 0.5,
+  },
+  heron: {
+    label: "Heron", tint: 0x8d9aa4, graze: 0.2, flee: 8.5, alertAt: 56, fleeAt: 30, herd: [1, 2],
+    flies: true,
+    shape: wader,
+    suits: (y, slope, temp, moist) => y > 1 && y < 40 && slope < 0.2 && moist > 0.45 && temp > 0.3,
+  },
+  grouse: {
+    label: "Black grouse", tint: 0x3a3630, graze: 0.45, flee: 10, alertAt: 42, fleeAt: 24, herd: [2, 5],
+    flies: true,
+    shape: fowl,
+    suits: (y, slope, temp, moist) => moist > 0.5 && temp > 0.22 && temp < 0.5 && slope < 0.4 && y > 100 && y < 1200,
+  },
+  lynx: {
+    /**
+     * The second rare one, and the only thing out here that looks back at you.
+     *
+     * Still not a predator in any mechanical sense — there is nothing to
+     * fight and nothing to be afraid of. It is rare and it is watchful, which
+     * is enough to make seeing one a story.
+     */
+    label: "Lynx", tint: 0xa8926c, graze: 0.3, flee: 12, alertAt: 90, fleeAt: 52, herd: [1, 1],
+    rare: true,
+    shape: () => body({ body: [0.32, 0.36, 0.86], neck: 0.18, head: [0.24, 0.22, 0.3], legs: 0.46, ears: 0.16, tail: 0.18 }),
+    suits: (y, slope, temp, moist) => moist > 0.5 && temp > 0.16 && temp < 0.46 && slope < 0.5 && y > 400 && y < 2000,
   },
 };
 
