@@ -111,6 +111,69 @@ export class Sfx {
     });
   }
 
+  /**
+   * The sound of finding something.
+   *
+   * Clyde: "discovering is the whole point of the game so let's make it cool
+   * when you do... big cool variety in those effects."
+   *
+   * Every find used to share one quiet chime. These are six distinct shapes,
+   * all built from the same two primitives, and all deliberately short of
+   * triumphant — this is a game about noticing things, so the sound should be
+   * a held breath rather than a trumpet.
+   */
+  discovery(kind: string) {
+    if (!this.e.ready) return;
+    const d = this.e.ambientBus;
+    const note = (f: number, level: number, decay: number, delay = 0, type: OscillatorType = "sine") =>
+      this.e.tone({ dest: d, type, from: f, level, attack: 0.02, decay, delay });
+
+    switch (kind) {
+      /** A place on the map. Two notes rising, with the ground under them. */
+      case "place":
+        note(294, 0.05, 1.5);
+        note(441, 0.042, 1.8, 0.14);
+        note(588, 0.03, 2.2, 0.3);
+        note(98, 0.045, 2.6, 0, "triangle");
+        break;
+      /** A settlement: warmer, three notes, a chord that actually resolves. */
+      case "town":
+        note(262, 0.045, 2.0);
+        note(330, 0.04, 2.2, 0.1);
+        note(392, 0.038, 2.6, 0.2);
+        note(523, 0.03, 3.0, 0.42);
+        note(131, 0.04, 3.0, 0, "triangle");
+        break;
+      /** Something you did, rather than somewhere you went. Brighter, quicker. */
+      case "badge":
+        note(523, 0.04, 0.9);
+        note(659, 0.036, 1.0, 0.09);
+        note(784, 0.032, 1.4, 0.18);
+        break;
+      /** An animal. A soft trill that could almost be the animal. */
+      case "sighting":
+        for (let i = 0; i < 4; i++) note(880 + i * 90, 0.016, 0.3, i * 0.07, "triangle");
+        break;
+      /** A new country. Low, wide, and slow — the sky opening up. */
+      case "region":
+        note(110, 0.05, 4.2, 0, "triangle");
+        note(165, 0.04, 4.0, 0.2);
+        note(220, 0.032, 3.6, 0.45);
+        note(330, 0.022, 3.0, 0.8);
+        break;
+      /** Something rare. A fifth with a long tail on it. */
+      case "rare":
+        note(392, 0.045, 2.6);
+        note(588, 0.04, 3.2, 0.16);
+        note(784, 0.03, 3.6, 0.34);
+        note(196, 0.04, 3.4, 0, "triangle");
+        break;
+      default:
+        note(392, 0.04, 1.4);
+        note(523, 0.034, 1.8, 0.12);
+    }
+  }
+
   doorOpen() {
     if (!this.e.ready) return;
     const dest = this.e.sfxBus;

@@ -271,7 +271,13 @@ wildlife.onSight = (species, spec, x, z) => {
     tod: env.timeOfDay,
   });
   if (fresh) {
-    hud.announce(spec.label, "spotted");
+    if (spec.rare) {
+      hud.found("a rare sighting", spec.label);
+      sound.discovery("rare");
+    } else {
+      hud.announce(spec.label, "spotted");
+      sound.discovery("sighting");
+    }
     if (spec.rare) haptics.discover();
   }
 };
@@ -633,10 +639,13 @@ function arriving() {
       tod: env.timeOfDay,
       region: regionAt(here!.s.x, here!.s.z).name,
     });
-    hud.announce(
-      `${here!.s.name} · ${here!.s.buildings.length} buildings`,
-      fresh ? "you come into" : "back in"
-    );
+    if (fresh) {
+      hud.found("you come into", here!.s.name, `${here!.s.buildings.length} buildings`);
+      sound.discovery("town");
+      haptics.discover();
+    } else {
+      hud.announce(here!.s.name, "back in");
+    }
     // The noticeboard. Only the first time — a hamlet you pass through weekly
     // shouldn't keep handing you the same scrap of paper.
     if (fresh) {
@@ -1020,6 +1029,9 @@ function glassing() {
  * land once; `add` is a no-op after that, so calling this every frame is free.
  */
 let lastBiome = "";
+/** The country you were in last frame, so a crossing fires once. */
+let lastRegion: string | null = null;
+
 let lastPhase = 0;
 function stampJournal() {
   const x = player.position.x;
@@ -1211,8 +1223,8 @@ function frame(now: number) {
       at: Date.now(),
       tod: env.timeOfDay,
     });
-    hud.announce(nearest.name, "found");
-    sound.moment();
+    hud.found("found", nearest.name, regionAt(nearest.x, nearest.z).name);
+    sound.discovery("place");
     haptics.discover();
   }
   grass.update(camera.position.x, camera.position.z, env.elapsed);
@@ -1545,6 +1557,34 @@ function frame(now: number) {
       at: Date.now(),
       tod: env.timeOfDay,
     });
+  }
+
+  /**
+   * Crossing into new country.
+   *
+   * Clyde asked for the same treatment "when you enter a new region or
+   * whatever the larger areas are called". Regions are smooth fields with
+   * jittered borders, so this fires once on the crossing and then not again
+   * until the name actually changes.
+   */
+  const regionNow = regionAt(player.position.x, player.position.z).name;
+  if (lastRegion === null) {
+    lastRegion = regionNow;
+  } else if (regionNow !== lastRegion) {
+    lastRegion = regionNow;
+    const firstTime = found.add({
+      id: `region:${regionNow}`,
+      kind: "feat",
+      name: regionNow,
+      x: Math.round(player.position.x),
+      z: Math.round(player.position.z),
+      at: Date.now(),
+      tod: env.timeOfDay,
+      region: regionNow,
+    });
+    hud.found(firstTime ? "you cross into" : "back into", regionNow);
+    sound.discovery("region");
+    haptics.discover();
   }
 
   stampJournal();

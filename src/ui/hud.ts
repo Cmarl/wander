@@ -90,6 +90,11 @@ export class Hud {
   /** Open/close the controls sheet. Also driven by H, ? and Escape. */
   toggleHelp: (show?: boolean) => void = () => {};
   private onlineEl!: HTMLElement;
+  private foundEl!: HTMLElement;
+  private foundKickEl!: HTMLElement;
+  private foundNameEl!: HTMLElement;
+  private foundSubEl!: HTMLElement;
+  private foundTimer = 0;
   private toastEl!: HTMLElement;
   private toastNameEl!: HTMLElement;
   private toastKickEl!: HTMLElement;
@@ -189,6 +194,11 @@ export class Hud {
       </div>
       <div class="glass" id="h-glass"><div class="glass-recticle"></div></div>
       <div class="marks" id="h-marks"></div>
+      <div class="found" id="h-found">
+        <span class="found-kick" id="h-found-kick"></span>
+        <span class="found-name" id="h-found-name"></span>
+        <span class="found-sub" id="h-found-sub"></span>
+      </div>
       <div class="toast" id="h-toast"><span class="toast-kicker" id="h-toast-kick"></span><span id="h-toast-name"></span><span class="toast-hint" id="h-toast-hint"></span></div>
       ${
         controls.isTouch
@@ -364,6 +374,10 @@ export class Hud {
 
     this.glassEl = document.getElementById("h-glass")!;
     this.marksEl = document.getElementById("h-marks")!;
+    this.foundEl = document.getElementById("h-found")!;
+    this.foundKickEl = document.getElementById("h-found-kick")!;
+    this.foundNameEl = document.getElementById("h-found-name")!;
+    this.foundSubEl = document.getElementById("h-found-sub")!;
     this.toastEl = document.getElementById("h-toast")!;
     this.toastNameEl = document.getElementById("h-toast-name")!;
     this.toastKickEl = document.getElementById("h-toast-kick")!;
@@ -639,6 +653,30 @@ export class Hud {
    */
   setJumpLabel(text: string) {
     if (this.jumpEl && this.jumpEl.textContent !== text) this.jumpEl.textContent = text;
+  }
+
+  /**
+   * Finding something is an event, not a line of text.
+   *
+   * Clyde: "bigger 'Found' text. should be more of an event... discovering is
+   * the whole point of the game so let's make it cool when you do."
+   *
+   * Big centred type that swells in and holds, with the kind of find above it
+   * and the place below. Still no modal and still nothing to dismiss — it
+   * arrives while you are driving, by definition, so it must never take the
+   * controls. Loud in size, not in behaviour.
+   */
+  found(kicker: string, name: string, sub = "") {
+    this.foundKickEl.textContent = kicker;
+    this.foundNameEl.textContent = name;
+    this.foundSubEl.textContent = sub;
+    this.foundSubEl.style.display = sub ? "" : "none";
+    // Restart the animation even if one is already running.
+    this.foundEl.classList.remove("on");
+    void this.foundEl.offsetWidth;
+    this.foundEl.classList.add("on");
+    clearTimeout(this.foundTimer);
+    this.foundTimer = window.setTimeout(() => this.foundEl.classList.remove("on"), 4600);
   }
 
   setMuted(muted: boolean) {

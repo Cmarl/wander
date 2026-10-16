@@ -138,6 +138,13 @@ export class Soundscape {
     this.vehicle.setVoice(VOICES[cls] ?? VOICES.truck);
   }
 
+  /** Each kind of find gets its own shape. See sfx.discovery. */
+  discovery(kind: string) {
+    this.sfx.discovery(kind);
+    // The music marks it too, when it has not recently.
+    this.drift.motif();
+  }
+
   splash(force: number) {
     this.sfx.splash(force);
   }
