@@ -680,6 +680,18 @@ export class Hud {
     } else {
       this.promptEl.textContent = s.prompt ? `${s.promptOn === "camp" ? "C" : "E"}  ${s.prompt}` : "";
     }
-    this.promptEl.classList.toggle("on", !!s.prompt);
+    /**
+     * Visible only when it actually says something.
+     *
+     * This keyed off the prompt STATE, which is still set on touch — the text
+     * just goes on the button instead. So the pill kept fading in with nothing
+     * written in it: an empty blurred box parked in the middle of the screen.
+     * Clyde: "The empty tooltip box in the middle of the screen is left
+     * behind."
+     *
+     * Keying off the element's own content means it cannot disagree with what
+     * is on screen, whoever decided not to write anything there.
+     */
+    this.promptEl.classList.toggle("on", this.promptEl.textContent !== "");
   }
 }
