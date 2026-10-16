@@ -42,5 +42,11 @@ out.push(`elements off screen: ${off}  (must be 0)`);
  const more = document.getElementById("more").getBoundingClientRect();
  out.push(`collapsed menu footprint ${Math.round(stack.width)}x${Math.round(stack.height)} (was 96x298 as four pills)`);
  out.push(`hidden menu takes no space: ${more.width === 0 && more.height === 0}`);
-fetch("http://127.0.0.1:8914/", { method: "POST", body: "land|" + out.join("\n") }).catch(() => {});
+const pl = document.querySelector(".panel-left").getBoundingClientRect();
+ const pr = document.querySelector(".panel-right").getBoundingClientRect();
+ out.push(`left panel box: left ${Math.round(pl.left)} top ${Math.round(pl.top)}  (both must be 0)`);
+ out.push(`right panel box: right edge ${Math.round(W - pr.right)} top ${Math.round(pr.top)}  (both must be 0)`);
+ const clock = document.querySelector(".clock").getBoundingClientRect();
+ out.push(`clock text still inset: left ${Math.round(clock.left)} top ${Math.round(clock.top)}`);
+ fetch("http://127.0.0.1:8914/", { method: "POST", body: "land|" + out.join("\n") }).catch(() => {});
 </script>

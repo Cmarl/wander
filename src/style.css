@@ -46,15 +46,48 @@ html, body {
  * a scrim that fades out so it reads as shade rather than a panel, a harder
  * shadow under the glyphs, and more opacity. More readable, not more present.
  */
-.panel { position: absolute; top: var(--pad); padding: 10px 14px; margin: -10px -14px; }
+/**
+ * The panel sits ON the viewport corner, and the inset is padding.
+ *
+ * Clyde: "It should look at the grey area added behind game metadata. Works
+ * well, but needs to be correctly aligned with the top, and left side of the
+ * viewport."
+ *
+ * The scrim is a radial gradient anchored to the element, and the element was
+ * inset sixteen pixels from the left and --pad from the top — so the gradient
+ * started its falloff from there and never reached the corner, leaving a
+ * lighter band along the two edges it was supposed to cover. Negative margins
+ * pulled it back a little, which only moved the seam.
+ *
+ * Top-left is 0,0 now and the offset is padding, so the text lands exactly
+ * where it did while the gradient's origin is the actual corner of the
+ * screen. Safe-area insets go in the padding, where they belong — a notch
+ * should push the TEXT in, not drag the shading away from the edge.
+ */
+.panel { position: absolute; top: 0; }
 .panel-left {
-  left: max(16px, env(safe-area-inset-left));
-  background: radial-gradient(ellipse 120% 100% at 0% 0%, rgba(6, 10, 16, 0.66), transparent 74%);
+  left: 0;
+  /* Longhand on purpose: a max() with env() inside a shorthand was not
+     applying, which left the text flush against the screen edge. */
+  padding-top: var(--pad);
+  padding-right: 30px;
+  padding-bottom: 24px;
+  /* Plain value first, then the safe-area version. If the second declaration
+     is dropped for any reason the text still clears the edge, rather than
+     sitting flush against it — which is what was happening. */
+  padding-left: 18px;
+  padding-left: max(18px, env(safe-area-inset-left));
+  background: radial-gradient(ellipse 150% 135% at 0% 0%, rgba(6, 10, 16, 0.66), transparent 74%);
 }
 .panel-right {
-  right: max(16px, env(safe-area-inset-right));
+  right: 0;
   text-align: right;
-  background: radial-gradient(ellipse 120% 100% at 100% 0%, rgba(6, 10, 16, 0.66), transparent 74%);
+  padding-top: var(--pad);
+  padding-right: 18px;
+  padding-right: max(18px, env(safe-area-inset-right));
+  padding-bottom: 24px;
+  padding-left: 30px;
+  background: radial-gradient(ellipse 150% 135% at 100% 0%, rgba(6, 10, 16, 0.66), transparent 74%);
 }
 
 .clock {
@@ -871,8 +904,16 @@ html, body {
   .journal-list { max-height: 38dvh; }
 }
 
-/* Keep every edge-anchored control clear of notches and home indicators. */
-.buttons, .hud-stack, .photo, .panel-left, .panel-right {
+/*
+ * Keep every edge-anchored control clear of notches and home indicators.
+ *
+ * The metadata panels are NOT in this list any more. They now sit on the
+ * viewport corner with their inset as padding, and this rule — which comes
+ * later in the file and therefore wins — was resetting that padding to zero,
+ * putting the clock flush against the edge of the screen. They carry their
+ * own safe-area padding instead.
+ */
+.buttons, .hud-stack, .photo {
   padding-left: max(0px, env(safe-area-inset-left));
   padding-right: max(0px, env(safe-area-inset-right));
 }
@@ -1053,7 +1094,12 @@ html, body {
   /* Tighter, so the top strip costs less of a short screen. */
   .clock { font-size: 22px; }
   .sub { font-size: 10.5px; margin-top: 2px; }
-  .panel, .panel-right { top: max(10px, env(safe-area-inset-top)); }
+  /* The panel sits on the corner now and the inset is padding, so this must
+     stay at zero or the scrim stops reaching the top edge — which is exactly
+     the gap Clyde spotted. The tightening belongs on the padding instead. */
+  .panel { top: 0; }
+  .panel-left { padding-top: max(10px, env(safe-area-inset-top)); padding-bottom: 18px; }
+  .panel-right { padding-top: max(10px, env(safe-area-inset-top)); padding-bottom: 18px; }
   .vol { width: 74px; }
   .compass { width: min(230px, 40vw); }
   .camp { bottom: 16%; }
