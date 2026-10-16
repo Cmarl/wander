@@ -142,23 +142,45 @@ export function airfield(): Layer[] {
   const marks: THREE.BufferGeometry[] = [];
 
   // The run: 220 m of graded dirt, 18 wide, sitting just above the grass.
-  const RUN = 220;
-  const run = box(18, 0.22, RUN);
-  run.translate(0, 0.11, -RUN / 2 + 20);
+  /**
+   * The graded surface. Thick and sunk, so it bridges whatever is left of the
+   * slope rather than hovering over it — the ground hides what it does not
+   * need, exactly as the building plinths do.
+   */
+  const RUN = 224;
+  /**
+   * Thick, and standing a little proud of the mean.
+   *
+   * The site is allowed 4 m of drop end to end, so the ground runs about two
+   * metres either side of the mean the strip sits on. The surface therefore
+   * has to be two metres up to clear the high end, and the slab six metres
+   * deep so the low end is fill rather than a gap. That is a graded strip:
+   * cut into the hill at one end, built up at the other.
+   */
+  const run = box(26, 6.4, RUN);
+  run.translate(0, -1.0, 0);
   strip.push(run);
+  // A lip of graded earth at the edges, so it reads as cut into the ground
+  // rather than laid on top of it.
+  for (const sx of [-1, 1]) {
+    const shoulder = box(6, 6.0, RUN);
+    shoulder.rotateZ(sx * 0.12);
+    shoulder.translate(sx * 15.5, -1.4, 0);
+    strip.push(shoulder);
+  }
   // Threshold bars at each end, and edge markers down both sides.
-  for (const z of [16, -RUN + 24]) {
+  for (const z of [RUN / 2 - 8, -RUN / 2 + 8]) {
     for (let i = -2; i <= 2; i++) {
       const bar = box(1.5, 0.06, 5);
-      bar.translate(i * 3.4, 0.26, z);
+      bar.translate(i * 3.4, 2.24, z);
       marks.push(bar);
     }
   }
   for (let i = 0; i < 14; i++) {
-    const z = 10 - i * 16;
+    const z = RUN / 2 - 14 - i * 16;
     for (const sx of [-1, 1]) {
       const cone = new THREE.ConeGeometry(0.34, 0.8, 5);
-      cone.translate(sx * 10.5, 0.4, z);
+      cone.translate(sx * 10.5, 2.6, z);
       marks.push(cone);
     }
   }
@@ -171,30 +193,34 @@ export function airfield(): Layer[] {
     [0, -D / 2, W, 0.3], [-W / 2, 0, 0.3, D], [W / 2, 0, 0.3, D],
   ] as [number, number, number, number][]) {
     const wall = box(w, H, d);
-    wall.translate(ox + 26, H / 2, oz - 6);
+    wall.translate(ox + 26, H / 2 + 2.1, oz - 6);
     shed.push(wall);
   }
+  // The hangar stands on its own pad, level with the strip.
+  const pad = box(W + 4, 6.0, D + 5);
+  pad.translate(26, -0.9, -6);
+  strip.push(pad);
   // A curved roof, which is what a hangar has.
   const roof = new THREE.CylinderGeometry(W / 2 + 0.4, W / 2 + 0.4, D + 0.8, 14, 1, false, 0, Math.PI);
   roof.rotateZ(Math.PI / 2);
   roof.rotateY(Math.PI / 2);
-  roof.translate(26, H, -6);
+  roof.translate(26, H + 2.1, -6);
   metal.push(roof);
 
   // Windsock on a mast — the one moving thing, and how you read the wind.
   const mast = new THREE.CylinderGeometry(0.09, 0.12, 7, 6);
-  mast.translate(-14, 3.5, 12);
+  mast.translate(-14, 5.6, 12);
   metal.push(mast);
   const sock = new THREE.ConeGeometry(0.62, 2.4, 7, 1, true);
   sock.rotateZ(Math.PI / 2);
   sock.rotateY(0.5);
-  sock.translate(-12.7, 6.6, 12);
+  sock.translate(-12.7, 8.7, 12);
   marks.push(sock);
 
   // A fuel drum or two by the shed, because somebody has to.
   for (let i = 0; i < 3; i++) {
     const d = new THREE.CylinderGeometry(0.33, 0.33, 0.92, 9);
-    d.translate(18 + (i % 2) * 0.8, 0.46, 1 + i * 0.7);
+    d.translate(18 + (i % 2) * 0.8, 2.56, 1 + i * 0.7);
     metal.push(d);
   }
 

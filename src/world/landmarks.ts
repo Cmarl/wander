@@ -316,13 +316,21 @@ function baseInCell(gx: number, gz: number): Landmark | null {
    *
    * Clyde: "rare, but not overly rare."
    */
-  if (
-    y > 25 &&
-    y < 900 &&
-    footprintDrop(x, z, 60) < 7 &&
-    slopeAt(x, z, 40) < 0.07 &&
-    slotRandom(gx, gz, 1619) > 0.55
-  )
+  /**
+   * An airstrip needs flat ground along its WHOLE length.
+   *
+   * The old test sampled a 60 m box and allowed 7 m of drop across it — but
+   * the strip is 220 m long, so most of it was never measured, and seven
+   * metres is not flat by any reading. The result was a runway buried at one
+   * end and in the air at the other: Clyde's "it's wonky".
+   *
+   * It now measures the actual strip, end to end, and asks for ground that
+   * somebody could plausibly have graded.
+   */
+  // Measured: 2.4 m of drop over 224 m passes 0.4% of sites, which produced no
+  // airstrips at all. 4.0 passes about 3% and is still ground somebody could
+  // plausibly have graded — the slab is built to bridge exactly that much.
+  if (y > 25 && y < 900 && stripDrop(x, z) < 4.0 && slotRandom(gx, gz, 1619) > 0.35)
     options.push("airfield");
   if (moist < 0.70 && y > 80 && y < 1500) options.push("lonetree");
   // Rarer than the rest, or every other cell would be a dead truck.
@@ -398,6 +406,8 @@ function build(
    */
   let spin2 = spin * Math.PI * 2;
   if (kind === "dock") spin2 = seaward(x, z).angle;
+  // A runway is sited by measuring one axis, so it has to lie along it.
+  if (kind === "airfield") spin2 = 0;
 
   const noun = VARIANT_NAMES[kind]?.[variant] ?? LANDMARK_NAMES[kind];
   const name = `${lead} ${middle} ${noun}`;
@@ -413,7 +423,19 @@ function build(
    * Clyde: "all the landmarks are quite jank TBH. esp if not on flat ground".
    */
   let base = y;
-  if (kindNeedsFlatGround(kind)) {
+  /**
+   * A graded strip sits on the MEAN of its ground, not the lowest point.
+   *
+   * Everything else with a flat base takes the minimum so it never hovers,
+   * and the plinth fills the gap. A runway is different: it is cut into the
+   * high end and filled at the low one, which is how a real one is built and
+   * the only way a 220 m slab can meet the ground at both ends.
+   */
+  if (kind === "airfield") {
+    let sum = 0;
+    for (let i = -5; i <= 5; i++) sum += heightAt(x, z + (i / 5) * STRIP_HALF_L);
+    base = sum / 11;
+  } else if (kindNeedsFlatGround(kind)) {
     const r = kind === "steading" ? 6 : 4;
     for (const [dx, dz] of [[-r, -r], [r, -r], [-r, r], [r, r]] as [number, number][]) {
       base = Math.min(base, heightAt(x + dx, z + dz));
@@ -557,6 +579,29 @@ export function seaward(x: number, z: number): { depth: number; angle: number } 
 export const DOCK_REACH = 60;
 
 const seawardDepth = (x: number, z: number) => seaward(x, z).depth;
+
+/** Half-length and half-width of the graded strip, matching the geometry. */
+export const STRIP_HALF_L = 112;
+export const STRIP_HALF_W = 13;
+
+/**
+ * Drop along the length of a runway, sampled where the runway actually is.
+ *
+ * Airstrips are placed with no rotation applied to this test because the
+ * geometry runs along -z and the landmark's spin is overridden to zero for
+ * them — a strip that can point anywhere cannot be sited by measuring one
+ * bearing.
+ */
+export function stripDrop(x: number, z: number): number {
+  let lo = Infinity;
+  let hi = -Infinity;
+  for (let i = -5; i <= 5; i++) {
+    const h = heightAt(x, z + (i / 5) * STRIP_HALF_L);
+    lo = Math.min(lo, h);
+    hi = Math.max(hi, h);
+  }
+  return hi - lo;
+}
 
 function footprintDrop(x: number, z: number, r: number): number {
   let lo = Infinity;

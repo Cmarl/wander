@@ -1,4 +1,5 @@
 import { heightAt, slopeAt, treeDensityAt, slotRandom, moistureAt, temperatureAt } from "./field";
+import { clearingsNear, inAnyClearing } from "./clearings";
 
 /**
  * Single source of truth for where every tree, shrub and rock in the world
@@ -59,6 +60,14 @@ export function propsInCell(gx: number, gz: number, out: Prop[]): void {
     const z = (gz + r1 - 0.5) * CELL;
     const y = heightAt(x, z);
     if (y < 1) continue;
+    /**
+     * Nothing grows where somebody cleared the ground.
+     *
+     * A runway with a pine growing out of it is not a runway. The tree is not
+     * the odd part — a world that grew one where somebody graded two hundred
+     * metres of dirt is the odd part.
+     */
+    if (inAnyClearing(x, z, clearingsNear(x, z, 1))) continue;
 
     const slope = slopeAt(x, z, 4);
     const moist = moistureAt(x, z);

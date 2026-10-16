@@ -3,6 +3,7 @@ import { NOISE_GLSL } from "./glsl/noise";
 import { TERRAIN_GLSL } from "./glsl/terrain";
 import { SKY_GLSL } from "./glsl/sky";
 import { COMMON_GLSL } from "./glsl/common";
+import { clearingsNear } from "./clearings";
 import { CRUSH_POINTS, crushPoints, updateCrush } from "./crush";
 
 /**
@@ -45,6 +46,13 @@ const VERT = /* glsl */ `
 #define CRUSH_POINTS ${CRUSH_POINTS}
 in vec2 aCell;
 uniform vec4 uCrush[CRUSH_POINTS];
+/**
+ * Ground somebody cleared: xy is the centre, zw is cos and sin of its
+ * rotation. uClearSize carries the half extents, and a zero length means the
+ * slot is unused.
+ */
+uniform vec4 uClear[3];
+uniform vec2 uClearSize[3];
 uniform vec2 uOrigin;
 uniform float uSpacing;
 uniform float uRadius;
@@ -75,6 +83,16 @@ void main() {
            * smoothstep(0.14, 0.32, temp)
            * smoothstep(0.06, 0.24, moist)
            * (1.0 - smoothstep(snowLine - 220.0, snowLine, y));
+
+  // Nor on a graded runway. Same rectangles the scatter uses, so the grass and
+  // the trees agree about where the ground was cleared.
+  for (int i = 0; i < 3; i++) {
+    if (uClearSize[i].y <= 0.0) continue;
+    vec2 d = wp - uClear[i].xy;
+    float lx = d.x * uClear[i].z - d.y * uClear[i].w;
+    float lz = d.x * uClear[i].w + d.y * uClear[i].z;
+    if (abs(lx) < uClearSize[i].x && abs(lz) < uClearSize[i].y) ok = 0.0;
+  }
 
   // Nothing grows in a wheel rut. This is what actually makes a track read as
   // worn rather than painted on — the colour alone looked like a decal.
@@ -181,6 +199,8 @@ export class Grass {
         uTime: { value: 0 },
         uWind: { value: 0.1 },
         uCrush: { value: crushPoints },
+        uClear: { value: [new THREE.Vector4(), new THREE.Vector4(), new THREE.Vector4()] },
+        uClearSize: { value: [new THREE.Vector2(), new THREE.Vector2(), new THREE.Vector2()] },
         uSunDir: { value: new THREE.Vector3(0, 1, 0) },
         uSunColor: { value: new THREE.Color(1, 1, 1) },
         uSkyAmbient: { value: new THREE.Color(0.3, 0.4, 0.55) },
@@ -201,10 +221,37 @@ export class Grass {
     updateCrush(dt, x, y, z, moving);
   }
 
+  private clearAtX = Infinity;
+  private clearAtZ = Infinity;
+
   update(camX: number, camZ: number, time: number) {
     // Snap to the grid so tufts stay put as the camera moves.
     const o = this.material.uniforms.uOrigin.value as THREE.Vector2;
     o.set(Math.round(camX / this.spacing) * this.spacing, Math.round(camZ / this.spacing) * this.spacing);
     this.material.uniforms.uTime.value = time;
+
+    /**
+     * Tell the shader where the ground was cleared.
+     *
+     * Recomputed only when the camera has moved a tuft's spacing, because
+     * landmarksNear is a real scan and running it every frame for something
+     * that changes every few metres would be waste.
+     */
+    if (Math.hypot(camX - this.clearAtX, camZ - this.clearAtZ) > 24) {
+      this.clearAtX = camX;
+      this.clearAtZ = camZ;
+      const near = clearingsNear(camX, camZ, 1);
+      const cs = this.material.uniforms.uClear.value as THREE.Vector4[];
+      const ss = this.material.uniforms.uClearSize.value as THREE.Vector2[];
+      for (let i = 0; i < cs.length; i++) {
+        const c = near[i];
+        if (!c) {
+          ss[i].set(0, 0);
+          continue;
+        }
+        cs[i].set(c.x, c.z, Math.cos(c.rot), Math.sin(c.rot));
+        ss[i].set(c.halfW, c.halfL);
+      }
+    }
   }
 }
