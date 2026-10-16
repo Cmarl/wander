@@ -38,6 +38,20 @@ const SWIM = 2.2;
  */
 const FOOT_ACCEL = 11;
 const FOOT_BRAKE = 30;
+
+/**
+ * Falling.
+ *
+ * Terminal velocity for a person is about 55 m/s and a round canopy brings
+ * that to five or six. Both are real numbers and both feel right, which is
+ * convenient — a jump from a kilometre is twenty seconds of falling and about
+ * three minutes if you pull immediately, so when you pull is the decision.
+ */
+const FREE_FALL = 52;
+const CHUTE_FALL = 5.5;
+/** How hard you can steer under canopy, and how fast you can drift. */
+const CHUTE_STEER = 9;
+const CHUTE_DRIFT = 13;
 /** Deeper than this and your feet are off the bottom. */
 const SWIM_DEPTH = 1.25;
 /** How much of you is under when swimming. */
@@ -349,9 +363,22 @@ export class Player {
   ridingHost: number | null = null;
   /** Eased toward the stick rather than assigned from it. */
   private footSpeed = 0;
+  /** Horizontal drift while falling, in m/s. */
+  private fallX = 0;
+  private fallZ = 0;
   private prevFootSpeed = 0;
   /** Forward pitch while accelerating, in radians. */
   private lean = 0;
+  /**
+   * Out of the aircraft and falling.
+   *
+   * 0 means on the ground or in something. 1 means falling. 2 means the chute
+   * is out. It is a state rather than a flag because the three behave
+   * completely differently and the transitions are the whole feature.
+   */
+  skyState: 0 | 1 | 2 = 0;
+  /** Fires on leaving, on the chute opening, and on landing. */
+  onSkydive?: (what: "jump" | "chute" | "land") => void;
   /** In water past your chest, floating. */
   swimming = false;
   /** In water, but still on the bottom. */
@@ -408,6 +435,38 @@ export class Player {
   }
 
   // --- on foot ---------------------------------------------------------------
+
+  /**
+   * Stepping out of an aircraft in flight.
+   *
+   * Clyde: "you should be able to jump out from high up and sky dive then
+   * parachute down". The aircraft keeps flying — it is not destroyed and not
+   * waiting for you, it is simply gone, which is both simpler and a better
+   * story.
+   */
+  bailOut() {
+    if (this.mode !== "drive" || !this.spec.flies || !this.vehAir) return false;
+    const root = this.vehicle.root;
+    this.mode = "foot";
+    this.position.set(root.position.x, root.position.y - 1.2, root.position.z);
+    this.heading = this.vehHeading;
+    this.grounded = false;
+    this.velY = Math.min(0, this.vehVelY);
+    // Carry the aircraft's momentum out of the door with you.
+    this.fallX = Math.sin(this.vehHeading) * this.vehSpeed * 0.45;
+    this.fallZ = Math.cos(this.vehHeading) * this.vehSpeed * 0.45;
+    this.skyState = 1;
+    this.onSkydive?.("jump");
+    return true;
+  }
+
+  /** Pull the handle. Only while falling, and only once. */
+  deployChute() {
+    if (this.skyState !== 1) return false;
+    this.skyState = 2;
+    this.onSkydive?.("chute");
+    return true;
+  }
 
   private updateOnFoot(dt: number, input: Controls) {
     if (this.featureHold) {
@@ -551,7 +610,49 @@ export class Player {
       this.velY = JUMP;
       this.grounded = false;
     }
-    if (!this.grounded) {
+    /**
+     * Falling out of the sky.
+     *
+     * Free-fall builds to a terminal speed rather than accelerating forever,
+     * and the chute cuts that to a drift. Horizontal momentum carries out of
+     * the aircraft door and bleeds away — under canopy it bleeds faster,
+     * which is what makes opening it feel like putting the brakes on.
+     *
+     * You cannot die of it. This game has no fail states, so a chute you
+     * never pulled is a hard landing and a story, not a death.
+     */
+    if (this.skyState > 0) {
+      const chute = this.skyState === 2;
+      const terminal = chute ? CHUTE_FALL : FREE_FALL;
+      // Drag toward terminal rather than a clamp, so it eases into it.
+      this.velY += (-terminal - this.velY) * Math.min(1, dt * (chute ? 2.2 : 0.55));
+      const bleed = Math.min(1, dt * (chute ? 1.5 : 0.25));
+      this.fallX -= this.fallX * bleed;
+      this.fallZ -= this.fallZ * bleed;
+      // Under canopy you can steer a little, which is most of the fun of it.
+      if (chute) {
+        this.fallX += moveDirX * CHUTE_STEER * dt;
+        this.fallZ += moveDirZ * CHUTE_STEER * dt;
+        const sp = Math.hypot(this.fallX, this.fallZ);
+        if (sp > CHUTE_DRIFT) {
+          this.fallX *= CHUTE_DRIFT / sp;
+          this.fallZ *= CHUTE_DRIFT / sp;
+        }
+      }
+      this.position.x += this.fallX * dt;
+      this.position.z += this.fallZ * dt;
+      this.position.y += this.velY * dt;
+      if (this.position.y <= ground) {
+        this.position.y = ground;
+        this.velY = 0;
+        this.grounded = true;
+        this.skyState = 0;
+        this.fallX = 0;
+        this.fallZ = 0;
+        this.onSkydive?.("land");
+        this.onLand?.();
+      }
+    } else if (!this.grounded) {
       this.velY -= GRAVITY * dt;
       this.position.y += this.velY * dt;
       if (this.position.y <= ground) {

@@ -141,6 +141,35 @@ sound.attachUnlock();
 player.onLand = () => sound.land();
 player.onJump = (inVehicle) => sound.jump(inVehicle);
 /**
+ * Leaving an aircraft, opening a canopy, and arriving.
+ *
+ * The aircraft keeps flying. It is not destroyed and not waiting for you —
+ * it is simply gone, which is both simpler and a better story.
+ */
+player.onSkydive = (what) => {
+  if (what === "jump") {
+    sound.jump(false);
+    hud.found("you step out", "into the air", "press to open the chute");
+    haptics.discover();
+  } else if (what === "chute") {
+    sound.action("orchard"); // canopy snapping open: cloth and a crack
+    hud.announce("canopy out", "");
+    haptics.land(0.6);
+  } else {
+    sound.land();
+    found.add({
+      id: "skydive",
+      kind: "badge",
+      name: "Jumped out and lived",
+      x: Math.round(player.position.x),
+      z: Math.round(player.position.z),
+      at: Date.now(),
+      tod: env.timeOfDay,
+      region: regionAt(player.position.x, player.position.z).name,
+    });
+  }
+};
+/**
  * Spray. Rate-limited rather than fired every frame — at sixty frames a
  * second an unthrottled splash is white noise, not a splash.
  */
@@ -1322,8 +1351,18 @@ function frame(now: number) {
   );
 
   // --- what this place offers ---------------------------------------------
+  // Stepping out of an aircraft in flight. Checked before the normal interact
+  // arbitration, because at three thousand feet there is nothing else the key
+  // could reasonably mean.
+  if (controls.interact && player.mode === "drive" && SPECS[player.spec.cls].flies) {
+    if (player.bailOut()) controls.interact = false;
+  }
+
   if (controls.interact && placeWins) {
-    if (features.held) {
+    if (player.skyState === 1) {
+      // Falling: the interact key is the handle.
+      player.deployChute();
+    } else if (features.held) {
       // Press again to get out. Nothing ever traps you somewhere.
       // Indoors the fire belongs to the room, so it goes out with it —
       // otherwise stepping outside left a hearth burning inside a building
@@ -1676,7 +1715,11 @@ function frame(now: number) {
     fps,
     headingDeg,
     prompt:
-      player.ridingHost !== null
+      player.skyState === 1
+        ? "open the chute"
+        : player.skyState === 2
+          ? "steer with the stick"
+          : player.ridingHost !== null
         ? `hop out`
         : rideWins && lift
           ? `ride with ${lift.name}`
