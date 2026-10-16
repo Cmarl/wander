@@ -144,10 +144,15 @@ export class Journal {
     stats: Record<string, string>;
     /** What is bolted on, described rather than tabulated. */
     parts: { label: string; note: string }[];
-    /** Colours found in tins. */
-    cans: { name: string; hex: number }[];
+    /**
+     * Every colour you can actually put on the truck — the ones distance
+     * earned and the ones you found in a shed, in one list, because from
+     * where you are standing they are the same thing: paint you have.
+     */
+    paints: { name: string; hex: number; found: boolean; on: boolean }[];
   } | null = () => null;
   onChooseVehicle?: (cls: string) => void;
+  onChoosePaint?: (index: number) => void;
   /** Controller state and mapping, read live. */
   pad: () => {
     snapshot: { name: string; axes: number[]; buttons: number[] } | null;
@@ -231,24 +236,47 @@ export class Journal {
     }
     // Pinning a rumour. Delegated, because entries are rebuilt on every open.
     this.list.addEventListener("pointerdown", (e) => {
-      const id = (e.target as HTMLElement).dataset?.id;
-      const el = e.target as HTMLElement;
-      if (!id && !el.dataset?.veh && !el.dataset?.pad) return;
+      /**
+       * What was actually pressed.
+       *
+       * This used to read e.target.dataset directly and bail unless it held
+       * one of three known keys. Two problems, and I hit both: a new kind of
+       * control added below the guard never ran at all, because the guard had
+       * already returned; and a press that landed on something INSIDE a
+       * control — the colour dot in a paint swatch — saw no dataset and was
+       * thrown away.
+       *
+       * So it asks the DOM which control the press belongs to, rather than
+       * keeping its own list of what controls exist. Adding a fourth kind now
+       * needs nothing here.
+       */
+      const el = (e.target as HTMLElement).closest?.(
+        "[data-id],[data-veh],[data-pad],[data-paint]"
+      ) as HTMLElement | null;
+      if (!el) return;
+      const id = el.dataset.id;
       e.stopPropagation();
-      const padAct = (e.target as HTMLElement).dataset?.pad;
+      const padAct = el.dataset.pad;
       if (padAct) {
         e.stopPropagation();
         this.onRebind?.(padAct);
         this.render();
         return;
       }
-      const veh = (e.target as HTMLElement).dataset?.veh;
+      const veh = el.dataset.veh;
       if (veh) {
         e.stopPropagation();
         this.onChooseVehicle?.(veh);
         this.render();
         return;
       }
+      const paint = el.dataset.paint;
+      if (paint !== undefined) {
+        this.onChoosePaint?.(Number(paint));
+        this.render();
+        return;
+      }
+      if (!id) return;
       const f = this.found.all().find((q) => q.id === id);
       if (!f) return;
       this.onPinRumour?.(f);
@@ -410,9 +438,7 @@ export class Journal {
       // of what is missing — the register shows what you found and never what
       // you did not.
       (st.parts.length
-        ? `<div class="region-head"><b>Fitted</b><s>${st.parts.length} ${
-            st.parts.length === 1 ? "part" : "parts"
-          }</s></div>` +
+        ? `<div class="region-head"><b>Fitted</b><s>to every vehicle</s></div>` +
           st.parts
             .map(
               (p) =>
@@ -420,18 +446,29 @@ export class Journal {
             )
             .join("")
         : "") +
-      // Colours found in tins. Swatches rather than names, because a colour
-      // is a thing you recognise rather than a thing you read.
-      (st.cans.length
-        ? `<div class="region-head"><b>Paint found</b><s>${st.cans.length} ${
-            st.cans.length === 1 ? "tin" : "tins"
-          }</s></div>
-           <div class="cans">${st.cans
+      /**
+       * Paint you can actually put on.
+       *
+       * These used to be inert swatches: a list of tins you had found, with
+       * no way to use one. The only way to change colour was the K key, which
+       * cycles blindly through a list you cannot see — and on a phone there
+       * is no K at all, so a colour found in a shed was unreachable forever.
+       *
+       * Showing what you own and not letting you choose it is the worst of
+       * both: it is management UI that does not manage anything.
+       *
+       * Earned and found colours sit in ONE list, because from where you are
+       * standing they are the same thing — paint you have. The tins are
+       * marked, since where a colour came from is the part worth remembering.
+       */
+      (st.paints.length > 1
+        ? `<div class="region-head"><b>Paint</b><s>tap to use</s></div>
+           <div class="cans">${st.paints
              .map(
-               (c) =>
-                 `<span class="can" title="${c.name}"><i style="background:#${c.hex
-                   .toString(16)
-                   .padStart(6, "0")}"></i>${c.name}</span>`
+               (c, i) =>
+                 `<button class="can${c.on ? " on" : ""}" data-paint="${i}" title="${c.name}">` +
+                 `<i style="background:#${c.hex.toString(16).padStart(6, "0")}"></i>` +
+                 `${c.name}${c.found ? "<u>found</u>" : ""}</button>`
              )
              .join("")}</div>`
         : "") +

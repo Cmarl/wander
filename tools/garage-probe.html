@@ -1,0 +1,138 @@
+<!doctype html><meta charset=utf8>
+<!--
+  Can you actually use the paint you found?
+
+  The garage listed the tins you had picked up as inert swatches. The only way
+  to change colour was the K key, which cycles blindly through a list you
+  cannot see — and a phone has no K, so a colour found in a shed was
+  unreachable forever. Showing what you own without letting you choose it is
+  management UI that does not manage anything.
+
+  This builds the real Journal against a stubbed stable(), opens the garage,
+  and checks the three things that matter: that every colour is offered, that
+  tapping one reports the right index back, and that the targets are big
+  enough to hit with a thumb.
+
+  Run:  npm run dev
+        open http://localhost:5173/tools/garage-probe.html
+
+  Not a build entry: vite builds index.html only, so this never ships.
+--><body><pre id=out style="position:fixed;z-index:99;background:#000;color:#ddd;font:11px monospace;max-height:60vh;overflow:auto"></pre>
+<div id=ui></div>
+<script type="module">
+// The journal mounts itself into #ui, which index.html provides and a bare
+// probe page does not.
+import "../src/style.css";
+import { Journal } from "../src/ui/journal.ts";
+
+const out = document.getElementById("out");
+const lines = [];
+const log = (s) => { out.textContent += s + "\n"; lines.push(s); };
+const send = () => fetch("http://127.0.0.1:8915/", { method: "POST", body: lines.join("\n") }).catch(() => {});
+window.onerror = (m, f, l) => { log(`THREW: ${m} (line ${l})`); send(); };
+let bad = 0;
+const check = (ok, label, detail) => { if (!ok) bad++; log(`${ok ? "  ok  " : "  FAIL"}  ${label.padEnd(46)} ${detail}`); };
+
+// Four colours earned by driving, two found in sheds — the mixed case, which
+// is the only one where "which of these did I find" has an answer.
+const PAINTS = [
+  { name: "Ochre", hex: 0xd8c04a, found: false, on: false },
+  { name: "Dust", hex: 0xb9a68a, found: false, on: true },
+  { name: "Pine", hex: 0x4a6b52, found: false, on: false },
+  { name: "Rust", hex: 0xa85c38, found: false, on: false },
+  { name: "Signal", hex: 0xc4432f, found: true, on: false },
+  { name: "Cobalt", hex: 0x3a5f9e, found: true, on: false },
+];
+
+let chosenPaint = null;
+const found = { all: () => [], has: () => false, add: () => {}, regions: () => [] };
+const j = new Journal(found, () => "Meadow", () => ({ x: 0, z: 0 }));
+j.stable = () => ({
+  owned: ["truck", "plane"],
+  chosen: "truck",
+  labels: { truck: "Truck", plane: "Aeroplane" },
+  stats: { truck: "steady, good on hills", plane: "fast, needs room" },
+  parts: [
+    { label: "Suspension mk2", note: "lands softer, turns harder" },
+    { label: "Turbo", note: "noticeably more top end" },
+  ],
+  paints: PAINTS,
+});
+j.onChoosePaint = (i) => { chosenPaint = i; };
+j.onChooseVehicle = () => {};
+
+j.toggle(true);
+/**
+ * The whole sheet responds to pointerdown, not click — it is a touch-first UI
+ * and a 300 ms wait for a click would feel broken on a phone. So the probe has
+ * to press things the way a thumb does. Calling .click() did nothing at all,
+ * and every assertion below failed against a perfectly good garage.
+ */
+const press = (el) => el?.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true, cancelable: true }));
+const tabs = [...document.querySelectorAll("[data-view]")].map((t) => t.dataset.view);
+log(`tabs: ${tabs.join(", ")}`);
+const garageTab = document.querySelector('[data-view="garage"]');
+press(garageTab);
+await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
+const list = document.querySelector("#j-list");
+log(`after clicking garage: list has ${list?.children.length ?? "no"} children, ` +
+    `${(list?.innerHTML ?? "").length} chars`);
+
+const swatches = [...document.querySelectorAll("[data-paint]")];
+log(`garage shows ${swatches.length} colours`);
+check(swatches.length === PAINTS.length, "every colour you have is offered", `${swatches.length} of ${PAINTS.length}`);
+check(swatches.every((s) => s.tagName === "BUTTON"), "and each one is a button, not a label",
+  swatches.map((s) => s.tagName).join(","));
+
+// The one on the truck is marked.
+const on = swatches.filter((s) => s.classList.contains("on"));
+check(on.length === 1 && on[0].dataset.paint === "1", "the one in use is marked, and only it",
+  `${on.length} marked, index ${on[0]?.dataset.paint}`);
+
+// Where a colour came from is shown, and only for the found ones.
+const marked = swatches.filter((s) => s.querySelector("u"));
+check(marked.length === 2, "the found ones say so", `${marked.length} marked found`);
+check(marked.every((s) => Number(s.dataset.paint) >= 4), "and they are the right two",
+  marked.map((s) => s.dataset.paint).join(","));
+
+/**
+ * Tapping — and re-querying each time.
+ *
+ * Choosing a colour re-renders the sheet, which REPLACES these elements. The
+ * cached list is then a set of detached nodes: they measure 0 x 0 and report
+ * themselves outside the card, so the layout assertions below failed on a
+ * layout that was fine.
+ *
+ * The press lands on the dot inside the button rather than the button itself,
+ * which is the case the delegation guard used to throw away.
+ */
+const now = () => [...document.querySelectorAll("[data-paint]")];
+press(now()[4].querySelector("i"));
+check(chosenPaint === 4, "tapping the colour dot picks that colour", `got ${chosenPaint}`);
+chosenPaint = null;
+press(now()[2]);
+check(chosenPaint === 2, "and tapping the button does too", `got ${chosenPaint}`);
+
+// Thumb-sized. A colour swatch is exactly the sort of control that ends up
+// 18 px tall and impossible to hit while holding a phone one-handed.
+const boxes = now().map((s) => s.getBoundingClientRect());
+const minH = boxes.length ? Math.min(...boxes.map((b) => b.height)) : 0;
+const minW = boxes.length ? Math.min(...boxes.map((b) => b.width)) : 0;
+log(`smallest swatch: ${minW.toFixed(0)} x ${minH.toFixed(0)} px`);
+check(minH >= 24, "tall enough to hit with a thumb", `${minH.toFixed(0)} px`);
+
+// Nothing spilling out of the card.
+const card = document.querySelector(".sheet-card")?.getBoundingClientRect() ?? { left: 0, right: 1e9 };
+const over = boxes.filter((b) => b.right > card.right + 1 || b.left < card.left - 1);
+check(over.length === 0, "and none of them spill out of the card", `${over.length} overflowing`);
+
+// The parts half: it should say who they are fitted to, because the answer is
+// "everything" and leaving that unsaid invites the question.
+const heads = [...document.querySelectorAll(".region-head")].map((h) => h.textContent);
+log(`section heads: ${heads.join(" | ")}`);
+check(heads.some((h) => /Fitted/.test(h) && /every vehicle/.test(h)),
+  "the parts say they fit every vehicle", heads.find((h) => /Fitted/.test(h)) ?? "no Fitted head");
+
+log(bad ? `\n${bad} FAILED` : "\nall assertions passed");
+send();
+</script>

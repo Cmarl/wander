@@ -41,7 +41,7 @@ import { Postcard } from "./ui/postcard";
 import { Journal } from "./ui/journal";
 import { ACTION_LABEL as PAD_ACTIONS, type PadAction } from "./input/gamepad";
 import { haptics } from "./ui/haptics";
-import { Garage, CAN_PAINTS } from "./game/paint";
+import { Garage } from "./game/paint";
 import { Soundscape } from "./audio/soundscape";
 import { Net, DEFAULT_WORLD } from "./net/net";
 import { PeerBodies, seatOf } from "./net/peers";
@@ -442,9 +442,29 @@ journal.stable = () => ({
     label: PARTS[k].label + (PARTS[k].tiers > 1 ? ` mk${kit.owned.get(k)}` : ""),
     note: PARTS[k].note,
   })),
-  // Colours found in tins, as swatches rather than a list of names.
-  cans: garage.cans.map((i) => ({ name: CAN_PAINTS[i].name, hex: CAN_PAINTS[i].hex })),
+  /**
+   * Every colour available, in the order the garage cycles them, so the index
+   * the journal hands back is the index `garage.index` wants. Deriving it from
+   * the same unlocked() the cycle key uses is what stops the two from
+   * disagreeing about which colour is which.
+   */
+  paints: garage.unlocked(player.distanceTravelled / 1000).map((p, i) => ({
+    name: p.name,
+    hex: p.hex,
+    // Found in a shed rather than earned by driving. CAN_PAINTS are appended
+    // after the distance list, so anything past that length was found.
+    found: i >= PAINTS.filter((q) => player.distanceTravelled / 1000 >= q.km).length,
+    on: i === Math.min(garage.index, garage.unlocked(player.distanceTravelled / 1000).length - 1),
+  })),
 });
+journal.onChoosePaint = (i) => {
+  const open = garage.unlocked(player.distanceTravelled / 1000);
+  const paint = open[Math.max(0, Math.min(i, open.length - 1))];
+  if (!paint) return;
+  garage.select(i);
+  player.vehicle.setPaint(paint.hex);
+  hud.announce(paint.name, "painted");
+};
 /**
  * The controller tab, read live every time the sheet renders.
  *

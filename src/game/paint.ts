@@ -83,6 +83,19 @@ export class Garage {
     return open[Math.min(this.index, open.length - 1)] ?? PAINTS[0];
   }
 
+  /**
+   * Pick one directly.
+   *
+   * cycle() below is the K key, which steps blindly through the list. This is
+   * the garage, where you can see them — and it goes through the same index
+   * and the same storage key, so pressing K after picking one carries on from
+   * where you picked rather than from wherever the cycle had got to.
+   */
+  select(i: number) {
+    this.index = Math.max(0, i) | 0;
+    localStorage.setItem(KEY, String(this.index));
+  }
+
   /** Returns the newly selected paint. */
   cycle(km: number): Paint {
     const open = this.unlocked(km);

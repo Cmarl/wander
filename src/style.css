@@ -1140,6 +1140,33 @@ html, body {
   height: 16px;
   border-radius: 50%;
   border: 1px solid rgba(255, 255, 255, 0.28);
+  flex: none;
+}
+/*
+ * The swatches are buttons now, so they need the things a button needs and
+ * none of what one brings with it.
+ */
+.can {
+  border: 1px solid transparent;
+  color: inherit;
+  font-family: inherit;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+.can:hover { opacity: 1; border-color: rgba(255, 255, 255, 0.22); }
+/* The one on the vehicle, marked the same way the chosen vehicle is. */
+.can.on {
+  opacity: 1;
+  background: rgba(226, 192, 105, 0.14);
+  border-color: rgba(226, 192, 105, 0.55);
+  color: #e2c069;
+}
+/* Where a colour came from, which is the part worth remembering. */
+.can u {
+  text-decoration: none;
+  opacity: 0.5;
+  font-size: 9px;
+  margin-left: 5px;
 }
 
 /* The collapsed HUD menu, on touch only. */
