@@ -151,6 +151,9 @@ player.onSplash = (force) => {
   haptics.land(force * 0.5);
 };
 player.onMount = () => {
+  // The voice has to be set before the engine starts, or the first second of
+  // an aeroplane is a truck turning over.
+  sound.setVehicleVoice(player.spec.cls);
   sound.mount();
   // Flying has one control and no way to guess it. Said on every boarding of
   // an aircraft rather than once ever, because "once ever" is a thing you

@@ -222,6 +222,49 @@ export class Sfx {
  * steered every frame — an engine that only crossfades between loops never
  * sounds like it's under load.
  */
+/**
+ * What a class of vehicle sounds like.
+ *
+ * `gears` of 0 means no gearbox: the note rises smoothly with speed, which is
+ * a prop or a turbine rather than a transmission.
+ */
+export interface EngineVoice {
+  gears: number;
+  base: number;
+  span: number;
+  toneBase: number;
+  toneSpan: number;
+  toneLoad: number;
+  induction: number;
+  level: number;
+  /** Extra tremolo depth — a helicopter's blade chop. */
+  chop: number;
+  /** Multiplier on the tremolo rate relative to the engine note. */
+  lumpRatio: number;
+  tyres: number;
+  wind: number;
+}
+
+export const VOICES: Record<string, EngineVoice> = {
+  // Gruff and low, and softened from where it was: Clyde called it "a touch
+  // abrasive", and most of that was the filter sweeping to 3.2 kHz under load.
+  truck: { gears: 4, base: 26, span: 86, toneBase: 340, toneSpan: 1250, toneLoad: 560,
+           induction: 0.7, level: 0.92, chop: 0, lumpRatio: 0.5, tyres: 1, wind: 1 },
+  // Higher, revvier, thinner.
+  bike: { gears: 5, base: 58, span: 150, toneBase: 520, toneSpan: 2300, toneLoad: 900,
+          induction: 1.1, level: 0.85, chop: 0, lumpRatio: 0.5, tyres: 0.7, wind: 1.3 },
+  // Slow and lumpy, a big low-revving diesel.
+  rover: { gears: 3, base: 20, span: 58, toneBase: 260, toneSpan: 820, toneLoad: 420,
+           induction: 0.6, level: 1, chop: 0.04, lumpRatio: 0.34, tyres: 1.2, wind: 0.7 },
+  // No gearbox. A steady turbine with the rotor chopping over the top of it,
+  // which is the entire character of a helicopter.
+  chopper: { gears: 0, base: 44, span: 70, toneBase: 900, toneSpan: 2100, toneLoad: 300,
+             induction: 1.4, level: 1, chop: 0.26, lumpRatio: 0.18, tyres: 0, wind: 0.6 },
+  // No gearbox either. A prop rising smoothly with airspeed and a lot of wind.
+  plane: { gears: 0, base: 62, span: 125, toneBase: 1100, toneSpan: 2600, toneLoad: 320,
+           induction: 1.5, level: 0.95, chop: 0.05, lumpRatio: 0.25, tyres: 0, wind: 2.4 },
+};
+
 export class VehicleAudio {
   private built = false;
   private running = false;
@@ -316,6 +359,13 @@ export class VehicleAudio {
     this.prevY = null;
   }
 
+  private voice: EngineVoice = VOICES.truck;
+
+  /** Called when the player changes vehicle. */
+  setVoice(v: EngineVoice) {
+    this.voice = v;
+  }
+
   update(dt: number, s: { speed: number; throttle: number; topSpeed: number; y: number }) {
     if (!this.built || !this.e.ctx) return;
     const t = this.e.now;
@@ -335,26 +385,47 @@ export class VehicleAudio {
 
     const norm = Math.min(Math.abs(s.speed) / s.topSpeed, 1);
     // A fake four-speed: revs climb through each gear then drop on the shift.
-    const GEARS = 4;
-    const g = Math.min(GEARS - 1, Math.floor(norm * GEARS));
-    const rpm = 0.18 + (norm * GEARS - g) * 0.82;
+    /**
+     * Gears, or not.
+     *
+     * Clyde: "plane sounds exactly like the truck rn". It did, because every
+     * vehicle ran the same fake four-speed gearbox — revs climbing through a
+     * ratio and dropping on the shift. That IS a truck. An aeroplane has no
+     * gearbox at all and a helicopter's note barely moves with speed, so the
+     * one thing most characteristic about how each sounds was being
+     * overwritten by a truck's transmission.
+     *
+     * GEARS of 0 means the note simply rises with speed, which is what a prop
+     * or a turbine does.
+     */
+    const v = this.voice;
+    const GEARS = v.gears;
+    const rpm = GEARS
+      ? 0.18 + (norm * GEARS - Math.min(GEARS - 1, Math.floor(norm * GEARS))) * 0.82
+      : 0.2 + norm * 0.8;
     const load = Math.max(Math.abs(s.throttle), 0.12);
 
-    const f = 26 + rpm * 86;
+    const f = v.base + rpm * v.span;
     const set = (p: AudioParam, v: number, tc = 0.08) => p.setTargetAtTime(v, t, tc);
     set(this.osc1.frequency, f);
     set(this.osc2.frequency, f * 2);
     set(this.sub.frequency, f * 0.5);
-    set(this.lump.frequency, f * 0.5, 0.05);
-    set(this.lumpDepth.gain, 0.05 + (1 - rpm) * 0.06);
+    set(this.lump.frequency, f * v.lumpRatio, 0.05);
 
     // Opening the throttle opens the tone — that's most of "under load".
-    set(this.tone.frequency, 380 + rpm * 1900 + load * 900, 0.12);
-    set(this.induction.gain, 0.012 + load * 0.03 * rpm);
-    set(this.engGain.gain, 0.085 + rpm * 0.045 + load * 0.028, 0.12);
+    // Opening the throttle opens the tone — that's most of "under load".
+    // The ceiling is per-voice: a truck is gruff, a turbine is bright, and a
+    // boxy filter sweep is what made everything sound like the same engine.
+    set(this.tone.frequency, v.toneBase + rpm * v.toneSpan + load * v.toneLoad, 0.12);
+    set(this.induction.gain, (0.012 + load * 0.03 * rpm) * v.induction);
+    set(this.engGain.gain, (0.085 + rpm * 0.045 + load * 0.028) * v.level, 0.12);
 
-    set(this.tyreGain.gain, Math.pow(norm, 1.3) * 0.038);
+    // Chop: a helicopter's blade-pass thud, off for everything else.
+    set(this.lumpDepth.gain, 0.05 + (1 - rpm) * 0.06 + v.chop);
+
+    // Tyres only exist if there are tyres on the ground.
+    set(this.tyreGain.gain, Math.pow(norm, 1.3) * 0.038 * v.tyres);
     set(this.tyreFilter.frequency, 520 + norm * 760, 0.2);
-    set(this.windGain.gain, Math.pow(norm, 2.2) * 0.024);
+    set(this.windGain.gain, Math.pow(norm, 2.2) * 0.024 * v.wind);
   }
 }

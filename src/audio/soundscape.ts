@@ -1,6 +1,6 @@
 import { AudioEngine } from "./engine";
 import { Ambience, type AmbienceContext } from "./ambience";
-import { Sfx, VehicleAudio } from "./sfx";
+import { Sfx, VehicleAudio, VOICES } from "./sfx";
 import { Drift, moodFor } from "./drift";
 import { heightAt, slopeAt, temperatureAt, treeDensityAt, surfaceAt, type Surface } from "../world/field";
 
@@ -131,6 +131,11 @@ export class Soundscape {
 
   horn() {
     this.sfx.horn();
+  }
+
+  /** Whichever machine you are in now sounds like itself. */
+  setVehicleVoice(cls: string) {
+    this.vehicle.setVoice(VOICES[cls] ?? VOICES.truck);
   }
 
   splash(force: number) {
