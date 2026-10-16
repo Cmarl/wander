@@ -137,24 +137,67 @@ html, body {
 /* compass */
 .compass {
   position: absolute;
-  top: var(--pad);
+  /*
+   * Flush with the top of the screen, like the panel beside it.
+   *
+   * Clyde: "Make sure PCC fixed the gap above the compass soon too pls".
+   * Measured, it was two separate things sitting on top of each other:
+   *
+   *   The panel's shaded box starts at y=0 and the compass's started at
+   *   y=14 — var(--pad) — so at the top of the screen one ran to the edge
+   *   and the other floated below it. That 14 px strip IS the gap. The panel
+   *   got moved flush when he asked for it to line up with the viewport;
+   *   the compass was never moved with it.
+   *
+   *   And the box was 40 px tall for a tape that ends at 19. The 21 px
+   *   underneath was reserved for a pin row that has since been moved OUT of
+   *   the compass entirely — see .pin-lead, "Outside the compass, so it can
+   *   never be clipped or masked". The comment that justified the height
+   *   outlived the thing it was holding room for.
+   *
+   * So: top 0, and the padding moved inside, which is exactly how the panel
+   * does it. The shading now starts at the screen edge for both.
+   */
+  top: 0;
   left: 50%;
   transform: translateX(-50%);
   width: min(300px, 52vw);
-  /* Must clear the tape AND the pin row beneath it. At 22px the pins were
-     sliced off at the bottom by overflow:hidden on every device. */
-  height: 40px;
+  /* The tape and three pixels of air, no more. */
+  height: calc(var(--pad) + 22px);
   overflow: hidden;
   /* A soft wash behind the tape. Letters at 0.72 opacity over bare sky were
      fine against dusk and nearly gone against snow or noon cloud; the whole
      point of a compass is being readable without being looked at. The
      horizontal mask fades this out at both ends along with the lettering, so
      it reads as a hint of shade rather than a bar across the view. */
-  background: radial-gradient(ellipse 60% 100% at 50% 0%, rgba(8, 12, 18, 0.46), transparent 70%);
+  /*
+   * Anchored to the LETTERING rather than to the top of the box. The wash was
+   * centred at 50% 0%, which was the text's line when the box began at the
+   * text; now that the box starts at the screen edge, the same anchor would
+   * put the darkest part in the empty strip above and leave the letters in
+   * the fade — which is the thing this wash exists to prevent.
+   *
+   * Measured from the BOTTOM, so a notched phone with a 47 px safe area gets
+   * the shading in the same place relative to the words as a laptop with 14.
+   */
+  background: radial-gradient(
+    ellipse 60% 100% at 50% calc(100% - 11px),
+    rgba(8, 12, 18, 0.46),
+    transparent 70%
+  );
   mask-image: linear-gradient(90deg, transparent, #000 22%, #000 78%, transparent);
   -webkit-mask-image: linear-gradient(90deg, transparent, #000 22%, #000 78%, transparent);
 }
-.compass-tape { position: absolute; left: 50%; top: 3px; height: 16px; will-change: transform; }
+.compass-tape {
+  position: absolute;
+  left: 50%;
+  /* Unchanged on screen: the box moved up by --pad, so the tape moves down by
+     it. The lettering is where it always was; only the shading behind it grew
+     up to meet the edge. */
+  top: calc(var(--pad) + 3px);
+  height: 16px;
+  will-change: transform;
+}
 .compass-tape span {
   position: absolute;
   transform: translateX(-50%);
@@ -375,7 +418,9 @@ html, body {
    marker again and tapping that. */
 .pin-lead {
   position: absolute;
-  top: calc(var(--pad) + 42px);
+  /* Tucked up under the tape now that the compass box no longer reserves
+     twenty-one pixels for a row that does not live inside it. */
+  top: calc(var(--pad) + 24px);
   left: 50%;
   transform: translateX(-50%);
   appearance: none;

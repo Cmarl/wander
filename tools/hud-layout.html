@@ -1,0 +1,129 @@
+<!doctype html><meta charset=utf8>
+<!--
+  Where exactly is the gap above the compass?
+
+  Clyde: "Make sure PCC fixed the gap above the compass soon too pls"
+
+  Layout bugs are the ones most worth measuring rather than eyeballing — the
+  last several in this HUD were all a number being a different number than
+  anyone assumed. This builds the real HUD, puts it in a phone-shaped and a
+  desktop-shaped viewport, and prints where every box actually is.
+
+  "The gap above the compass" could be any of three things, so all three are
+  measured: dead space between the top of the screen and the compass box,
+  dead space INSIDE the compass box above its lettering, and the compass
+  sitting lower than the panel it is supposed to line up with.
+
+  Run:  npm run dev
+        open http://localhost:5173/tools/hud-layout.html
+
+  Not a build entry: vite builds index.html only, so this never ships.
+--><body style="margin:0"><div id=ui></div>
+<pre id=out style="position:fixed;bottom:0;left:0;z-index:99;background:#000;color:#ddd;font:10px monospace;max-height:50vh;overflow:auto"></pre>
+<script type="module">
+import "../src/style.css";
+import { Hud } from "../src/ui/hud.ts";
+
+const out = document.getElementById("out");
+const lines = [];
+const log = (s) => { out.textContent += s + "\n"; lines.push(s); };
+const send = () => fetch("http://127.0.0.1:8915/", { method: "POST", body: lines.join("\n") }).catch(() => {});
+window.onerror = (m, f, l) => { log(`THREW: ${m} (line ${l})`); send(); };
+let bad = 0;
+const check = (ok, label, detail) => { if (!ok) bad++; log(`${ok ? "  ok  " : "  FAIL"}  ${label.padEnd(48)} ${detail}`); };
+
+// Hud takes (controls, audio, net). Only the shapes it reads at construction
+// matter here — nothing in this probe presses anything.
+const controls = { isTouch: false, pads: { snapshot: () => null, bindings: {}, listenFor: null } };
+const audio = { toggleMute: () => false, setVolume() {}, volume: 0.7, muted: false };
+const net = { name: "probe", world: "probe", join() {}, solo() {} };
+const hud = new Hud(controls, audio, net);
+hud.update({
+  elevation: 412, region: "Western Meadow Vale", x: 1200, z: 800, km: 12.4,
+  fps: 60, headingDeg: 34, prompt: "", promptOn: "interact", speed: 0,
+});
+await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
+
+const box = (sel) => {
+  const el = document.querySelector(sel);
+  if (!el) return null;
+  const r = el.getBoundingClientRect();
+  return { el, top: r.top, bottom: r.bottom, left: r.left, right: r.right, h: r.height, w: r.width };
+};
+
+/**
+ * Where the compass's ink actually starts.
+ *
+ * The box is one thing and the lettering inside it is another. A 40 px box
+ * whose tape sits at the top still LOOKS like it begins at the tape, so the
+ * distance that reads as "the gap" is from the screen edge to the first
+ * painted thing, not to the box.
+ */
+function report(label) {
+  log(`\n--- ${label}: ${window.innerWidth} x ${window.innerHeight} ---`);
+  const compass = box(".compass");
+  const tape = box("#h-compass");
+  const panel = box(".panel-left");
+  const panelText = box(".panel-left .panel-text");
+  const pin = box(".pin-lead");
+
+  if (!compass) { log("no compass found"); return null; }
+  // --pad is `max(14px, env(...))`, which parseFloat cannot read — it returned
+  // 0 and made every comparison below meaningless. Measure it off something
+  // that actually uses it instead of trying to parse the expression.
+  const probe = document.createElement("div");
+  probe.style.cssText = "position:absolute;top:var(--pad);height:0";
+  document.getElementById("ui").appendChild(probe);
+  const pad = probe.getBoundingClientRect().top;
+  probe.remove();
+  log(`--pad resolves to ${pad.toFixed(1)}px`);
+  log(`compass box   top ${compass.top.toFixed(1)}  height ${compass.h.toFixed(1)}  bottom ${compass.bottom.toFixed(1)}`);
+  if (tape) log(`compass tape  top ${tape.top.toFixed(1)}  height ${tape.h.toFixed(1)}  bottom ${tape.bottom.toFixed(1)}`);
+  if (panel) log(`panel box     top ${panel.top.toFixed(1)}  height ${panel.h.toFixed(1)}  (its shaded background)`);
+  if (panelText) log(`panel text    top ${panelText.top.toFixed(1)}`);
+  if (pin) log(`pin row       top ${pin.top.toFixed(1)}  height ${pin.h.toFixed(1)}  (${getComputedStyle(pin.el).opacity} opacity)`);
+
+  const aboveBox = compass.top;
+  const insideBox = tape ? tape.top - compass.top : 0;
+  const toInk = tape ? tape.top : compass.top;
+  log(`GAP: ${aboveBox.toFixed(1)}px above the box, ${insideBox.toFixed(1)}px inside it before the tape` +
+      ` = ${toInk.toFixed(1)}px of nothing above the lettering`);
+  if (panel) log(`compass lettering sits ${(toInk - panel.top).toFixed(1)}px below the top of the metadata panel`);
+  return { compass, tape, panel, pin, pad, toInk, aboveBox, insideBox };
+}
+
+/**
+ * One viewport per run, and the runner supplies it.
+ *
+ * The first version set documentElement's width and height and reported three
+ * sizes. It was reporting the same measurement three times: resizing that
+ * element does not change window.innerWidth, so not one media query changed
+ * and portrait, landscape and desktop were all the browser's actual window.
+ * Three green rows, one of them tested.
+ *
+ * A media query can only be driven by the real viewport, so the shape is
+ * passed in with --window-size and this measures whatever it is given.
+ */
+const label = `${window.innerWidth} x ${window.innerHeight}` +
+  (window.innerWidth > window.innerHeight ? " landscape" : " portrait");
+const results = { [label]: report(label) };
+
+log("");
+for (const key of Object.keys(results)) {
+  const r = results[key];
+  if (!r) continue;
+  const label = key;
+  // The real question: does the compass's shading start where the panel's
+  // does? One flush to the screen edge and one floating below it is exactly
+  // what reads as dead space.
+  check(r.panel ? Math.abs(r.compass.top - r.panel.top) < 2 : false,
+    `${label}: compass shading starts level with the panel's`,
+    r.panel ? `compass ${r.compass.top.toFixed(1)} vs panel ${r.panel.top.toFixed(1)}` : "no panel");
+  check(r.compass.bottom - r.tape.bottom < 10,
+    `${label}: no dead box left under the tape`,
+    `${(r.compass.bottom - r.tape.bottom).toFixed(1)}px of empty box`);
+}
+
+log(bad ? `\n${bad} FAILED` : "\nall assertions passed");
+send();
+</script>
