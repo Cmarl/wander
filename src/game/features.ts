@@ -120,6 +120,16 @@ export const ACTIONS: Record<LandmarkKind, ActionSpec> = {
     lift: 0, inset: 0.45, instant: false,
     note: "it holds, and it creaks",
   },
+  dock: {
+    verb: "take the boat", badge: "Cast off", range: 10, camera: "chase",
+    lift: 0, inset: 0.6, instant: true,
+    note: "",
+  },
+  airfield: {
+    verb: "look around", badge: "Found an airstrip", range: 22, camera: "chase",
+    lift: 0, inset: 0.7, instant: true,
+    note: "",
+  },
   // The arch has no prompt. Driving through one IS the action, and asking
   // permission first would spoil the only landmark you meet at speed.
   arch: {

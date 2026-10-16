@@ -87,6 +87,8 @@ const VEH_GRAVITY = 26;
  * About axle height on the truck. Below this you ford it; above it you stop.
  */
 const VEH_WADE = 0.9;
+/** How much water a boat needs under it before it runs aground. */
+const BOAT_DRAFT = 0.35;
 /**
  * How far past the flat top speed a full descent can take you.
  *
@@ -714,7 +716,16 @@ export class Player {
     const amphibious = this.spec.flies || this.spec.floats;
     this.vehWading = !amphibious && depth > 0.05 ? Math.min(1, depth / VEH_WADE) : 0;
 
-    if (!amphibious && depth > VEH_WADE) {
+    /**
+     * A boat is the mirror of a truck: it is the LAND that stops it.
+     *
+     * Same test, opposite sign. It can nose into the shallows — which is how
+     * you get out at a beach — but it cannot drive up the beach, because then
+     * it would be a truck that happens to float.
+     */
+    if (this.spec.floats && depth < BOAT_DRAFT) {
+      this.vehSpeed *= 1 - Math.min(1, dt * 6);
+    } else if (!amphibious && depth > VEH_WADE) {
       this.vehSpeed *= 1 - Math.min(1, dt * 7);
     } else {
       this.vehPos.x = nx;
@@ -979,6 +990,11 @@ export class Player {
           this.onVehicleLand?.(force);
         }
       }
+    } else if (this.spec.floats) {
+      // It rides the surface. The seabed is irrelevant to where it sits, and
+      // following it would sink the boat as the water deepened.
+      this.vehPos.y = SEA_LEVEL;
+      this.vehAir = false;
     } else {
       /**
        * On the ground — but only while the ground can actually hold it.
@@ -1029,7 +1045,7 @@ export class Player {
     // A flying machine in the air has no ground to sit on, so it stays level
     // and lets its own model do the banking.
     const n =
-      this.spec.flies && this.vehAir
+      (this.spec.flies && this.vehAir) || this.spec.floats
         ? { x: 0, y: 1, z: 0 }
         : normalAt(this.vehPos.x, this.vehPos.z, 2.5);
     const up = new THREE.Vector3(n.x, n.y, n.z);

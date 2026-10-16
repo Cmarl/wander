@@ -52,7 +52,15 @@ export function strayInCell(gx: number, gz: number): Stray | null {
   if (y < 12 || y > 2200) return null;
   if (slopeAt(x, z, 8) > 0.26) return null;
 
-  const cls = CLASSES[Math.floor(slotRandom(gx, gz, 1423) * CLASSES.length) % CLASSES.length];
+  /**
+   * Only things with wheels are left lying about.
+   *
+   * Clyde: aircraft live at airstrips now, and boats at landings. A plane
+   * parked in a random meadow was always a bit odd, and having a place they
+   * belong to is worth more than having them everywhere.
+   */
+  const GROUND = CLASSES.filter((c) => !SPECS[c].flies && !SPECS[c].floats);
+  const cls = GROUND[Math.floor(slotRandom(gx, gz, 1423) * GROUND.length) % GROUND.length];
   return {
     id: `stray:${gx},${gz}`,
     cls,

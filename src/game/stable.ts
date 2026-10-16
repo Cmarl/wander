@@ -1,4 +1,4 @@
-import { CLASSES, type VehicleClass } from "./vehicles";
+import { CLASSES, UNSUMMONABLE, type VehicleClass } from "./vehicles";
 
 /**
  * What you own, and which one is yours right now.
@@ -35,6 +35,9 @@ export class Stable {
 
   /** True if this is new to you. */
   claim(cls: VehicleClass): boolean {
+    // A boat is never in the garage, because the garage is a thing you summon
+    // from and a boat belongs to the water it is sitting on.
+    if (UNSUMMONABLE.includes(cls)) return false;
     if (this.owned.includes(cls)) return false;
     this.owned.push(cls);
     this.save();
@@ -42,6 +45,7 @@ export class Stable {
   }
 
   choose(cls: VehicleClass) {
+    if (UNSUMMONABLE.includes(cls)) return;
     if (!this.owned.includes(cls)) return;
     this.chosen = cls;
     this.save();

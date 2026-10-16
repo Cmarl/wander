@@ -71,6 +71,139 @@ export function shipwreck(): Layer[] {
   ];
 }
 
+/**
+ * A dock: a jetty on legs running out over the water, with a boat tied up.
+ *
+ * Clyde: "boats sit at docks/landings in the world, grab one to cross water".
+ * The dock is the thing you see from a distance; the boat is why you walk out
+ * along it.
+ */
+export function dock(): Layer[] {
+  const timber: THREE.BufferGeometry[] = [];
+  const posts: THREE.BufferGeometry[] = [];
+
+  // The deck runs out from the shore. Human proportions: 1.8 m wide, planks
+  // at walking height above the water.
+  const LEN = 17;
+  const deck = box(1.9, 0.18, LEN);
+  deck.translate(0, 1.15, -LEN / 2);
+  timber.push(deck);
+  for (let i = 0; i < 9; i++) {
+    const z = -1.2 - i * 2;
+    for (const sx of [-1, 1]) {
+      const post = new THREE.CylinderGeometry(0.11, 0.13, 3.2, 6);
+      post.translate(sx * 0.82, -0.3, z);
+      posts.push(post);
+    }
+    // A cross-brace every other bay.
+    if (i % 2 === 0) {
+      const tie = box(1.9, 0.1, 0.1);
+      tie.translate(0, 0.2, z);
+      posts.push(tie);
+    }
+  }
+  // Mooring bollards and a handrail on one side only, as they usually are.
+  for (const z of [-3, -9, -15]) {
+    const bollard = new THREE.CylinderGeometry(0.1, 0.12, 0.6, 6);
+    bollard.translate(-0.95, 1.5, z);
+    timber.push(bollard);
+  }
+  for (let i = 0; i < 8; i++) {
+    const rail = box(0.08, 0.95, 0.08);
+    rail.translate(0.92, 1.72, -1.5 - i * 2.1);
+    timber.push(rail);
+  }
+  const handrail = box(0.08, 0.08, LEN - 2);
+  handrail.translate(0.92, 2.18, -LEN / 2);
+  timber.push(handrail);
+
+  return [
+    { geo: merge(timber), colour: 0x8a6e4e },
+    { geo: merge(posts), colour: 0x5e4c3a },
+  ];
+}
+
+/**
+ * An airstrip: a graded run, a hangar, a windsock.
+ *
+ * Clyde: "make it so there are little airports around and those are where
+ * airplanes, helicopters and other flying machines if any are found."
+ *
+ * Small on purpose — one strip, one shed, the sort of place with a name
+ * painted on the roof and nobody in the office. Flat ground is the whole
+ * requirement, which is also what makes it legible from the air.
+ */
+export function airfield(): Layer[] {
+  const strip: THREE.BufferGeometry[] = [];
+  const shed: THREE.BufferGeometry[] = [];
+  const metal: THREE.BufferGeometry[] = [];
+  const marks: THREE.BufferGeometry[] = [];
+
+  // The run: 220 m of graded dirt, 18 wide, sitting just above the grass.
+  const RUN = 220;
+  const run = box(18, 0.22, RUN);
+  run.translate(0, 0.11, -RUN / 2 + 20);
+  strip.push(run);
+  // Threshold bars at each end, and edge markers down both sides.
+  for (const z of [16, -RUN + 24]) {
+    for (let i = -2; i <= 2; i++) {
+      const bar = box(1.5, 0.06, 5);
+      bar.translate(i * 3.4, 0.26, z);
+      marks.push(bar);
+    }
+  }
+  for (let i = 0; i < 14; i++) {
+    const z = 10 - i * 16;
+    for (const sx of [-1, 1]) {
+      const cone = new THREE.ConeGeometry(0.34, 0.8, 5);
+      cone.translate(sx * 10.5, 0.4, z);
+      marks.push(cone);
+    }
+  }
+
+  // The hangar: a shed with an open front, big enough for what is parked in it.
+  const W = 16;
+  const H = 6.4;
+  const D = 13;
+  for (const [ox, oz, w, d] of [
+    [0, -D / 2, W, 0.3], [-W / 2, 0, 0.3, D], [W / 2, 0, 0.3, D],
+  ] as [number, number, number, number][]) {
+    const wall = box(w, H, d);
+    wall.translate(ox + 26, H / 2, oz - 6);
+    shed.push(wall);
+  }
+  // A curved roof, which is what a hangar has.
+  const roof = new THREE.CylinderGeometry(W / 2 + 0.4, W / 2 + 0.4, D + 0.8, 14, 1, false, 0, Math.PI);
+  roof.rotateZ(Math.PI / 2);
+  roof.rotateY(Math.PI / 2);
+  roof.translate(26, H, -6);
+  metal.push(roof);
+
+  // Windsock on a mast — the one moving thing, and how you read the wind.
+  const mast = new THREE.CylinderGeometry(0.09, 0.12, 7, 6);
+  mast.translate(-14, 3.5, 12);
+  metal.push(mast);
+  const sock = new THREE.ConeGeometry(0.62, 2.4, 7, 1, true);
+  sock.rotateZ(Math.PI / 2);
+  sock.rotateY(0.5);
+  sock.translate(-12.7, 6.6, 12);
+  marks.push(sock);
+
+  // A fuel drum or two by the shed, because somebody has to.
+  for (let i = 0; i < 3; i++) {
+    const d = new THREE.CylinderGeometry(0.33, 0.33, 0.92, 9);
+    d.translate(18 + (i % 2) * 0.8, 0.46, 1 + i * 0.7);
+    metal.push(d);
+  }
+
+  return [
+    { geo: merge(strip), colour: 0x8c8064 },
+    { geo: merge(marks), colour: 0xd8d2c0 },
+    { geo: merge(shed), colour: 0x7a7d82 },
+    { geo: merge(metal), colour: 0x9aa0a6 },
+  ];
+}
+
 /** Standing stones: human but ancient, a different register from "built". */
 export function stones(): Layer[] {
   const ring: THREE.BufferGeometry[] = [];

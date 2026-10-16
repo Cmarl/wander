@@ -14,7 +14,7 @@ import { box, mat, makeVehicle, type Vehicle } from "./models";
  * only kind of choice this game is interested in. Nothing is a tier.
  */
 
-export type VehicleClass = "truck" | "bike" | "rover" | "chopper" | "plane";
+export type VehicleClass = "truck" | "bike" | "rover" | "chopper" | "plane" | "boat";
 
 export interface VehicleSpec {
   cls: VehicleClass;
@@ -134,9 +134,33 @@ export const SPECS: Record<VehicleClass, VehicleSpec> = {
     // altitude, while speed still being what keeps you up stays true.
     flies: true, lift: 26, sink: 15, wing: 0.84, dive: 46,
   },
+  boat: {
+    cls: "boat", label: "Boat",
+    /**
+     * The mirror of everything else: at home on water and useless off it.
+     *
+     * Unhurried on purpose. A boat is how you cross water calmly, not how you
+     * cross it quickly — the plane already exists for that.
+     */
+    top: 17, accel: 11, brake: 9, drag: 0.56, reverse: 6,
+    jump: 0, gradePull: 0, turn: 1.5, turnFalloff: 0.03,
+    bodyR: 0.95, bodyOffset: 1.1,
+    seat: [0, 1.1, -0.35], dogSeat: [0, 0.95, 0.5],
+    floats: true,
+  },
 };
 
 export const CLASSES = Object.keys(SPECS) as VehicleClass[];
+
+/**
+ * Classes that are never summoned.
+ *
+ * Clyde: "no summoning boats, but they should be around at water to grab".
+ * A boat belongs to the water it is sitting on; calling one to a hilltop is
+ * exactly the kind of convenience that would make water stop meaning
+ * anything.
+ */
+export const UNSUMMONABLE: VehicleClass[] = ["boat"];
 
 /**
  * Which way a turn leans.
@@ -554,7 +578,82 @@ function makePlane(paint: number): Vehicle {
   };
 }
 
+/** An open boat with an outboard on the back. */
+function makeBoat(paint: number): Vehicle {
+  const body = mat(paint);
+  const dark = mat(0x3a3028);
+  const metal = mat(0x6f7a82);
+  const lamp = new THREE.MeshBasicMaterial({ color: 0xfff0c0 });
+
+  const root = new THREE.Group();
+
+  // Hull: tapered at the bow, square at the transom.
+  const hull: THREE.Mesh[] = [];
+  for (let i = 0; i < 7; i++) {
+    const t = i / 6;
+    const w = 1.5 * Math.sin(Math.PI * (0.3 + t * 0.62));
+    const seg = box(w, 0.62, 0.78, body);
+    seg.position.set(0, 0.42, (t - 0.5) * 4.3);
+    root.add(seg);
+    hull.push(seg);
+  }
+  const transom = box(1.45, 0.66, 0.14, body);
+  transom.position.set(0, 0.44, -2.2);
+  root.add(transom);
+  // A rubbing strake the whole way round, which is what reads as "boat".
+  for (const sx of [-1, 1]) {
+    const rail = box(0.09, 0.09, 4.2, dark);
+    rail.position.set(sx * 0.68, 0.74, 0);
+    root.add(rail);
+  }
+
+  for (const sz of [0.75, -0.55]) {
+    const bench = box(1.25, 0.1, 0.34, dark);
+    bench.position.set(0, 0.66, sz);
+    root.add(bench);
+  }
+
+  // Outboard.
+  const leg = box(0.22, 0.75, 0.22, metal);
+  leg.position.set(0, 0.25, -2.45);
+  root.add(leg);
+  const head = box(0.42, 0.44, 0.5, dark);
+  head.position.set(0, 0.86, -2.45);
+  root.add(head);
+  const tiller = box(0.08, 0.08, 0.7, metal);
+  tiller.position.set(0, 0.84, -2.0);
+  root.add(tiller);
+
+  const light = box(0.14, 0.12, 0.1, lamp);
+  light.position.set(0, 0.86, 2.1);
+  root.add(light);
+
+  const tilt = tiltable(root);
+  let roll = 0;
+  return {
+    root,
+    animate(dt, speed, steer) {
+      // Heels into a turn and noses up as it gets on the plane.
+      const want = bank(steer, speed, 10, 0.26);
+      roll += (want - roll) * Math.min(1, dt * 2.4);
+      tilt.rotation.z = roll;
+      tilt.rotation.x = -Math.min(0.1, Math.abs(speed) / 17 * 0.1);
+    },
+    setPaint(hex) {
+      for (const m of hull) (m.material as THREE.MeshLambertMaterial).color.setHex(hex);
+      (transom.material as THREE.MeshLambertMaterial).color.setHex(hex);
+    },
+    dent(force) {
+      roll += Math.min(0.08, force * 0.01) * (Math.random() < 0.5 ? 1 : -1);
+    },
+    setLights(on) {
+      (light.material as THREE.MeshBasicMaterial).color.setHex(on ? 0xfff0c0 : 0x5a5346);
+    },
+  };
+}
+
 export function makeFor(cls: VehicleClass, paint: number): Vehicle {
+  if (cls === "boat") return makeBoat(paint);
   if (cls === "bike") return makeBike(paint);
   if (cls === "rover") return makeRover(paint);
   if (cls === "chopper") return makeChopper(paint);

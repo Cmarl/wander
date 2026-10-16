@@ -7,6 +7,8 @@ import { LANDMARK_CELL, geyserLevel, landmarksNear, type Landmark, type Landmark
 import { ACCRETION_KINDS, accretionsAt, type AccretionKind } from "./accretions";
 import {
   adit,
+  airfield,
+  dock,
   bonefield,
   frozenLake as frozenlake,
   orchard,
@@ -661,6 +663,8 @@ const BUILDERS: Record<LandmarkKind, () => Layer[]> = {
   bonefield,
   orchard,
   frozenlake,
+  dock,
+  airfield,
 };
 
 export class LandmarkField {

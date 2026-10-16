@@ -33,7 +33,9 @@ export type LandmarkKind =
   | "sinkhole"
   | "bonefield"
   | "orchard"
-  | "frozenlake";
+  | "frozenlake"
+  | "dock"
+  | "airfield";
 
 /**
  * Naming.
@@ -94,6 +96,8 @@ export const LANDMARK_NAMES: Record<LandmarkKind, string> = {
   bonefield: "Bone Field",
   orchard: "Orchard",
   frozenlake: "Frozen Lake",
+  dock: "Landing",
+  airfield: "Airstrip",
 };
 
 /**
@@ -183,6 +187,14 @@ export const LANDMARK_SOLIDS: Record<LandmarkKind, { dx: number; dz: number; r: 
   }),
   // Deliberately passable. Walking out onto it is the point.
   frozenlake: [],
+  // The posts are solid; the deck above them is not, since you walk on it.
+  dock: [
+    { dx: -0.85, dz: -4, r: 0.5 },
+    { dx: 0.85, dz: -4, r: 0.5 },
+    { dx: -0.85, dz: -12, r: 0.5 },
+    { dx: 0.85, dz: -12, r: 0.5 },
+  ],
+  airfield: [{ dx: 0, dz: -16, r: 5.5 }],
 };
 
 export interface Landmark {
@@ -238,6 +250,10 @@ function baseInCell(gx: number, gz: number): Landmark | null {
   const options: LandmarkKind[] = [];
   if (shore) {
     options.push("shipwreck");
+    // Somewhere to tie a boat up. The commonest thing on a shoreline, because
+    // a shore without a landing is a shore you cannot leave by water.
+    options.push("dock");
+    options.push("dock");
     if (temp < 0.45) options.push("bonefield");
     // Nothing inland is eligible on tidal ground, so this returns early.
     const kindShore = options[Math.min(options.length - 1, Math.floor(pick * options.length))];
@@ -261,6 +277,21 @@ function baseInCell(gx: number, gz: number): Landmark | null {
   // path alone could not deliver — cold tidal ground is a thin slice of a
   // thin slice, and the kind was landing at 0.3% of places.
   if (temp < 0.26 && y > 20 && y < 1100) options.push("bonefield");
+  /**
+   * An airstrip needs flat ground for two hundred metres, which is a far
+   * stricter test than anything else here and is what makes it rare on its
+   * own — no extra gate required beyond a modest one.
+   *
+   * Clyde: "rare, but not overly rare."
+   */
+  if (
+    y > 25 &&
+    y < 900 &&
+    footprintDrop(x, z, 60) < 7 &&
+    slopeAt(x, z, 40) < 0.07 &&
+    slotRandom(gx, gz, 1619) > 0.55
+  )
+    options.push("airfield");
   if (moist < 0.70 && y > 80 && y < 1500) options.push("lonetree");
   // Rarer than the rest, or every other cell would be a dead truck.
   if (slotRandom(gx, gz, 967) > 0.82) options.push("wreck");
@@ -433,7 +464,7 @@ function pairedWith(gx: number, gz: number): { host: Landmark; kind: LandmarkKin
  * has two metres of lump in the middle of it.
  */
 /** Kinds with a flat base, which cannot stand on lumpy ground. */
-const FLAT_BASED: LandmarkKind[] = ["steading", "windpump", "lookout", "adit", "mast"];
+const FLAT_BASED: LandmarkKind[] = ["steading", "windpump", "lookout", "adit", "mast", "airfield"];
 const kindNeedsFlatGround = (k: LandmarkKind) => FLAT_BASED.includes(k);
 
 function footprintDrop(x: number, z: number, r: number): number {

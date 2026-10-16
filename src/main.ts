@@ -15,6 +15,7 @@ import { Camp } from "./game/camp";
 import { Dog } from "./game/dog";
 import { StrayField } from "./world/strayRender";
 import { Stable } from "./game/stable";
+import { UNSUMMONABLE, type VehicleClass } from "./game/vehicles";
 import { Kit, PARTS, partAt, type PartKind } from "./game/parts";
 import { Wanderer } from "./game/wanderer";
 import { Figures } from "./game/figures";
@@ -24,7 +25,7 @@ import { Features, ACTIONS } from "./game/features";
 import { PAINTS } from "./game/paint";
 import { Dust, Birds } from "./world/particles";
 import { Wildlife } from "./world/wildlife";
-import { surfaceAt, moistureAt, treeDensityAt, slopeAt, temperatureAt } from "./world/field";
+import { surfaceAt, moistureAt, treeDensityAt, slopeAt, temperatureAt, slotRandom } from "./world/field";
 import { findSpawn } from "./world/spawn";
 import { lastPlace, rememberPlace } from "./game/save";
 import { heightAt, biomeNameAt } from "./world/field";
@@ -754,6 +755,59 @@ function takePart(kind: PartKind, tier: number, where: string, x: number, z: num
   sound.moment();
 }
 
+/**
+ * Boats at landings, aircraft at airstrips.
+ *
+ * Clyde wanted both to live somewhere rather than be scattered: "boats sit at
+ * docks/landings in the world, grab one to cross water", and "little airports
+ * around and those are where airplanes, helicopters and other flying machines
+ * are found."
+ *
+ * Same walk-up-and-it-is-yours rule as a stray, because a third claimant on
+ * the interact key is how the "can't get out of the truck" bug happened. The
+ * difference is only where the machine is waiting.
+ */
+function moorings() {
+  if (player.mode !== "foot") return;
+  for (const lm of landmarks.loaded) {
+    if (lm.kind !== "dock" && lm.kind !== "airfield") continue;
+
+    // Where the machine actually sits: a boat alongside the jetty, an
+    // aircraft on the apron by the hangar.
+    const local: [number, number] = lm.kind === "dock" ? [-2.6, -13] : [20, 4];
+    const c = Math.cos(lm.rot);
+    const sn = Math.sin(lm.rot);
+    const mx = lm.x + (local[0] * c + local[1] * sn) * lm.scale;
+    const mz = lm.z + (-local[0] * sn + local[1] * c) * lm.scale;
+    if (Math.hypot(mx - player.position.x, mz - player.position.z) > BOARD_RANGE + 3) continue;
+
+    const cls: VehicleClass =
+      lm.kind === "dock" ? "boat" : slotRandom(lm.gx, lm.gz, 1627) > 0.55 ? "plane" : "chopper";
+    // Already standing at this one in this machine — nothing to announce.
+    const at = player.vehicle.root.position;
+    if (player.spec.cls === cls && Math.hypot(at.x - mx, at.z - mz) < 6) continue;
+
+    player.adopt(cls, 0x9a7f4e, mx, mz, lm.rot);
+    // A boat is not added to the garage and never becomes what summoning
+    // brings; an aircraft is both.
+    if (stable.claim(cls)) stable.choose(cls);
+    else if (!UNSUMMONABLE.includes(cls)) stable.choose(cls);
+    found.add({
+      id: `moored:${lm.id}`,
+      kind: "badge",
+      name: `${SPECS[cls].label} at ${lm.name}`,
+      x: Math.round(mx),
+      z: Math.round(mz),
+      at: Date.now(),
+      tod: env.timeOfDay,
+      region: regionAt(mx, mz).name,
+    });
+    hud.announce(`${SPECS[cls].label} · yours — get in`, "tied up here");
+    sound.moment();
+    return;
+  }
+}
+
 /** Walk this close and the machine in front of you is the one you are driving. */
 const BOARD_RANGE = 7;
 
@@ -1417,6 +1471,7 @@ function frame(now: number) {
   signposts();
   dogging(dt);
   straying();
+  moorings();
   looting();
   wanderer.update(dt, player.position, player.heading);
   figures.update(dt, player.position, player.heading);

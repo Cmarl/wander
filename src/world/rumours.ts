@@ -59,6 +59,8 @@ const LOOKS: Record<LandmarkKind, string[]> = {
   bonefield: ["bones the size of a boat", "ribs standing out of the ground", "something enormous, long dead"],
   orchard: ["trees planted in rows", "an orchard gone wild", "fruit trees somebody set out"],
   frozenlake: ["ice flat as a table", "a lake frozen right over", "water gone hard"],
+  dock: ["a jetty out over the water", "somebody's landing", "a boat tied up"],
+  airfield: ["a strip cut into the grass", "a shed and a windsock", "somewhere aeroplanes land"],
 };
 
 /**
