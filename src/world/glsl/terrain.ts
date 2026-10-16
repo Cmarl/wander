@@ -106,16 +106,45 @@ vec3 terrainAlbedo(vec2 p, float h, vec3 n, float viewDist) {
   c = mix(c, TUNDRA, smoothstep(0.42, 0.24, temp));
 
   // Mottling at two scales so neither broad country nor close ground reads flat.
-  c *= 0.80 + 0.26 * wFbm(p * (1.0 / 230.0), 3, 151u) + 0.20 * wFbm(p * (1.0 / 1400.0), 2, 153u);
+  float mottle = wFbm(p * (1.0 / 230.0), 3, 151u);
+  c *= 0.80 + 0.26 * mottle + 0.20 * wFbm(p * (1.0 / 1400.0), 2, 153u);
+
+  /**
+   * Close-range grain.
+   *
+   * The finest detail in the ground was at 230 m, which is a hillside, not a
+   * texture — so underfoot the world was large areas of one flat colour. One
+   * more octave set at 11 m gives it something to be made of.
+   *
+   * Faded out by 700 m and gone by 1.1 km. Beyond that it is sub-pixel, and a
+   * sub-pixel pattern does not read as detail, it crawls — the same lesson the
+   * tracks taught. Fading it is also what keeps the cost off distant terrain,
+   * where most of the screen's pixels are.
+   */
+  float near = smoothstep(1100.0, 300.0, viewDist);
+  if (near > 0.004) {
+    float grain = wFbm(p * (1.0 / 11.0), 3, 167u) - 0.5;
+    c *= 1.0 + near * grain * 0.34;
+    // The same noise shifts the hue a touch warm or cool, so it reads as
+    // different ground rather than the same ground lit unevenly.
+    c = mix(c, c * vec3(1.09, 1.0, 0.9), near * clamp(grain * 1.6 + 0.5, 0.0, 1.0) * 0.5);
+  }
 
   c = mix(SAND, c, smoothstep(1.5, 14.0, h));
 
-  float rockAmt = smoothstep(0.40, 0.66, slope);
-  c = mix(c, ROCK * (0.80 + 0.40 * wFbm(p * (1.0 / 60.0), 3, 157u)), rockAmt);
+  // Rock shows through sooner than it did, and with more range in it, so a
+  // slope reads as stone and scree rather than as tilted grass.
+  float rockAmt = smoothstep(0.30, 0.60, slope);
+  vec3 rock = ROCK * (0.72 + 0.56 * wFbm(p * (1.0 / 60.0), 3, 157u));
+  // A hint of iron in it, varying slowly, so bare ground is not uniformly grey.
+  rock = mix(rock, rock * vec3(1.14, 0.95, 0.84), smoothstep(0.4, 0.7, mottle));
+  c = mix(c, rock, rockAmt);
 
   float snowLine = mix(2300.0, 820.0, 1.0 - clamp(temp, 0.0, 1.0));
   float snowAmt = smoothstep(snowLine, snowLine + 320.0, h) * smoothstep(0.78, 0.46, slope);
-  c = mix(c, SNOW, snowAmt);
+  // Snow takes the sky's colour rather than being flat white, which is most of
+  // why real snow reads as cold.
+  c = mix(c, SNOW * vec3(0.97, 0.99, 1.06), snowAmt);
 
   /**
    * A worn track. Faint on purpose, and it gives up on rock, on snow and on
