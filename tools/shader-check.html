@@ -184,6 +184,62 @@ const bright = (c) => (c[0] + c[1] + c[2]) / 3;
 log(`patched material: near rgb ${nearPx.join(",")} (${bright(nearPx).toFixed(0)})  ` +
     `at 14 km rgb ${farPx.join(",")} (${bright(farPx).toFixed(0)})`);
 check(bright(nearPx) > 10, "props and landmarks draw at all", `brightness ${bright(nearPx).toFixed(0)}`);
+
+/**
+ * The rim light, measured by turning it off and on.
+ *
+ * My first attempt walked a row across the near BOX and compared the last lit
+ * pixel to the centre. It passed by a mile — and it passed just as wide with
+ * the rim set to ZERO, because at that x I had walked onto the box's SIDE
+ * face, which is simply a different Lambert normal. It was measuring "a box
+ * has more than one face".
+ *
+ * A sphere has no faces to wander onto: the normal turns away continuously
+ * toward the silhouette, which is exactly where a rim lives. And the only
+ * claim worth testing is a difference the feature makes, so it renders the
+ * same frame twice with nothing changed but uRim.
+ */
+const ball = new THREE.Mesh(new THREE.SphereGeometry(8, 32, 20), lit);
+ball.position.set(0, 0, -30);
+lit.color.setHex(0x4a5a3c);
+lit.flatShading = false;
+lit.needsUpdate = true;
+litScene.add(ball);
+inst.visible = false;
+
+const ringVsCentre = () => {
+  renderer.render(litScene, litCam);
+  const px = new Uint8Array(256 * 256 * 4);
+  renderer.getContext().readPixels(0, 0, 256, 256, 6408, 5121, px);
+  const at = (x, y) => { const i = ((y * 256) + x) * 4; return (px[i] + px[i+1] + px[i+2]) / 3; };
+  // Out from the centre along a row until the ball ends; the last two lit
+  // pixels are the silhouette.
+  let last = 0, prev = 0;
+  for (let x = 128; x < 255; x++) {
+    const v = at(x, 128);
+    if (v < 3) break;
+    prev = last; last = v;
+  }
+  return { centre: at(128, 128), edge: (last + prev) / 2 };
+};
+WORLD_UNIFORMS.uRim.value = 0;
+const noRim = ringVsCentre();
+WORLD_UNIFORMS.uRim.value = 0.19;
+const withRim = ringVsCentre();
+litScene.remove(ball);
+inst.visible = true;
+lit.flatShading = true;
+lit.needsUpdate = true;
+
+log(`sphere silhouette: ${noRim.edge.toFixed(1)} with no rim, ${withRim.edge.toFixed(1)} with it ` +
+    `(face centre ${withRim.centre.toFixed(0)})`);
+check(withRim.edge > noRim.edge + 6, "the rim actually brightens the silhouette",
+  `${withRim.edge.toFixed(1)} vs ${noRim.edge.toFixed(1)}`);
+check(Math.abs(withRim.centre - noRim.centre) < 4, "and leaves the face it belongs to alone",
+  `centre ${withRim.centre.toFixed(1)} vs ${noRim.centre.toFixed(1)}`);
+// An edge you read, not an effect you notice.
+check(withRim.edge < withRim.centre * 1.7, "without turning into a glow",
+  `edge ${withRim.edge.toFixed(0)} vs face ${withRim.centre.toFixed(0)}`);
 // Hazed means it has gone TOWARD THE SKY, which at this sun angle is bright
 // and blue. Merely "different from near" would also be satisfied by black.
 check(bright(farPx) > 90, "and 14 km of it fades toward the sky, not to black", `brightness ${bright(farPx).toFixed(0)}`);

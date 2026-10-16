@@ -39,6 +39,12 @@ export const WORLD_UNIFORMS = {
   uSunsetBoost: { value: 1 },
   uTime: { value: 0 },
   uCloudCover: { value: 0.52 },
+  /**
+   * Rim strength. A uniform rather than a constant so it can be turned off
+   * and on from outside — which is the only honest way to measure whether it
+   * does anything, and doubles as the knob for tuning it.
+   */
+  uRim: { value: 0.19 },
 };
 
 /**
@@ -100,6 +106,7 @@ export function worldLit<T extends THREE.Material>(mat: T): T {
         uniform float uFogDensity;
         uniform float uTime;
         uniform float uCloudCover;
+        uniform float uRim;
         ${NOISE_GLSL}
         ${SKY_GLSL}`
       )
@@ -118,7 +125,28 @@ export function worldLit<T extends THREE.Material>(mat: T): T {
         // This dims every direct light, the headlamp included — which costs
         // nothing, because cloudShade returns 1.0 whenever the sun is below
         // the horizon, and the headlamp is only ever on after dark.
-        reflectedLight.directDiffuse *= cloudShade(vWorldPos, uSunDir, uTime, uCloudCover);`
+        reflectedLight.directDiffuse *= cloudShade(vWorldPos, uSunDir, uTime, uCloudCover);
+
+        /**
+         * A rim of sky along the edges.
+         *
+         * Flat-shaded solids have no edge against the landscape: a dark pine
+         * standing in front of a dark hillside is a silhouette with nothing
+         * to separate it, and a truck parked on a slope merges into it. Every
+         * real object has this — surfaces turned away from you catch the sky
+         * at a grazing angle, which is why anything outdoors has a bright
+         * outline against the ground on an overcast day.
+         *
+         * Fresnel against the view direction, tinted with the sky ABOVE
+         * rather than a constant, so it goes amber at sunset with everything
+         * else. Weak on purpose: this wants to read as an edge, not as a
+         * glow, and the moment it is noticeable as an effect it is too much.
+         */
+        {
+          vec3 vDir = normalize(vViewPosition);
+          float rim = pow(1.0 - clamp(dot(normalize(normal), vDir), 0.0, 1.0), 4.0);
+          reflectedLight.indirectDiffuse += skyBase(vec3(0.0, 1.0, 0.0), uSunDir) * rim * uRim;
+        }`
       )
       /**
        * And the world's own haze instead of three's fog.
