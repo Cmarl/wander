@@ -936,6 +936,43 @@ html, body {
   .hud-btn { height: 26px; min-width: 96px; font-size: 10px; }
 }
 
+/* The collapsed HUD menu, on touch only. */
+.hud-stack.compact {
+  flex-direction: row;
+  align-items: flex-start;
+  gap: 8px;
+  pointer-events: none;
+}
+.hud-ico {
+  pointer-events: auto;
+  appearance: none;
+  width: 38px;
+  height: 38px;
+  flex: 0 0 auto;
+  border-radius: 50%;
+  border: 1px solid rgba(255, 255, 255, 0.26);
+  background: rgba(16, 22, 30, 0.42);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+  color: var(--ink);
+  font: inherit;
+  font-size: 17px;
+  line-height: 1;
+  cursor: pointer;
+}
+.hud-ico:active { background: rgba(255, 255, 255, 0.22); }
+/* Absolutely placed so opening it never pushes the buttons around. */
+.hud-more {
+  position: absolute;
+  top: 46px;
+  left: 0;
+  display: none;
+  flex-direction: column;
+  gap: 7px;
+  pointer-events: auto;
+}
+.hud-more.open { display: flex; }
+
 /* ---------------------------------------------------------------------------
  * Orientation overrides live at the END of this file, and that is load-bearing.
  *
@@ -965,7 +1002,7 @@ html, body {
 
   /* Under the clock block, out of both thumb zones. */
   .hud-stack {
-    top: calc(var(--pad) + 74px);
+    top: calc(var(--pad) + 68px);
     bottom: auto;
     left: max(16px, env(safe-area-inset-left));
     right: auto;
@@ -989,9 +1026,13 @@ html, body {
   .sub { font-size: 11.5px; }
   .compass { width: min(210px, 56vw); }
 
+  /* top as well as bottom:auto. With neither set it fell back to the static
+     position, which is why the pills floated in the middle of the left edge
+     and sat on top of the toast. */
   .hud-stack {
+    top: calc(var(--pad) + 84px);
     bottom: auto;
-    padding: 6px 11px;
+    padding: 0;
     font-size: 10.5px;
   }
 

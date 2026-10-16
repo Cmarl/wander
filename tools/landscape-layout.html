@@ -15,8 +15,8 @@ ui.innerHTML = `
     <button class="btn small" id="b-sprint">RUN</button><button class="btn small" id="b-glass">LOOK</button>
     <button class="btn small" id="b-camp">CAMP</button><button class="btn small" id="b-cruise">GO</button>
   </div>
-  <div class="hud-stack"><button class="hud-btn">journal</button><button class="hud-btn">3 here</button>
-    <button class="hud-btn">fullscreen</button><button class="hud-btn">controls</button></div>`;
+  <div class="hud-stack compact"><button class="hud-ico">\u25a4</button><button class="hud-ico">\u22ef</button>
+    <div class="hud-more" id="more"><button class="hud-btn">3 here</button><button class="hud-btn">fullscreen</button><button class="hud-btn">controls</button></div></div>`;
 await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
 
 const out = [];
@@ -39,5 +39,8 @@ out.push(`button cluster fits above the bottom edge: ${bb.top > 0}  height used 
 let off = 0;
 for (const b of [...btns, stack, right]) if (b.top < 0 || b.bottom > H || b.left < 0 || b.right > W) off++;
 out.push(`elements off screen: ${off}  (must be 0)`);
+ const more = document.getElementById("more").getBoundingClientRect();
+ out.push(`collapsed menu footprint ${Math.round(stack.width)}x${Math.round(stack.height)} (was 96x298 as four pills)`);
+ out.push(`hidden menu takes no space: ${more.width === 0 && more.height === 0}`);
 fetch("http://127.0.0.1:8914/", { method: "POST", body: "land|" + out.join("\n") }).catch(() => {});
 </script>

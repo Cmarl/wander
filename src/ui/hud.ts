@@ -165,12 +165,40 @@ export class Hud {
              </div>`
           : ``
       }
-      <div class="hud-stack">
-        <button class="hud-btn" id="h-journal">journal</button>
-        <button class="hud-btn" id="h-world"><span class="dot" id="h-dot"></span><span id="h-online">solo</span></button>
-        <button class="hud-btn" id="h-full">fullscreen</button>
-        <button class="hud-btn" id="h-help">controls</button>
-      </div>
+      ${
+        /**
+         * On a phone these four pills sat on the world permanently, in the
+         * middle of the left edge, on top of whatever the toast was saying.
+         *
+         * Clyde: "The left buttons don't need to be there. They should be
+         * tucked into an expandable menu somewhere. Maybe journal separate
+         * (book icon or something)."
+         *
+         * So on touch it collapses to two small round buttons — the journal,
+         * which is the one you actually open, and a "more" that reveals the
+         * rest. On a desktop the labelled stack stays: there is room for it
+         * and no thumb is resting on it.
+         *
+         * Both branches keep every id, so nothing downstream has to know which
+         * one it got.
+         */
+        controls.isTouch
+          ? `<div class="hud-stack compact">
+               <button class="hud-ico" id="h-journal" aria-label="field journal">▤</button>
+               <button class="hud-ico" id="h-menu" aria-label="more">⋯</button>
+               <div class="hud-more" id="h-more">
+                 <button class="hud-btn" id="h-world"><span class="dot" id="h-dot"></span><span id="h-online">solo</span></button>
+                 <button class="hud-btn" id="h-full">fullscreen</button>
+                 <button class="hud-btn" id="h-help">controls</button>
+               </div>
+             </div>`
+          : `<div class="hud-stack">
+               <button class="hud-btn" id="h-journal">journal</button>
+               <button class="hud-btn" id="h-world"><span class="dot" id="h-dot"></span><span id="h-online">solo</span></button>
+               <button class="hud-btn" id="h-full">fullscreen</button>
+               <button class="hud-btn" id="h-help">controls</button>
+             </div>`
+      }
       <div class="sheet" id="h-world-sheet">
         <div class="sheet-card">
           <h2>World</h2>
@@ -232,6 +260,20 @@ export class Hud {
      * Safari refuses requestFullscreen on anything that is not a video, and on
      * there the answer really is Add to Home Screen.
      */
+    /**
+     * The "more" menu. Opens on tap, closes on tap, and closes as soon as you
+     * pick something — a menu that stays open over the world is the thing it
+     * was meant to stop.
+     */
+    const moreEl = document.getElementById("h-more");
+    const menuEl = document.getElementById("h-menu");
+    const closeMore = () => moreEl?.classList.remove("open");
+    menuEl?.addEventListener("pointerdown", (e) => {
+      e.stopPropagation();
+      moreEl?.classList.toggle("open");
+    });
+    moreEl?.addEventListener("pointerdown", () => setTimeout(closeMore, 0));
+
     const fullEl = document.getElementById("h-full")!;
     const canFull = typeof document.documentElement.requestFullscreen === "function";
     if (!canFull) fullEl.style.display = "none";
