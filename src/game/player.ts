@@ -4,6 +4,7 @@ import { PropQuery } from "../world/props";
 import { DynamicShadow } from "../world/shadows";
 import { makeCharacter, type Character, type Vehicle } from "./models";
 import { SPECS, makeFor, type VehicleClass, type VehicleSpec } from "./vehicles";
+import { STOCK, tuned, type Tune } from "./parts";
 import { PAINTS } from "./paint";
 import type { Controls } from "../input/controls";
 
@@ -102,8 +103,23 @@ export class Player {
   readonly group = new THREE.Group();
   readonly character: Character;
   vehicle: Vehicle;
-  /** Which vehicle this is, and all of its handling. */
+  /** Which vehicle this is, and all of its handling, with parts fitted. */
   spec: VehicleSpec;
+  /** The same vehicle before anything was bolted to it. */
+  private baseSpec: VehicleSpec;
+  private kitTune: Tune = STOCK;
+
+  /**
+   * Refit. Called when a part is found or the vehicle changes.
+   *
+   * Recomputed on an event rather than read per frame, because the spec is
+   * touched a dozen times a frame by the driving code and allocating a tuned
+   * copy each time would be a real cost for no reason.
+   */
+  retune(t: Tune) {
+    this.kitTune = t;
+    this.spec = tuned(this.baseSpec, t);
+  }
 
   position = new THREE.Vector3(0, 0, 0);
   heading = 0;
@@ -172,6 +188,7 @@ export class Player {
   constructor(private camera: THREE.PerspectiveCamera, spawn: THREE.Vector2) {
     this.baseFov = camera.fov;
     this.character = makeCharacter();
+    this.baseSpec = SPECS.truck;
     this.spec = SPECS.truck;
     this.vehicle = makeFor(this.spec.cls, PAINTS[0].hex);
     this.group.add(
@@ -198,7 +215,8 @@ export class Player {
   switchTo(cls: VehicleClass, paint: number) {
     if (this.mode !== "foot" || cls === this.spec.cls) return;
     this.group.remove(this.vehicle.root);
-    this.spec = SPECS[cls];
+    this.baseSpec = SPECS[cls];
+    this.spec = tuned(this.baseSpec, this.kitTune);
     this.vehicle = makeFor(cls, paint);
     this.group.add(this.vehicle.root);
     // Lights are set from the sun every frame, so the new body picks them up

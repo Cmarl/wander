@@ -136,8 +136,14 @@ export class Journal {
   private tabs!: HTMLElement;
   private view: "register" | "map" | "garage" = "register";
   /** What you own and what is set, for the garage tab. */
-  stable: () => { owned: string[]; chosen: string; labels: Record<string, string>; stats: Record<string, string> } | null =
-    () => null;
+  stable: () => {
+    owned: string[];
+    chosen: string;
+    labels: Record<string, string>;
+    stats: Record<string, string>;
+    /** What is bolted on, described rather than tabulated. */
+    parts: { label: string; note: string }[];
+  } | null = () => null;
   onChooseVehicle?: (cls: string) => void;
   /** Turning a rumour into a marker, which only you can do. */
   onPinRumour?: (f: Found) => void;
@@ -341,7 +347,9 @@ export class Journal {
       this.list.innerHTML = "";
       return;
     }
-    this.note.textContent = "summoning brings whichever is set";
+    this.note.textContent = st.parts.length
+      ? "summoning brings whichever is set · parts fit every vehicle you own"
+      : "summoning brings whichever is set";
     // Its own card rather than a journal entry with the picture taken out.
     // Borrowing .entry meant the set and unset rows were two different
     // components — one in a box, one loose on the page — instead of two
@@ -363,6 +371,20 @@ export class Journal {
           </div>`
         )
         .join("") +
+      // What is bolted on. No count against a total, no empty slots, no list
+      // of what is missing — the register shows what you found and never what
+      // you did not.
+      (st.parts.length
+        ? `<div class="region-head"><b>Fitted</b><s>${st.parts.length} ${
+            st.parts.length === 1 ? "part" : "parts"
+          }</s></div>` +
+          st.parts
+            .map(
+              (p) =>
+                `<div class="veh"><span class="veh-text"><b>${p.label}</b><s>${p.note}</s></span></div>`
+            )
+            .join("")
+        : "") +
       `</div>`;
   }
 

@@ -15,6 +15,7 @@ import { Camp } from "./game/camp";
 import { Dog } from "./game/dog";
 import { StrayField } from "./world/strayRender";
 import { Stable } from "./game/stable";
+import { Kit, PARTS, partAt, type PartKind } from "./game/parts";
 import { Wanderer } from "./game/wanderer";
 import { Figures } from "./game/figures";
 import { Aurora } from "./world/aurora";
@@ -97,6 +98,9 @@ scene.add(wildlife.group);
  */
 const interiorLight = new THREE.PointLight(0xffcf8a, 0, 26, 2);
 scene.add(interiorLight);
+/** What the headlights actually light, which without lamps fitted is not much. */
+const vehicleLamp = new THREE.PointLight(0xfff0c0, 0, 70, 2);
+scene.add(vehicleLamp);
 
 const aurora = new Aurora();
 scene.add(aurora.group);
@@ -107,6 +111,7 @@ scene.add(wanderer.group);
 const strays = new StrayField();
 scene.add(strays.group);
 const stable = new Stable();
+const kit = new Kit();
 const dog = new Dog();
 scene.add(dog.group);
 const dust = new Dust();
@@ -356,11 +361,19 @@ wanderer.onSeen = (cls) => {
   );
 };
 
+// Whatever was found in previous sessions is already bolted on.
+player.retune(kit.tune);
+
 journal.stable = () => ({
   owned: stable.owned,
   chosen: stable.chosen,
   labels: Object.fromEntries(stable.owned.map((c) => [c, SPECS[c].label])),
   stats: Object.fromEntries(stable.owned.map((c) => [c, VEHICLE_NOTES[c] ?? ""])),
+  // What is bolted on, in the words of the thing rather than as numbers.
+  parts: [...kit.owned.entries()].map(([k, tier]) => ({
+    label: PARTS[k].label + (PARTS[k].tiers > 1 ? ` mk${tier}` : ""),
+    note: PARTS[k].note,
+  })),
 });
 journal.onChooseVehicle = (cls) => {
   stable.choose(cls as never);
@@ -664,6 +677,68 @@ function hearRumour(gx: number, gz: number, salt: number, x: number, z: number, 
  * happened. Taking it is a separate, deliberate act in the garage.
  */
 const CLAIM_RANGE = 11;
+
+/**
+ * Something left at a place.
+ *
+ * Picked up by walking near it, like the dog and like a stray — the interact
+ * key already arbitrates two things and a third claimant is how the "can't get
+ * out of the truck" bug happened, twice.
+ *
+ * A part is fitted the moment it is found. There is no inventory and nothing
+ * to choose, which is the difference between a reward and a spreadsheet.
+ */
+const LOOT_RANGE = 18;
+
+function looting() {
+  if (player.mode !== "foot") return;
+  for (const lm of landmarks.loaded) {
+    if (Math.hypot(lm.x - player.position.x, lm.z - player.position.z) > LOOT_RANGE) continue;
+    const part = partAt(lm.gx, lm.gz, 1601);
+    if (!part) continue;
+    // The id is the PLACE, so a place gives up what it has once and the world
+    // being a pure function means there is nothing to farm.
+    if (found.has(`part:${lm.id}`)) continue;
+    takePart(part.kind, part.tier, lm.name, lm.x, lm.z, `part:${lm.id}`);
+    break;
+  }
+
+  const here = settlements.nearest(player.position.x, player.position.z);
+  if (here) {
+    const [sgx, sgz] = here.s.id.slice(1).split(",").map(Number);
+    const part = partAt(sgx, sgz, 1613);
+    if (part && !found.has(`part:${here.s.id}`)) {
+      takePart(part.kind, part.tier, here.s.name, here.s.x, here.s.z, `part:${here.s.id}`);
+    }
+  }
+}
+
+function takePart(kind: PartKind, tier: number, where: string, x: number, z: number, id: string) {
+  const spec = PARTS[kind];
+  const grade = spec.tiers > 1 ? ` mk${tier}` : "";
+  const better = kit.fit(kind, tier);
+  found.add({
+    id,
+    kind: "badge",
+    name: `${spec.label}${grade} — from ${where}`,
+    x: Math.round(x),
+    z: Math.round(z),
+    at: Date.now(),
+    tod: env.timeOfDay,
+    region: regionAt(x, z).name,
+  });
+  if (better) {
+    player.retune(kit.tune);
+    hud.announce(`${spec.label}${grade}`, "fitted", {
+      big: true,
+      hint: spec.note,
+    });
+  } else {
+    // You already had a better one. Say so rather than silently nothing.
+    hud.announce(`${spec.label}${grade} — you have better`, "found");
+  }
+  sound.moment();
+}
 
 /** Walk this close and the machine in front of you is the one you are driving. */
 const BOARD_RANGE = 7;
@@ -1090,6 +1165,12 @@ function frame(now: number) {
   }
   // Lights come on as the sun goes down, without the player thinking about it.
   player.vehicle.setLights(env.sunDir.y < 0.04);
+  // Driving lamps make the headlight actually reach.
+  vehicleLamp.intensity = env.sunDir.y < 0.04 && player.mode === "drive" ? 22 * kit.tune.light : 0;
+  if (vehicleLamp.intensity > 0) {
+    const root = player.vehicle.root;
+    vehicleLamp.position.set(root.position.x, root.position.y + 1.4, root.position.z);
+  }
   (scene.fog as THREE.FogExp2).color.copy(env.horizonColor);
   env.sunLight.target.position.copy(camera.position);
   scatter.setSunElevation(env.sunDir.y);
@@ -1321,6 +1402,7 @@ function frame(now: number) {
   signposts();
   dogging(dt);
   straying();
+  looting();
   wanderer.update(dt, player.position, player.heading);
   figures.update(dt, player.position, player.heading);
   conditions(dt);
