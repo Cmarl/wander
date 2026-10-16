@@ -1059,6 +1059,7 @@ html, body {
   margin-top: 12px;
   pointer-events: none;
 }
+
 .hud-ico {
   pointer-events: auto;
   appearance: none;
@@ -1171,4 +1172,18 @@ html, body {
   .sheet-card dl { grid-template-columns: minmax(70px, auto) 1fr; gap: 9px 12px; }
   .journal-list { max-height: 52dvh; }
   .photo-bar { gap: 12px; padding: 9px 13px; }
+}
+
+/*
+ * Landscape has a third of the height portrait does, so the same 12 px gap
+ * pushes these much further down the screen in proportion — Clyde: "Journal
+ * and menu button are too far down in landscape mode as well. Intrusive."
+ *
+ * Tighter against the metadata, and smaller, so they read as part of the top
+ * strip rather than as something floating in the middle of the view.
+ */
+@media (orientation: landscape) and (max-height: 620px) {
+  .hud-stack.compact { margin-top: 6px; gap: 6px; }
+  .hud-ico { width: 32px; height: 32px; font-size: 14px; }
+  .hud-more { top: 38px; }
 }
