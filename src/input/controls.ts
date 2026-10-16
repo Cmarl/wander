@@ -24,7 +24,6 @@ export class Controls {
   jumpHeld = false;
   /** Pad state, folded into the shared fields below. */
   private padMoving = false;
-  private padSprint = false;
   private padGlass = false;
   padHorn = false;
   padJournal = false;
@@ -54,7 +53,17 @@ export class Controls {
 
   private keys = new Set<string>();
   /** Latched by the touch buttons, OR-ed with the keyboard each frame. */
-  private sprintToggle = false;
+  /**
+   * Running is not a mode any more.
+   *
+   * Clyde: "Let's get rid of the run button. Person is always on run mode."
+   * He is right, and it follows from the thesis — this is a game about moving
+   * well, and a movement game whose default is the slow one is a game with a
+   * button you hold forever.
+   */
+  private touchDown = false;
+  /** The same, from a controller. */
+  private padDown = false;
   private glassToggle = false;
   /** True while the keyboard is driving movement, so release can zero it. */
   private keyMoving = false;
@@ -113,7 +122,7 @@ export class Controls {
   private lastTap = new WeakMap<HTMLElement, number>();
 
   /** Wire HUD buttons up without Controls needing to know about the DOM layout. */
-  bindButton(el: HTMLElement, action: "jump" | "interact" | "sprint" | "glass" | "pin" | "camp" | "cruise") {
+  bindButton(el: HTMLElement, action: "jump" | "interact" | "down" | "glass" | "pin" | "camp" | "cruise") {
     const down = (e: Event) => {
       e.preventDefault();
       // Some WebViews fire touchstart AND pointerdown for a single tap, others
@@ -122,9 +131,11 @@ export class Controls {
       if (now - (this.lastTap.get(el) ?? 0) < 350) return;
       this.lastTap.set(el, now);
       el.classList.add("held");
-      if (action === "sprint") {
-        this.sprintToggle = !this.sprintToggle;
-        el.classList.toggle("on", this.sprintToggle);
+      if (action === "down") {
+        // Held, not toggled: coming down is something you do for a while and
+        // then stop, and a latched descent is a crash you have to remember to
+        // cancel.
+        this.touchDown = true;
       } else if (action === "cruise") {
         this.cruise = !this.cruise;
         el.classList.toggle("on", this.cruise);
@@ -142,6 +153,10 @@ export class Controls {
       e.preventDefault();
       el.classList.remove("held");
       if (action === "jump") this.jumpHeld = false;
+      // Lift your thumb and you stop descending. Without this the aircraft
+      // keeps sinking after you let go — the same stuck-held-control bug that
+      // flew the abandoned aeroplane into the sky.
+      if (action === "down") this.touchDown = false;
     };
     el.addEventListener("pointerdown", down);
     el.addEventListener("touchstart", down, { passive: false });
@@ -273,8 +288,8 @@ export class Controls {
         this.jump = true;
         this.jumpHeld = true;
       }
+      this.padDown = pad.held.has("down");
       this.padHorn = pad.held.has("horn");
-      this.padSprint = pad.held.has("sprint");
       this.padGlass = pad.held.has("glass");
     }
 
@@ -297,10 +312,12 @@ export class Controls {
       }
     }
 
-    this.sprint = k.has("ShiftLeft") || k.has("ShiftRight") || this.sprintToggle || this.padSprint;
+    // Always. Not "Shift or the pad or a toggle" — there is no slow mode left
+    // to opt out of, so there is nothing here to read.
+    this.sprint = true;
     // Shift means "run" on foot and "go down" in the air — the same held key
     // reading as the opposite of Space in both cases.
-    this.down = k.has("ShiftLeft") || k.has("ShiftRight") || this.sprintToggle;
+    this.down = k.has("ShiftLeft") || k.has("ShiftRight") || this.touchDown || this.padDown;
     this.glass = k.has("KeyQ") || this.glassToggle || this.padGlass;
   }
 

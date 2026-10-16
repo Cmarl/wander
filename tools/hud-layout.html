@@ -34,7 +34,14 @@ const check = (ok, label, detail) => { if (!ok) bad++; log(`${ok ? "  ok  " : " 
 
 // Hud takes (controls, audio, net). Only the shapes it reads at construction
 // matter here — nothing in this probe presses anything.
-const controls = { isTouch: false, pads: { snapshot: () => null, bindings: {}, listenFor: null } };
+// With isTouch true the HUD wires up the stick and every button, so the stub
+// has to answer for those too. None of them are pressed here — this probe
+// measures where things ARE, not what they do.
+const controls = {
+  isTouch: true,
+  pads: { snapshot: () => null, bindings: {}, listenFor: null },
+  bindStick() {}, bindButton() {}, bindLook() {}, bindZoom() {},
+};
 const audio = { toggleMute: () => false, setVolume() {}, volume: 0.7, muted: false };
 const net = { name: "probe", world: "probe", join() {}, solo() {} };
 const hud = new Hud(controls, audio, net);
@@ -123,6 +130,82 @@ for (const key of Object.keys(results)) {
     `${label}: no dead box left under the tape`,
     `${(r.compass.bottom - r.tape.bottom).toFixed(1)}px of empty box`);
 }
+
+/**
+ * The touch button cluster.
+ *
+ * Clyde: "Let's get rid of the run button. Person is always on run mode. Put
+ * the get in the truck/action button where it was, make the jump button the
+ * big button in its old spot".
+ *
+ * The cluster is column-reverse, so DOM order is bottom-to-top on screen and
+ * reading the markup tells you nothing about what your thumb finds. Measured
+ * positions are the only way to check this.
+ */
+/**
+ * Ranked by distance from the thumb, not by one axis.
+ *
+ * Sorting on `top` worked in portrait, where the cluster is a single column,
+ * and reported nonsense in short landscape, where it wraps into two columns
+ * of three — two columns interleave into one list and the order means
+ * nothing. "Under your thumb" is a 2D fact about the bottom-right corner, so
+ * that is what it measures. The portrait answer comes out the same; the
+ * landscape one comes out right instead of scrambled.
+ */
+const corner = { x: window.innerWidth, y: window.innerHeight };
+const byThumb = (el) => {
+  const r = el.getBoundingClientRect();
+  return Math.hypot(corner.x - (r.left + r.width / 2), corner.y - (r.top + r.height / 2));
+};
+const btns = [...document.querySelectorAll(".buttons .btn")]
+  .map((el) => ({ id: el.id, r: el.getBoundingClientRect(), el, d: byThumb(el) }))
+  .filter((b) => b.r.height > 0)
+  .sort((a, b) => a.d - b.d);
+log(`\nbuttons, nearest the thumb first: ${btns.map((b) => `${b.id}(${b.r.width.toFixed(0)}px, ${b.d.toFixed(0)}px away)`).join(" ")}`);
+
+check(!document.getElementById("b-sprint"), "the RUN button is gone", "no b-sprint");
+check(btns[0]?.id === "b-jump", "JUMP is nearest the thumb", btns[0]?.id ?? "none");
+check(btns[0] && btns[1] && btns[0].r.width > btns[1].r.width,
+  "and it is the big one", `${btns[0]?.r.width.toFixed(0)}px vs ${btns[1]?.r.width.toFixed(0)}px`);
+/**
+ * "Next to JUMP" means the one above it in the SAME column.
+ *
+ * Straight-line distance from the corner is too crude once the cluster wraps:
+ * in short landscape it becomes two columns of three, and the bottom button
+ * of the NEXT column sits 113px from the thumb against 114px for the one
+ * directly above JUMP. A one-pixel tie decided the assertion, and it decided
+ * it wrong — the code was right and the ruler was not.
+ */
+const colOf = (b) => b.r.left + b.r.width / 2;
+const jumpB = btns.find((b) => b.id === "b-jump");
+const sameColumn = btns
+  .filter((b) => Math.abs(colOf(b) - colOf(jumpB)) < 30 && b.id !== "b-jump")
+  .sort((a, b) => b.r.top - a.r.top);
+log(`above JUMP in its own column: ${sameColumn.map((b) => b.id).join(" ") || "nothing"}`);
+check(sameColumn[0]?.id === "b-interact", "the action button sits directly above it",
+  sameColumn[0]?.id ?? "none");
+check(document.getElementById("b-down")?.classList.contains("hidden"),
+  "DOWN is out of the way on foot", "hidden");
+
+// And it appears in the air, where RUN used to be the only way down.
+hud.setJumpLabel("CLIMB");
+const down = document.getElementById("b-down");
+check(!down?.classList.contains("hidden"), "DOWN appears once you are flying", "shown");
+const flying = [...document.querySelectorAll(".buttons .btn")]
+  .map((el) => ({ id: el.id, r: el.getBoundingClientRect(), d: byThumb(el) }))
+  .filter((b) => b.r.height > 0)
+  .sort((a, b) => a.d - b.d);
+log(`flying, nearest the thumb first: ${flying.map((b) => b.id).join(" ")}`);
+const flyCol = flying
+  .filter((b) => Math.abs(b.r.left + b.r.width / 2 - colOf(jumpB)) < 30 && b.id !== "b-jump")
+  .sort((a, b) => b.r.top - a.r.top);
+log(`flying, above JUMP: ${flyCol.map((b) => b.id).join(" ")}`);
+check(flyCol[1]?.id === "b-down", "in the slot RUN used to hold — third up", flyCol[1]?.id ?? "none");
+hud.setJumpLabel("JUMP");
+
+// Thumb-sized, all of them, after the reshuffle.
+const small = Math.min(...btns.map((b) => b.r.height));
+check(small >= 44, "every button is still thumb-sized", `smallest ${small.toFixed(0)}px`);
 
 log(bad ? `\n${bad} FAILED` : "\nall assertions passed");
 send();

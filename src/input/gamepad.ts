@@ -12,7 +12,7 @@
 export type PadAction =
   | "interact"
   | "jump"
-  | "sprint"
+  | "down"
   | "glass"
   | "camp"
   | "cruise"
@@ -34,7 +34,7 @@ export interface PadBinding {
 export const DEFAULT_BINDINGS: Record<PadAction, PadBinding> = {
   interact: { button: 0, label: "A / cross" },
   jump: { button: 1, label: "B / circle" },
-  sprint: { button: 10, label: "left stick press" },
+  down: { button: 10, label: "left stick press" },
   glass: { button: 2, label: "X / square" },
   camp: { button: 3, label: "Y / triangle" },
   cruise: { button: 5, label: "right bumper" },
@@ -46,7 +46,9 @@ export const DEFAULT_BINDINGS: Record<PadAction, PadBinding> = {
 export const ACTION_LABEL: Record<PadAction, string> = {
   interact: "get in / do the thing",
   jump: "jump, and climb when flying",
-  sprint: "run, and descend when flying",
+  // Running is no longer a thing you ask for — it is simply how you move —
+  // so this binding is only the half of it that still has a job.
+  down: "descend, when flying",
   glass: "binoculars",
   camp: "make or break camp",
   cruise: "cruise",

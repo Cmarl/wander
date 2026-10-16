@@ -25,7 +25,7 @@ const DESK_KEYS: [string, string][] = [
   ["drag mouse", "look around"],
   ["Shift", "run"],
   ["Space", "jump — and hold it to climb, when you are flying"],
-  ["Shift", "run on foot — and hold it to descend, when you are flying"],
+  ["Shift", "descend, when you are flying — you always run on foot"],
   ["walk into water", "wade, then swim. vehicles stop at the shore"],
   ["E", "get in or out of a vehicle, or do what a place offers"],
   ["E", "with no vehicle nearby — call yours to you"],
@@ -86,6 +86,7 @@ export class Hud {
   /** Null on desktop, where there is no on-screen button to label. */
   private interactEl: HTMLElement | null = null;
   private jumpEl: HTMLElement | null = null;
+  private downEl: HTMLElement | null = null;
 
   private muteEl!: HTMLElement;
   /** Open/close the controls sheet. Also driven by H, ? and Escape. */
@@ -204,10 +205,28 @@ export class Hud {
       ${
         controls.isTouch
           ? `<div class="stick" id="h-stick"><div class="knob" id="h-knob"></div></div>
+             <!--
+               Clyde: "Let's get rid of the run button. Person is always on
+               run mode. Put the get in the truck/action button where it was,
+               make the jump button the big button in its old spot".
+
+               The cluster is column-reverse, so the FIRST one here is the
+               BOTTOM one on screen — the one under your thumb. JUMP takes it.
+
+               RUN is gone and running is simply on, which is what it should
+               always have been: a movement game whose default speed is the
+               slow one is a game with a button you hold forever.
+
+               DOWN is new, and it is not an addition to the cluster — it is
+               the half of RUN that was load-bearing. RUN doubled as descend
+               while flying ("hold ⤴ to climb, RUN to come down"), so deleting
+               it outright would have left an aircraft on a phone with no way
+               down. It appears only in the air, in the slot RUN used to hold.
+             -->
              <div class="buttons">
-               <button class="btn" id="b-interact">⏎</button>
-               <button class="btn small" id="b-jump">JUMP</button>
-               <button class="btn small" id="b-sprint">RUN</button>
+               <button class="btn" id="b-jump">JUMP</button>
+               <button class="btn small" id="b-interact">⏎</button>
+               <button class="btn small hidden" id="b-down">DOWN</button>
                <button class="btn small" id="b-glass">LOOK</button>
                <button class="btn small" id="b-camp">CAMP</button>
                <button class="btn small" id="b-cruise">GO</button>
@@ -279,6 +298,7 @@ export class Hud {
     this.promptEl = document.getElementById("h-prompt")!;
     this.interactEl = document.getElementById("b-interact");
     this.jumpEl = document.getElementById("b-jump");
+    this.downEl = document.getElementById("b-down");
     this.muteEl = document.getElementById("h-mute")!;
     this.muteEl.addEventListener("pointerdown", (e) => {
       e.stopPropagation();
@@ -446,7 +466,7 @@ export class Hud {
       controls.bindStick(document.getElementById("h-stick")!, document.getElementById("h-knob")!);
       controls.bindButton(document.getElementById("b-jump")!, "jump");
       controls.bindButton(document.getElementById("b-interact")!, "interact");
-      controls.bindButton(document.getElementById("b-sprint")!, "sprint");
+      controls.bindButton(document.getElementById("b-down")!, "down");
       controls.bindButton(document.getElementById("b-glass")!, "glass");
       controls.bindButton(document.getElementById("b-camp")!, "camp");
       controls.bindButton(document.getElementById("b-cruise")!, "cruise");
@@ -654,6 +674,14 @@ export class Hud {
    */
   setJumpLabel(text: string) {
     if (this.jumpEl && this.jumpEl.textContent !== text) this.jumpEl.textContent = text;
+    /**
+     * DOWN comes and goes with it.
+     *
+     * Derived from the same fact rather than from a second call: whether you
+     * are in something that flies decides both labels, and two places
+     * deciding one thing is how every drift bug in this project started.
+     */
+    this.downEl?.classList.toggle("hidden", text !== "CLIMB");
   }
 
   /**
