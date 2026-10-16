@@ -131,10 +131,12 @@ export class Hud {
     this.root = document.getElementById("ui")!;
     this.root.innerHTML = `
       <div class="panel panel-left">
+        <div class="panel-text">
         <div class="clock" id="h-clock">00:00</div>
         <div class="sub" id="h-biome">—</div>
         <div class="sub" id="h-elev">—</div>
         <div class="speed" id="h-speed"></div>
+        </div>
         ${
           /**
            * On touch the menu buttons live INSIDE the metadata panel, after

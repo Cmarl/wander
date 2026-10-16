@@ -66,6 +66,22 @@ html, body {
  */
 .panel { position: absolute; top: 0; }
 .panel-left {
+  /*
+   * A row: the metadata, then the menu buttons beside it.
+   *
+   * Clyde asked for a new home for them. They had been under the text, which
+   * put them adrift in the middle-left of the screen with nothing around
+   * them — and in landscape that is a third of the way down the view.
+   *
+   * Beside the metadata they belong to the top strip, which is already a
+   * place the eye treats as chrome. They cannot crowd a thumb, they cannot
+   * cover the speedometer because they are in a different column rather than
+   * stacked under it, and the scrim that makes the metadata readable covers
+   * them too.
+   */
+  display: flex;
+  align-items: flex-start;
+  gap: 14px;
   left: 0;
   /* Longhand on purpose: a max() with env() inside a shorthand was not
      applying, which left the text flush against the screen edge. */
@@ -1056,7 +1072,19 @@ html, body {
   flex-direction: row;
   align-items: flex-start;
   gap: 8px;
-  margin-top: 12px;
+  /* Level with the clock, not under it. */
+  margin-top: 2px;
+  /*
+   * Neutralise the offsets written for the ABSOLUTE version of this stack.
+   * The orientation blocks still set top/bottom on .hud-stack, and once this
+   * became position:relative those stopped being placements and started being
+   * nudges — shifting it 83 px down from where the flex row had put it, which
+   * is the drifting-in-open-space look all over again.
+   */
+  top: auto;
+  bottom: auto;
+  left: auto;
+  right: auto;
   pointer-events: none;
 }
 
@@ -1183,7 +1211,7 @@ html, body {
  * strip rather than as something floating in the middle of the view.
  */
 @media (orientation: landscape) and (max-height: 620px) {
-  .hud-stack.compact { margin-top: 6px; gap: 6px; }
+  .hud-stack.compact { margin-top: 1px; gap: 6px; }
   .hud-ico { width: 32px; height: 32px; font-size: 14px; }
   .hud-more { top: 38px; }
 }
