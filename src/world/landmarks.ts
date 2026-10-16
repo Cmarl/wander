@@ -35,7 +35,8 @@ export type LandmarkKind =
   | "orchard"
   | "frozenlake"
   | "dock"
-  | "airfield";
+  | "airfield"
+  | "cave";
 
 /**
  * Naming.
@@ -98,6 +99,7 @@ export const LANDMARK_NAMES: Record<LandmarkKind, string> = {
   frozenlake: "Frozen Lake",
   dock: "Landing",
   airfield: "Airstrip",
+  cave: "Cave",
 };
 
 /**
@@ -195,6 +197,13 @@ export const LANDMARK_SOLIDS: Record<LandmarkKind, { dx: number; dz: number; r: 
     { dx: 0.85, dz: -12, r: 0.5 },
   ],
   airfield: [{ dx: 0, dz: -16, r: 5.5 }],
+  // The boulders round the mouth are solid; the opening between them is not.
+  cave: [
+    { dx: -4.6, dz: -1.5, r: 2.0 },
+    { dx: 4.6, dz: -1.5, r: 2.0 },
+    { dx: -3.2, dz: 2.4, r: 1.6 },
+    { dx: 3.2, dz: 2.4, r: 1.6 },
+  ],
 };
 
 export interface Landmark {
@@ -282,6 +291,15 @@ function baseInCell(gx: number, gz: number): Landmark | null {
   if (moist > 0.3 && moist < 0.72 && y > 40 && y < 900) options.push("stones");
   // A hole you can stand in, up where the rock is.
   if (y > 500 && y < 2200) options.push("adit");
+  /**
+   * A cave. Needs rock to be in, so it wants real slope — the same places
+   * scree and crags come from. Nobody dug it, so unlike an adit it has no
+   * business being on gentle farmland.
+   */
+  // 0.26 left almost no band at all: the shared check already rejects
+  // anything above 0.3, so the window was four hundredths wide and caves came
+  // out at one every 47 km. 0.17 still means hilly and nothing like farmland.
+  if (slopeAt(x, z, 20) > 0.17 && y > 120 && y < 2600) options.push("cave");
   if (moist < 0.5 && y > 30 && y < 800) options.push("windpump");
   if (moist < 0.35 && y > 60 && y < 1400) options.push("sinkhole");
   // Somebody farmed here. Needs the good ground, same as the steadings.

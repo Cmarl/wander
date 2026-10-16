@@ -8,6 +8,7 @@ import { ACCRETION_KINDS, accretionsAt, type AccretionKind } from "./accretions"
 import {
   adit,
   airfield,
+  cave,
   dock,
   bonefield,
   frozenLake as frozenlake,
@@ -703,6 +704,7 @@ const BUILDERS: Record<LandmarkKind, () => Layer[]> = {
   frozenlake,
   dock,
   airfield,
+  cave,
 };
 
 export class LandmarkField {

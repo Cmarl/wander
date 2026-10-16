@@ -61,6 +61,7 @@ const ELIGIBLE: Record<LandmarkKind, AccretionKind[]> = {
   frozenlake: ["firepit", "cairn", "signpost"],
   dock: ["firepit", "drums", "signpost"],
   airfield: ["drums", "signpost", "woodpile", "kennel"],
+  cave: ["firepit", "cairn", "signpost"],
 };
 
 /** Roughly how often an eligible accretion actually shows up. */

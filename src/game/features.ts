@@ -130,6 +130,11 @@ export const ACTIONS: Record<LandmarkKind, ActionSpec> = {
     lift: 0, inset: 0.7, instant: true,
     note: "",
   },
+  cave: {
+    verb: "go in", badge: "Went underground", range: 10, camera: "inside",
+    lift: 0, inset: 0.9, instant: false,
+    note: "colder, and it goes back further than you thought",
+  },
   // The arch has no prompt. Driving through one IS the action, and asking
   // permission first would spoil the only landmark you meet at speed.
   arch: {
@@ -174,6 +179,9 @@ const KIND_INTERIORS: Partial<Record<LandmarkKind, Interior>> = {
   // Standing inside the portal looking down the drift, with the lamp on the
   // timber beside you.
   adit: { eye: [0, 1.6, -3.4], look: [0, 1.3, -15], hearth: [1.2, 1.5, -4.2] },
+  // Further in than a mine, because a cave's whole appeal is that it keeps
+  // going. The lamp is your own, set down on a rock beside you.
+  cave: { eye: [0, 1.6, -5.0], look: [0, 1.2, -22], hearth: [1.6, 0.9, -6.0] },
 };
 
 function interiorOf(lm: Landmark): Interior {

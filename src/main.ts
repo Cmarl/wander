@@ -1417,6 +1417,26 @@ function frame(now: number) {
       if (offer.kind === "mast") hearRumour(offer.gx, offer.gz, 1301, offer.x, offer.z, "the radio says");
       // Going into a working is worth something of its own. The badge says
       // you went in; this says what was down there.
+      /**
+       * What is at the back of a cave.
+       *
+       * The walk in is the feature, so the payoff has to be at the far end —
+       * a vein that catches your lamp, and the bones of something that did
+       * not find its way out.
+       */
+      if (offer.kind === "cave") {
+        const fresh = found.add({
+          id: `cave:${offer.id}`,
+          kind: "badge",
+          name: `${offer.name} — bones, and something bright`,
+          x: Math.round(offer.x),
+          z: Math.round(offer.z),
+          at: Date.now(),
+          tod: env.timeOfDay,
+          region: regionAt(offer.x, offer.z).name,
+        });
+        if (fresh) hud.found("at the back of it", "bones, and something bright");
+      }
       if (offer.kind === "adit") {
         const fresh = found.add({
           id: `seam:${offer.id}`,
@@ -1459,6 +1479,10 @@ function frame(now: number) {
         landmarks.puff(offer.x + 1.6, offer.y + 1, offer.z - 1.2, 5);
       }
       if (offer.kind === "adit") landmarks.puff(offer.x, offer.y + 1.4, offer.z, 5, true);
+      if (offer.kind === "cave") {
+        sound.action("adit");
+        landmarks.puff(offer.x, offer.y + 1.2, offer.z, 6, true);
+      }
 
       const sustained = features.begin(offer, player.position);
       if (sustained) {
@@ -1601,7 +1625,7 @@ function frame(now: number) {
   // The panel has to appear on stepping inside, before there is any fire, so
   // that "light the fire" is reachable at all.
   // Light the lamp while you are in a working, and put it out when you leave.
-  if (features.indoors && features.held!.lm.kind === "adit") {
+  if (features.indoors && (features.held!.lm.kind === "adit" || features.held!.lm.kind === "cave")) {
     features.hearth(interiorLight.position);
     interiorLight.intensity += (26 - interiorLight.intensity) * Math.min(1, dt * 2.4);
   } else {

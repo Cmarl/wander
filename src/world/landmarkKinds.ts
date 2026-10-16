@@ -206,6 +206,108 @@ export function airfield(): Layer[] {
   ];
 }
 
+/**
+ * A cave mouth, and the chamber behind it.
+ *
+ * The mine proved the shape: terrain is a pure function and cannot be
+ * excavated, so the inside is BUILT and the camera goes in. A cave differs
+ * from a working in every way that matters — nobody dug it, nothing in it is
+ * square, and what is down there was never put there on purpose.
+ */
+export function cave(): Layer[] {
+  const rockOuter: THREE.BufferGeometry[] = [];
+  const dark: THREE.BufferGeometry[] = [];
+  const glow: THREE.BufferGeometry[] = [];
+  const bones: THREE.BufferGeometry[] = [];
+
+  // The mouth: a ring of boulders around an opening, irregular on purpose.
+  for (let i = 0; i < 18; i++) {
+    const a = (i / 18) * Math.PI * 2;
+    const r = 4.4 + ((i * 7) % 5) * 0.55;
+    const b = rock(1.1 + ((i * 3) % 4) * 0.45, 0.72, i);
+    b.translate(Math.cos(a) * r, 0.6 + ((i * 5) % 3) * 0.5, Math.sin(a) * r * 0.75 - 1.5);
+    rockOuter.push(b);
+  }
+  // A brow of rock over the entrance, so it reads as a hole rather than a gap.
+  const brow = rock(4.2, 0.5, 3);
+  brow.scale(1.5, 1, 0.9);
+  brow.translate(0, 4.0, -1.2);
+  rockOuter.push(brow);
+
+  /**
+   * The chamber. Wider than a mine drift and much less regular: the walls are
+   * boulders rather than planes, and the floor falls away as you go in.
+   */
+  const D = 26;
+  const floor = box(7.4, 0.4, D);
+  floor.rotateX(0.045);
+  floor.translate(0, -0.3, -D / 2 - 2);
+  dark.push(floor);
+  const ceil = box(8.4, 0.5, D);
+  ceil.rotateX(-0.03);
+  ceil.translate(0, 4.4, -D / 2 - 2);
+  dark.push(ceil);
+  for (let i = 0; i < 16; i++) {
+    const t = i / 15;
+    const z = -2 - t * D;
+    for (const sx of [-1, 1]) {
+      const w = rock(1.6 + ((i * 3) % 4) * 0.4, 0.95, i * 2 + (sx > 0 ? 1 : 0));
+      w.translate(sx * (3.4 + ((i * 5) % 3) * 0.3), 1.6 + ((i * 7) % 3) * 0.9, z);
+      dark.push(w);
+    }
+  }
+  const back = rock(5.2, 0.9, 11);
+  back.scale(1.4, 1, 1);
+  back.translate(0, 2.0, -D - 2.4);
+  dark.push(back);
+
+  // Stalactites and stalagmites, meeting in a couple of places.
+  for (let i = 0; i < 14; i++) {
+    const z = -4 - (i % 7) * 3.2;
+    const sx = i % 2 ? 1 : -1;
+    const x = sx * (0.8 + (i % 3) * 0.7);
+    const up = i % 3 === 0;
+    const h = 1.2 + (i % 4) * 0.6;
+    const c = new THREE.ConeGeometry(0.28 + (i % 3) * 0.1, h, 6);
+    if (!up) c.rotateX(Math.PI);
+    c.translate(x, up ? h / 2 : 4.2 - h / 2, z);
+    dark.push(c);
+  }
+
+  /**
+   * What is down there: a vein of something that catches the light, deep in,
+   * and the bones of an animal that did not find its way out.
+   *
+   * The payoff has to be at the far end, because the walk is the feature.
+   */
+  for (let i = 0; i < 18; i++) {
+    const g = new THREE.IcosahedronGeometry(0.1 + (i % 4) * 0.055, 0);
+    g.translate(
+      (i % 2 ? -1 : 1) * (2.4 + (i % 3) * 0.4),
+      0.5 + (i % 6) * 0.58,
+      -D + 1.2 + ((i % 4) - 1.5) * 1.1
+    );
+    glow.push(g);
+  }
+  for (let i = 0; i < 7; i++) {
+    const rib = new THREE.CylinderGeometry(0.07, 0.1, 1.5 - i * 0.1, 5);
+    rib.rotateZ(Math.PI / 2 - 0.3);
+    rib.rotateY(i * 0.5);
+    rib.translate(1.5, 0.25, -D + 5 + i * 0.5);
+    bones.push(rib);
+  }
+  const skull = rock(0.42, 0.8, 2);
+  skull.translate(2.3, 0.3, -D + 4.2);
+  bones.push(skull);
+
+  return [
+    { geo: merge(rockOuter), colour: 0x7e7a72 },
+    { geo: merge(dark), colour: 0x1a1b1f },
+    { geo: merge(bones), colour: 0xcfc9b6 },
+    { geo: merge(glow), colour: 0x8fd8e8, unlit: true },
+  ];
+}
+
 /** Standing stones: human but ancient, a different register from "built". */
 export function stones(): Layer[] {
   const ring: THREE.BufferGeometry[] = [];

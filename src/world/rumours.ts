@@ -61,6 +61,7 @@ const LOOKS: Record<LandmarkKind, string[]> = {
   frozenlake: ["ice flat as a table", "a lake frozen right over", "water gone hard"],
   dock: ["a jetty out over the water", "somebody's landing", "a boat tied up"],
   airfield: ["a strip cut into the grass", "a shed and a windsock", "somewhere aeroplanes land"],
+  cave: ["a hole in the hillside", "a mouth in the rock", "a cave nobody dug"],
 };
 
 /**
