@@ -510,9 +510,28 @@ export class Player {
     this.heading = this.vehHeading;
     this.grounded = false;
     this.velY = Math.min(0, this.vehVelY);
-    // Carry the aircraft's momentum out of the door with you.
+    // Carry the aircraft's momentum out of the door with you. Read before the
+    // release, which is what zeroes the speed this is taken from.
     this.fallX = Math.sin(this.vehHeading) * this.vehSpeed * 0.45;
     this.fallZ = Math.cos(this.vehHeading) * this.vehSpeed * 0.45;
+
+    /**
+     * And the aeroplane comes down.
+     *
+     * This used to say the aircraft keeps flying — "not destroyed and not
+     * waiting for you, simply gone, which is both simpler and a better story".
+     * It is a nice story and it was not true: with the climb control stuck on
+     * it did not fly away, it went straight up forever, and Clyde could not
+     * call it back.
+     *
+     * It is set down where you left it. Nobody is watching — you are falling —
+     * and what you get back is an ordinary parked machine at a real place,
+     * which is both callable and findable. Nothing in this game is ever lost.
+     */
+    this.vehPos.y = heightAt(this.vehPos.x, this.vehPos.z);
+    this.warmedUp = false;
+    this.releaseVehicle();
+
     this.skyState = 1;
     this.fallTime = 0;
     this.onSkydive?.("jump");
@@ -1264,6 +1283,44 @@ export class Player {
     this.vehicle.animate(dt, speed, this.vehSteer, this.vehVelY);
   }
 
+  /**
+   * Everything that has to stop when you are no longer driving.
+   *
+   * Clyde, about stepping out of an aeroplane in flight: "plane vanishes after
+   * jumping out", "summon failing. I think it is stuck in the sky somewhere",
+   * "also has the same persistent engine sound like the truck had".
+   *
+   * Three symptoms, one cause: bailOut() did none of this. It changed `mode`
+   * and left every piece of vehicle state live.
+   *
+   *   vehClimb was still true — he had been HOLDING climb when he jumped, and
+   *   nothing ever let go of it. So the abandoned aeroplane went on climbing
+   *   at full lift forever, which is the vanishing. And when he summoned it,
+   *   summon() put it nine metres up and the very next frame it climbed away
+   *   again. The summon was not failing; it was working, and then the stuck
+   *   control flew the result off. A refresh fixed it because a refresh is the
+   *   only thing that was clearing the flag.
+   *
+   *   onDismount never fired, so the engine was never told to stop. Same
+   *   family as the stuck truck engine, except that one had a shutdown that
+   *   did not work and this one never called shutdown at all.
+   *
+   * So there is now ONE release, and both ways out of a vehicle go through it.
+   * A second copy of this list is how the two drifted apart in the first place.
+   */
+  private releaseVehicle() {
+    this.vehSpeed = 0;
+    this.throttle = 0;
+    this.vehVelY = 0;
+    this.vehAir = false;
+    // The flight controls especially: these are HELD, so whatever was being
+    // held at the moment you left is what the machine would keep doing.
+    this.vehClimb = false;
+    this.vehDescend = false;
+    this.vehSteer = 0;
+    this.onDismount?.();
+  }
+
   private dismount() {
     const sx = Math.cos(this.vehHeading);
     const sz = -Math.sin(this.vehHeading);
@@ -1273,11 +1330,7 @@ export class Player {
     this.mode = "foot";
     this.velY = 0;
     this.grounded = true;
-    this.vehSpeed = 0;
-    this.throttle = 0;
-    this.vehVelY = 0;
-    this.vehAir = false;
-    this.onDismount?.();
+    this.releaseVehicle();
   }
 
   // --- camera ----------------------------------------------------------------
