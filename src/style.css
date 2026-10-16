@@ -1022,7 +1022,19 @@ html, body {
  * guess the panel's height and guessed wrong as soon as a line was added.
  */
 .hud-stack.compact {
-  position: static;
+  /*
+   * relative, not static.
+   *
+   * It has to stay in the flow so nothing above it can be covered — that was
+   * the speedometer fix. But .hud-more is absolutely positioned against its
+   * nearest POSITIONED ancestor, and with the stack static that became the
+   * metadata panel: the popover opened at the top of the panel, up among the
+   * location lines, instead of under the buttons. Tapping the menu appeared
+   * to do nothing, which is why the fullscreen button seemed dead.
+   *
+   * relative keeps the flow behaviour and restores the containing block.
+   */
+  position: relative;
   flex-direction: row;
   align-items: flex-start;
   gap: 8px;
