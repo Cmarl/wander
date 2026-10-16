@@ -212,6 +212,116 @@ log(`a red thing and a blue thing differ by ${nearSpread} up close, ${farSpread}
 check(nearSpread > 60, "two colours look different up close", `${nearSpread}`);
 check(farSpread < nearSpread * 0.35, "and nearly the same through 14 km of air", `${farSpread} vs ${nearSpread}`);
 
+// --- can you see the bottom? ------------------------------------------------
+/**
+ * Shallow water now shows the ground under it — the real terrain albedo,
+ * attenuated per channel over twice the depth. The test is variance.
+ *
+ * A flat two-colour gradient has almost none: every pixel of a bay is the same
+ * blue-green. Water you can see through inherits the variation of the ground
+ * it is lying on — sand, weed, rock — so the shallows should be visibly busier
+ * than the deeps. That comparison needs no "before" to measure against, which
+ * is what makes it a gate rather than a one-off.
+ */
+/**
+ * Walk to the waterline rather than sampling for it.
+ *
+ * The first version demanded a bed 2-9 m down with land 14 m high only 420 m
+ * away, sampled on a 2.3 km grid — which on a gently shelving coast is
+ * nowhere. Find any sea, march east until the ground comes up through the
+ * surface, then step back into the shallows. That finds a coast on any
+ * coastline rather than on a steep one.
+ */
+function findCoast() {
+  for (let sx = -40000; sx <= 40000; sx += 1700) {
+    for (let sz = -40000; sz <= 40000; sz += 1700) {
+      if (heightAt(sx, sz) > -4) continue;
+      let x = sx;
+      for (let step = 0; step < 90; step++) {
+        x += 60;
+        if (heightAt(x, sz) > 1) {
+          // Back off into water a few metres deep — where a bottom is both
+          // present and visible.
+          for (let b = 0; b < 40; b++) {
+            const px = x - 40 - b * 25;
+            const d = heightAt(px, sz);
+            if (d < -1.5 && d > -11) return { x: px, z: sz, bed: d };
+          }
+          break;
+        }
+      }
+    }
+  }
+  return null;
+}
+const coast = findCoast();
+log(coast ? `coastline at ${coast.x.toFixed(0)}, ${coast.z.toFixed(0)} — bed ${coast.bed.toFixed(1)} m down` : "no coastline found");
+check(!!coast, "found a coastline to look at", coast ? `${coast.x},${coast.z}` : "none");
+
+const spreadOf = (cam, obj) => {
+  const sc = new THREE.Scene();
+  sc.add(obj);
+  renderer.render(sc, cam);
+  const px = new Uint8Array(256 * 256 * 4);
+  renderer.getContext().readPixels(0, 0, 256, 256, 6408, 5121, px);
+  /**
+   * Only the bottom quarter of the frame.
+   *
+   * Over the WHOLE frame this measured the sky, the horizon line and the sun
+   * glitter — and reported more variation out at sea than in the shallows,
+   * because the open-water shot had more sky in it. None of that has anything
+   * to do with whether you can see the bottom.
+   *
+   * readPixels starts at the bottom-left, so the first rows are the nearest
+   * water: two metres deep, directly below, where a bed is unambiguously
+   * visible or unambiguously not.
+   */
+  const rows = 64;
+  let n = 0, sum = 0, sumSq = 0;
+  for (let i = 0; i < 256 * rows * 4; i += 4) {
+    const v = 0.299 * px[i] + 0.587 * px[i + 1] + 0.114 * px[i + 2];
+    sum += v; sumSq += v * v; n++;
+  }
+  const mean = sum / n;
+  return { sd: Math.sqrt(Math.max(sumSq / n - mean * mean, 0)), mean };
+};
+
+if (coast) {
+  const wcam = new THREE.PerspectiveCamera(60, 1, 0.5, 40000);
+  // Low over the shallows, looking along the shore.
+  wcam.position.set(coast.x, 9, coast.z);
+  wcam.lookAt(coast.x - 300, -4, coast.z + 60);
+  wcam.updateMatrixWorld(true);
+  water.update(coast.x, coast.z);
+  const shallow = spreadOf(wcam, water.mesh);
+
+  // The same camera far out to sea, where there is no bottom to see.
+  const deep = { x: coast.x - 9000, z: coast.z - 9000 };
+  const dcam = wcam.clone();
+  dcam.position.set(deep.x, 9, deep.z);
+  dcam.lookAt(deep.x - 300, -4, deep.z + 60);
+  dcam.updateMatrixWorld(true);
+  water.update(deep.x, deep.z);
+  const open = spreadOf(dcam, water.mesh);
+
+  log(`nearest water: variation ${shallow.sd.toFixed(1)} (mean ${shallow.mean.toFixed(0)}) over the ` +
+      `shallows, ${open.sd.toFixed(1)} (mean ${open.mean.toFixed(0)}) out at sea`);
+  check(shallow.sd > open.sd * 1.3, "the shallows show the ground under them",
+    `${shallow.sd.toFixed(1)} vs ${open.sd.toFixed(1)}`);
+  /**
+   * And deep water is nearly uniform, which is the other half of the claim.
+   *
+   * I first asserted the shallows would be BRIGHTER, on the reasoning that
+   * sand reflects more than twenty metres of water. Wrong, and the numbers
+   * said so: open water read 227 against the shallows' 143, because looking
+   * out to sea is a grazing angle where fresnel is near 1 and you are seeing
+   * reflected sky. Brightness here is about the angle you are looking at, not
+   * about the bottom. Uniformity is the thing that is actually about the
+   * bottom.
+   */
+  check(open.sd < 3, "and the open sea has no bottom to show", `sd ${open.sd.toFixed(1)}`);
+}
+
 // --- the thing this file exists for -----------------------------------------
 const glsl = errors.filter((e) => /shader|GLSL|compile|program|ERROR:/i.test(e));
 for (const e of glsl.slice(0, 6)) log(`  GL: ${e.slice(0, 300)}`);
@@ -256,10 +366,14 @@ try {
   const cam2 = new THREE.PerspectiveCamera(62, W / H, 0.5, 60000);
   // Low, looking across country into a sun near the horizon — which is where
   // the backscatter and the glitter path have something to say.
-  const eye = new THREE.Vector3(2400, 0, -1800);
-  eye.y = heightAt(eye.x, eye.z) + 620;
+  // Over the coastline if there is one, because that is where this pass did
+  // its work — a landscape shot of dry hills would prove nothing about water.
+  const eye = coast
+    ? new THREE.Vector3(coast.x + 260, 0, coast.z - 160)
+    : new THREE.Vector3(2400, 0, -1800);
+  eye.y = Math.max(heightAt(eye.x, eye.z), 0) + 190;
   cam2.position.copy(eye);
-  cam2.lookAt(eye.x + 900, eye.y - 760, eye.z + 900);
+  cam2.lookAt(eye.x - 420, eye.y - 230, eye.z + 320);
   const sun2 = new THREE.Vector3(0.62, 0.20, 0.72).normalize();
   sky.mesh.removeFromParent();
   cam2.add(sky.mesh);
@@ -275,6 +389,7 @@ try {
     if (u.uFogDensity) u.uFogDensity.value = 0.00009;
   }
   terrain.update(eye.x, eye.z);
+  water.update(eye.x, eye.z);
   water.update(eye.x, eye.z);
   scene.add(terrain.group, water.mesh);
   renderer.render(scene, cam2);
