@@ -16,7 +16,7 @@ import { Dog } from "./game/dog";
 import { StrayField } from "./world/strayRender";
 import { Stable } from "./game/stable";
 import { UNSUMMONABLE, type VehicleClass } from "./game/vehicles";
-import { Kit, PARTS, partAt, type PartKind } from "./game/parts";
+import { Kit, PARTS, PART_KINDS, partAt, type PartKind } from "./game/parts";
 import { Wanderer } from "./game/wanderer";
 import { Figures } from "./game/figures";
 import { Aurora } from "./world/aurora";
@@ -38,7 +38,7 @@ import { Hud } from "./ui/hud";
 import { Postcard } from "./ui/postcard";
 import { Journal } from "./ui/journal";
 import { haptics } from "./ui/haptics";
-import { Garage } from "./game/paint";
+import { Garage, CAN_PAINTS } from "./game/paint";
 import { Soundscape } from "./audio/soundscape";
 import { Net, DEFAULT_WORLD } from "./net/net";
 import { PeerBodies, seatOf } from "./net/peers";
@@ -347,6 +347,7 @@ hud.onEat = () => {
 hud.onJournal = () => journal.toggle();
 
 const garage = new Garage();
+garage.loadCans();
 // Whatever you were driving last time, you're still driving.
 player.vehicle.setPaint(garage.current(player.distanceTravelled / 1000).hex);
 const journal = new Journal(
@@ -391,10 +392,14 @@ journal.stable = () => ({
   labels: Object.fromEntries(stable.owned.map((c) => [c, SPECS[c].label])),
   stats: Object.fromEntries(stable.owned.map((c) => [c, VEHICLE_NOTES[c] ?? ""])),
   // What is bolted on, in the words of the thing rather than as numbers.
-  parts: [...kit.owned.entries()].map(([k, tier]) => ({
-    label: PARTS[k].label + (PARTS[k].tiers > 1 ? ` mk${tier}` : ""),
+  // Fitted parts, in a fixed order so the list does not reshuffle as you find
+  // things. Paint is excluded: it is a colour, not a part, and has its own row.
+  parts: PART_KINDS.filter((k) => k !== "paint" && kit.owned.has(k)).map((k) => ({
+    label: PARTS[k].label + (PARTS[k].tiers > 1 ? ` mk${kit.owned.get(k)}` : ""),
     note: PARTS[k].note,
   })),
+  // Colours found in tins, as swatches rather than a list of names.
+  cans: garage.cans.map((i) => ({ name: CAN_PAINTS[i].name, hex: CAN_PAINTS[i].hex })),
 });
 journal.onChooseVehicle = (cls) => {
   stable.choose(cls as never);
@@ -740,6 +745,30 @@ function looting() {
 function takePart(kind: PartKind, tier: number, where: string, x: number, z: number, id: string) {
   const spec = PARTS[kind];
   const grade = spec.tiers > 1 ? ` mk${tier}` : "";
+
+  /**
+   * Paint is its own thing: a colour rather than a capability.
+   *
+   * Which tin is at which place comes from the place, so the same shed always
+   * holds the same colour and two players find the same one there.
+   */
+  if (kind === "paint") {
+    const can = garage.findCan(Math.floor(Math.abs(x + z * 7)) % 8);
+    if (!can) {
+      hud.announce("a tin you already have", "found");
+      return;
+    }
+    found.add({
+      id, kind: "badge", name: `${can.name} paint — from ${where}`,
+      x: Math.round(x), z: Math.round(z), at: Date.now(), tod: env.timeOfDay,
+      region: regionAt(x, z).name,
+    });
+    hud.found("a tin of paint", can.name, "press K to put it on");
+    sound.discovery("rare");
+    haptics.discover();
+    return;
+  }
+
   const better = kit.fit(kind, tier);
   found.add({
     id,
@@ -753,15 +782,17 @@ function takePart(kind: PartKind, tier: number, where: string, x: number, z: num
   });
   if (better) {
     player.retune(kit.tune);
-    hud.announce(`${spec.label}${grade}`, "fitted", {
-      big: true,
-      hint: spec.note,
-    });
-  } else {
+    // A part is a real find and gets the real treatment.
+    hud.found("fitted", `${spec.label}${grade}`, spec.note);
+    sound.discovery(tier > 1 ? "rare" : "badge");
+    haptics.discover();
+    return;
+  }
+  {
     // You already had a better one. Say so rather than silently nothing.
     hud.announce(`${spec.label}${grade} — you have better`, "found");
+    sound.moment();
   }
-  sound.moment();
 }
 
 /**

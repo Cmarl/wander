@@ -26,7 +26,14 @@ import type { VehicleSpec } from "./vehicles";
  *      what you have not.
  */
 
-export type PartKind = "suspension" | "turbo" | "intake" | "headers" | "exhaust" | "lamps";
+export type PartKind =
+  | "suspension"
+  | "turbo"
+  | "intake"
+  | "headers"
+  | "exhaust"
+  | "lamps"
+  | "paint";
 
 export interface PartSpec {
   label: string;
@@ -47,6 +54,11 @@ export const PARTS: Record<PartKind, PartSpec> = {
   headers: { label: "Headers", note: "pulls harder through the middle", tiers: 1 },
   exhaust: { label: "Exhaust", note: "a little more speed, and it sounds like it", tiers: 1 },
   lamps: { label: "Driving lamps", note: "you can see what you are driving into", tiers: 2 },
+  /**
+   * A tin of paint. The only part that is not a part — it changes nothing
+   * about how anything drives, which is exactly why it is worth finding.
+   */
+  paint: { label: "Paint", note: "a colour you will not find twice", tiers: 1 },
 };
 
 export const PART_KINDS = Object.keys(PARTS) as PartKind[];

@@ -143,6 +143,8 @@ export class Journal {
     stats: Record<string, string>;
     /** What is bolted on, described rather than tabulated. */
     parts: { label: string; note: string }[];
+    /** Colours found in tins. */
+    cans: { name: string; hex: number }[];
   } | null = () => null;
   onChooseVehicle?: (cls: string) => void;
   /** Turning a rumour into a marker, which only you can do. */
@@ -384,6 +386,21 @@ export class Journal {
                 `<div class="veh"><span class="veh-text"><b>${p.label}</b><s>${p.note}</s></span></div>`
             )
             .join("")
+        : "") +
+      // Colours found in tins. Swatches rather than names, because a colour
+      // is a thing you recognise rather than a thing you read.
+      (st.cans.length
+        ? `<div class="region-head"><b>Paint found</b><s>${st.cans.length} ${
+            st.cans.length === 1 ? "tin" : "tins"
+          }</s></div>
+           <div class="cans">${st.cans
+             .map(
+               (c) =>
+                 `<span class="can" title="${c.name}"><i style="background:#${c.hex
+                   .toString(16)
+                   .padStart(6, "0")}"></i>${c.name}</span>`
+             )
+             .join("")}</div>`
         : "") +
       `</div>`;
   }

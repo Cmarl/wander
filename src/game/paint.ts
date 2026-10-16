@@ -22,13 +22,60 @@ export const PAINTS: Paint[] = [
   { name: "Snowline", hex: 0xe4e7ea, km: 600 },
 ];
 
+/**
+ * Colours you find rather than earn.
+ *
+ * The distance list above is a reward for driving; these are a reward for
+ * going somewhere particular. A tin of paint in a shed is more personal than
+ * a colour that arrived because the odometer passed a number, and the two
+ * stack rather than competing.
+ */
+export const CAN_PAINTS: Paint[] = [
+  { name: "Signal", hex: 0xc4432f, km: 0 },
+  { name: "Seafoam", hex: 0x6fbfa6, km: 0 },
+  { name: "Cobalt", hex: 0x3a5f9e, km: 0 },
+  { name: "Mustard", hex: 0xd2a33c, km: 0 },
+  { name: "Plum", hex: 0x7a4f73, km: 0 },
+  { name: "Bone", hex: 0xe6dfcd, km: 0 },
+  { name: "Forest", hex: 0x2f5340, km: 0 },
+  { name: "Copper", hex: 0xb56b3a, km: 0 },
+];
+
+const CANS_KEY = "wander.cans";
 const KEY = "wander.paint";
 
 export class Garage {
   index = Math.max(0, Number(localStorage.getItem(KEY) ?? 0)) | 0;
 
+  /** Indices into CAN_PAINTS that have been found. */
+  cans: number[] = [];
+
+  loadCans() {
+    try {
+      const raw = JSON.parse(localStorage.getItem(CANS_KEY) || "[]");
+      if (Array.isArray(raw)) {
+        this.cans = raw.filter((i) => typeof i === "number" && i >= 0 && i < CAN_PAINTS.length);
+      }
+    } catch {
+      this.cans = [];
+    }
+  }
+
+  /** Returns the paint if it is new to you, or null. */
+  findCan(index: number): Paint | null {
+    const i = ((index % CAN_PAINTS.length) + CAN_PAINTS.length) % CAN_PAINTS.length;
+    if (this.cans.includes(i)) return null;
+    this.cans.push(i);
+    try {
+      localStorage.setItem(CANS_KEY, JSON.stringify(this.cans));
+    } catch {
+      // Private browsing. Yours for the session.
+    }
+    return CAN_PAINTS[i];
+  }
+
   unlocked(km: number): Paint[] {
-    return PAINTS.filter((p) => km >= p.km);
+    return [...PAINTS.filter((p) => km >= p.km), ...this.cans.map((i) => CAN_PAINTS[i])];
   }
 
   current(km: number): Paint {
