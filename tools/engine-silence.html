@@ -1,0 +1,103 @@
+<!doctype html><meta charset=utf8>
+<!--
+  Does the engine actually stop?
+
+  Clyde: "persistent low crunchy sound is driving me insane" — "the sound is
+  when you jump out of the truck without stoopping first. like the truck sound
+  gets stuck on or something".
+
+  This renders the real VehicleAudio in an OfflineAudioContext (no audio device
+  needed), drives it up to speed, calls shutdown(), and then measures how much
+  signal is still coming out two seconds later. A shutdown that works reads
+  zero. Anything else is the sound he is hearing.
+
+  It runs both cases he described, because the difference between them is the
+  whole clue: stepping out at a standstill freezes the engine note near 40 Hz,
+  which a laptop speaker cannot reproduce, while stepping out at revs freezes
+  it near 110 Hz, which it very much can.
+
+  Run:  npm run dev
+        open http://localhost:5173/tools/engine-silence.html
+
+  Not a build entry: vite builds index.html only, so this never ships.
+--><body><pre id=out></pre>
+<script type="module">
+import { AudioEngine } from "../src/audio/engine.ts";
+import { Sfx, VehicleAudio, VOICES } from "../src/audio/sfx.ts";
+const out = document.getElementById("out");
+const lines = [];
+const log = (s) => { out.textContent += s + "\n"; lines.push(s); };
+// Headless Brave has no console we can read and its --screenshot hangs, so
+// results leave the page the way everything else in tools/ does: over fetch.
+const report = () => fetch("http://127.0.0.1:8915/", { method: "POST", body: lines.join("\n") }).catch(() => {});
+const SR = 48000;
+
+// Seconds of driving, then shutdown, then this long of supposed silence.
+const DRIVE = 3, QUIET = 3;
+// Ignore the first part of the quiet window: the shutdown ramp is allowed to
+// take time. What matters is whether it ever ARRIVES at silence.
+const SETTLE = 1.0;
+
+async function run(label, cls, norm) {
+  const secs = DRIVE + QUIET;
+  const ctx = new OfflineAudioContext(1, SR * secs, SR);
+  let clock = 0;
+  Object.defineProperty(ctx, "currentTime", { get: () => clock, configurable: true });
+  const real = window.AudioContext;
+  window.AudioContext = function () { return ctx; };
+  const e = new AudioEngine(); e.start();
+  Object.defineProperty(e, "ready", { get: () => true, configurable: true });
+  window.AudioContext = real;
+  e.master.gain.cancelScheduledValues(0); e.master.gain.value = 1;
+
+  const v = new VehicleAudio(e, new Sfx(e));
+  v.build();
+  v.setVoice(VOICES[cls]);
+  v.ignition();
+
+  const spec = { topSpeed: 30 };
+  for (let i = 0; i < secs * 60; i++) {
+    clock = i / 60;
+    if (clock >= DRIVE && clock - 1 / 60 < DRIVE) v.shutdown();
+    // Driving, then nothing — update() keeps being called after you step out,
+    // exactly as the game does it.
+    v.update(1 / 60, {
+      speed: spec.topSpeed * norm,
+      throttle: norm > 0 ? 0.8 : 0,
+      topSpeed: spec.topSpeed,
+      y: 100,
+    });
+  }
+  const buf = await ctx.startRendering();
+  const s = buf.getChannelData(0);
+
+  const rms = (from, to) => {
+    let q = 0, n = 0, peak = 0;
+    for (let i = (from * SR) | 0; i < Math.min((to * SR) | 0, s.length); i++) {
+      q += s[i] * s[i]; n++;
+      const a = Math.abs(s[i]); if (a > peak) peak = a;
+    }
+    return { rms: Math.sqrt(q / Math.max(n, 1)), peak };
+  };
+  const on = rms(DRIVE - 1, DRIVE);
+  const off = rms(DRIVE + SETTLE, secs);
+  // How loud the leftover is compared to the engine that was supposedly turned
+  // off. Decibels, because that is the unit the ear works in: -80 is gone,
+  // -20 is a fifth as loud as driving and plainly audible.
+  const rel = 20 * Math.log10(Math.max(off.rms, 1e-12) / Math.max(on.rms, 1e-12));
+  log(
+    `${label.padEnd(26)} running rms ${(on.rms * 1000).toFixed(2)}` +
+    `   after shutdown rms ${(off.rms * 1000).toFixed(3)}  peak ${off.peak.toFixed(5)}` +
+    `   = ${rel.toFixed(1)} dB   ${rel < -70 ? "SILENT" : "STILL AUDIBLE"}`
+  );
+}
+
+// His two cases, side by side.
+await run("truck, stopped first", "truck", 0);
+await run("truck, stepped out at revs", "truck", 0.72);
+// And the rest, because whatever is leaking is not truck-specific.
+for (const cls of ["bike", "rover", "chopper", "plane", "van", "quad", "tractor", "boat", "glider"]) {
+  await run(`${cls}, stepped out at revs`, cls, 0.72);
+}
+await report();
+</script>

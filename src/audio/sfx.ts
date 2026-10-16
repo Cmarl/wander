@@ -419,6 +419,12 @@ export class VehicleAudio {
   private tyreGain!: GainNode;
   private tyreFilter!: BiquadFilterNode;
   private windGain!: GainNode;
+  /**
+   * One tap for the whole vehicle, with nothing wired into its gain.
+   *
+   * That last clause is the entire point. See shutdown().
+   */
+  private master!: GainNode;
 
   private prevY: number | null = null;
   private thumpCooldown = 0;
@@ -430,9 +436,12 @@ export class VehicleAudio {
     this.built = true;
     const ctx = this.e.ctx;
 
+    this.master = this.e.gain(0);
+    this.master.connect(this.e.vehicleBus);
+
     this.engGain = this.e.gain(0);
     this.tone = this.e.filter("lowpass", 500, 1.1);
-    this.tone.connect(this.engGain).connect(this.e.vehicleBus);
+    this.tone.connect(this.engGain).connect(this.master);
 
     const mk = (type: OscillatorType, g: number) => {
       const o = ctx.createOscillator();
@@ -464,13 +473,13 @@ export class VehicleAudio {
     const tyreSrc = this.e.noise();
     this.tyreFilter = this.e.filter("bandpass", 600, 0.5);
     this.tyreGain = this.e.gain(0);
-    tyreSrc.connect(this.tyreFilter).connect(this.tyreGain).connect(this.e.vehicleBus);
+    tyreSrc.connect(this.tyreFilter).connect(this.tyreGain).connect(this.master);
     tyreSrc.start(0, Math.random() * 3);
 
     const windSrc = this.e.noise();
     const windFilt = this.e.filter("highpass", 1500, 0.7);
     this.windGain = this.e.gain(0);
-    windSrc.connect(windFilt).connect(this.windGain).connect(this.e.vehicleBus);
+    windSrc.connect(windFilt).connect(this.windGain).connect(this.master);
     windSrc.start(0, Math.random() * 3);
   }
 
@@ -482,19 +491,59 @@ export class VehicleAudio {
       this.e.tone({ dest: this.e.vehicleBus, type: "sawtooth", from: 42, to: 30, level: 0.045, decay: 0.1, delay: i * 0.13 });
     }
     const t = this.e.now;
+    this.master.gain.cancelScheduledValues(t);
+    this.master.gain.setValueAtTime(1, t);
     this.engGain.gain.cancelScheduledValues(t);
     this.engGain.gain.setValueAtTime(0.0001, t);
     this.engGain.gain.setTargetAtTime(0.12, t + 0.4, 0.25);
   }
 
+  /**
+   * Stop the engine, for real this time.
+   *
+   * Clyde: "persistent low crunchy sound is driving me insane" — "the sound is
+   * when you jump out of the truck without stoopping first. like the truck
+   * sound gets stuck on or something."
+   *
+   * It was stuck on, and the reason is a nasty one:
+   *
+   *   YOU CANNOT MUTE A SOUND BY SETTING A GAIN TO ZERO IF SOMETHING ELSE IS
+   *   ADDING TO THAT GAIN.
+   *
+   * `lump` is an oscillator connected to `engGain.gain` — that is how the
+   * engine gets its putter, by wobbling its own volume at the firing rate. A
+   * WebAudio AudioParam sums its intrinsic value with every signal wired into
+   * it, so ramping the intrinsic to 0.0001 left the param swinging ±0.1 at the
+   * lump frequency. The gain was off; the modulation was not. Measured, the
+   * old shutdown left the engine between 2.5 and 12 dB below running, on every
+   * vehicle — barely turned down, let alone off.
+   *
+   * And that explains his "without stopping first" exactly. `update()` returns
+   * early once `running` is false, so the oscillators freeze at the note they
+   * had when you stepped out. Coast to a halt first and the truck freezes near
+   * 41 Hz, which a laptop or a phone simply cannot reproduce. Step out at revs
+   * and it freezes near 110 Hz with its sub an octave down, hard-chopped at
+   * 55 Hz. That is the low crunchy sound, and it was there forever.
+   *
+   * So the vehicle now goes through one master tap with NOTHING wired into its
+   * gain param, and stopping means closing that. Zeroing the modulators as
+   * well is belt and braces — but the tap is what makes this fix hold, because
+   * the next layer somebody adds cannot leak past it.
+   */
   shutdown() {
     if (!this.e.ready || !this.built) return;
     this.running = false;
     const t = this.e.now;
-    this.engGain.gain.cancelScheduledValues(t);
-    this.engGain.gain.setTargetAtTime(0.0001, t, 0.16);
-    this.tyreGain.gain.setTargetAtTime(0.0001, t, 0.1);
-    this.windGain.gain.setTargetAtTime(0.0001, t, 0.1);
+    for (const p of [
+      this.master.gain, this.engGain.gain, this.tyreGain.gain,
+      this.windGain.gain, this.lumpDepth.gain, this.induction.gain,
+    ]) {
+      p.cancelScheduledValues(t);
+      p.setTargetAtTime(0, t, 0.12);
+      // setTargetAtTime only ever approaches its target, so after the ramp has
+      // had time to run, pin it. Otherwise "off" is an asymptote.
+      p.setValueAtTime(0, t + 0.6);
+    }
     this.prevY = null;
   }
 
@@ -546,6 +595,11 @@ export class VehicleAudio {
 
     const f = v.base + rpm * v.span;
     const set = (p: AudioParam, v: number, tc = 0.08) => p.setTargetAtTime(v, t, tc);
+    // Hold the tap open for as long as it is running, rather than relying on
+    // ignition() having opened it. ignition() bails out if the audio context
+    // isn't up yet, and an engine that is silent forever because of the order
+    // two things happened in is a worse bug than the one being fixed here.
+    set(this.master.gain, 1, 0.05);
     set(this.osc1.frequency, f);
     set(this.osc2.frequency, f * 2);
     set(this.sub.frequency, f * 0.5);
