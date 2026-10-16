@@ -1,5 +1,7 @@
 import * as THREE from "three";
 import { box, merge, rock, strut, type Layer } from "./geom";
+import { AIRFIELD_PADS, PAD_THICK } from "./decks";
+import { STRIP_HALF_L, STRIP_TOP } from "./landmarks";
 
 /**
  * The eight kinds added in the world pass.
@@ -147,32 +149,50 @@ export function airfield(): Layer[] {
    * slope rather than hovering over it — the ground hides what it does not
    * need, exactly as the building plinths do.
    */
-  const RUN = 224;
+  const RUN = STRIP_HALF_L * 2;
   /**
-   * Thick, and standing a little proud of the mean.
+   * The earthworks, built from AIRFIELD_PADS.
    *
-   * The site is allowed 4 m of drop end to end, so the ground runs about two
-   * metres either side of the mean the strip sits on. The surface therefore
-   * has to be two metres up to clear the high end, and the slab six metres
-   * deep so the low end is fill rather than a gap. That is a graded strip:
-   * cut into the hill at one end, built up at the other.
+   * This is the part Clyde was walking through. The pads are the same table
+   * the game asks "where are my feet", so every slab of dirt drawn here is a
+   * surface you stand on and every surface you stand on is drawn here. They
+   * cannot drift apart, which in this file is worth more than any amount of
+   * care — the last three landmark bugs were all two pieces of code deciding
+   * the same thing separately.
+   *
+   * Two flat ones (the run and the apron) and seven embankments. A sloped pad
+   * becomes a tilted slab, and because the ground wins wherever it is higher,
+   * the batter buries itself in the hillside on the cut side and stands proud
+   * on the fill side with nothing written for either case.
    */
-  const run = box(26, 6.4, RUN);
-  run.translate(0, -1.0, 0);
-  strip.push(run);
-  // A lip of graded earth at the edges, so it reads as cut into the ground
-  // rather than laid on top of it.
-  for (const sx of [-1, 1]) {
-    const shoulder = box(6, 6.0, RUN);
-    shoulder.rotateZ(sx * 0.12);
-    shoulder.translate(sx * 15.5, -1.4, 0);
-    strip.push(shoulder);
+  for (const p of AIRFIELD_PADS) {
+    let slab: THREE.BufferGeometry;
+    if (p.slopeX) {
+      // Lengthened by 1/cos so the tilted slab still spans the pad's width
+      // exactly, rather than the cosine of it.
+      const a = Math.atan(p.slopeX);
+      slab = box((2 * p.halfW) / Math.cos(a), PAD_THICK, 2 * p.halfL);
+      slab.translate(0, -PAD_THICK / 2, 0);
+      slab.rotateZ(a);
+    } else if (p.slopeZ) {
+      // rotateX(f) sends +z to (0, -sin f, cos f), so the fall along z is
+      // -tan f and the angle is the negative of the slope.
+      const a = Math.atan(-p.slopeZ);
+      slab = box(2 * p.halfW, PAD_THICK, (2 * p.halfL) / Math.cos(a));
+      slab.translate(0, -PAD_THICK / 2, 0);
+      slab.rotateX(a);
+    } else {
+      slab = box(2 * p.halfW, PAD_THICK, 2 * p.halfL);
+      slab.translate(0, -PAD_THICK / 2, 0);
+    }
+    slab.translate(p.lx, p.top, p.lz);
+    strip.push(slab);
   }
   // Threshold bars at each end, and edge markers down both sides.
   for (const z of [RUN / 2 - 8, -RUN / 2 + 8]) {
     for (let i = -2; i <= 2; i++) {
       const bar = box(1.5, 0.06, 5);
-      bar.translate(i * 3.4, 2.24, z);
+      bar.translate(i * 3.4, STRIP_TOP + 0.04, z);
       marks.push(bar);
     }
   }
@@ -180,7 +200,7 @@ export function airfield(): Layer[] {
     const z = RUN / 2 - 14 - i * 16;
     for (const sx of [-1, 1]) {
       const cone = new THREE.ConeGeometry(0.34, 0.8, 5);
-      cone.translate(sx * 10.5, 2.6, z);
+      cone.translate(sx * 10.5, STRIP_TOP + 0.4, z);
       marks.push(cone);
     }
   }
@@ -193,34 +213,30 @@ export function airfield(): Layer[] {
     [0, -D / 2, W, 0.3], [-W / 2, 0, 0.3, D], [W / 2, 0, 0.3, D],
   ] as [number, number, number, number][]) {
     const wall = box(w, H, d);
-    wall.translate(ox + 26, H / 2 + 2.1, oz - 6);
+    wall.translate(ox + 25, H / 2 + STRIP_TOP, oz - 6);
     shed.push(wall);
   }
-  // The hangar stands on its own pad, level with the strip.
-  const pad = box(W + 4, 6.0, D + 5);
-  pad.translate(26, -0.9, -6);
-  strip.push(pad);
   // A curved roof, which is what a hangar has.
   const roof = new THREE.CylinderGeometry(W / 2 + 0.4, W / 2 + 0.4, D + 0.8, 14, 1, false, 0, Math.PI);
   roof.rotateZ(Math.PI / 2);
   roof.rotateY(Math.PI / 2);
-  roof.translate(26, H + 2.1, -6);
+  roof.translate(25, H + STRIP_TOP, -6);
   metal.push(roof);
 
   // Windsock on a mast — the one moving thing, and how you read the wind.
   const mast = new THREE.CylinderGeometry(0.09, 0.12, 7, 6);
-  mast.translate(-14, 5.6, 12);
+  mast.translate(12, STRIP_TOP + 3.5, 12);
   metal.push(mast);
   const sock = new THREE.ConeGeometry(0.62, 2.4, 7, 1, true);
   sock.rotateZ(Math.PI / 2);
   sock.rotateY(0.5);
-  sock.translate(-12.7, 8.7, 12);
+  sock.translate(13.3, STRIP_TOP + 6.5, 12);
   marks.push(sock);
 
   // A fuel drum or two by the shed, because somebody has to.
   for (let i = 0; i < 3; i++) {
     const d = new THREE.CylinderGeometry(0.33, 0.33, 0.92, 9);
-    d.translate(18 + (i % 2) * 0.8, 2.56, 1 + i * 0.7);
+    d.translate(18 + (i % 2) * 0.8, STRIP_TOP + 0.46, 1 + i * 0.7);
     metal.push(d);
   }
 

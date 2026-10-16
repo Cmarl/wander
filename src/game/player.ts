@@ -1,6 +1,7 @@
 import * as THREE from "three";
 import { heightAt, normalAt, slopeAt, SEA_LEVEL } from "../world/field";
 import { PropQuery } from "../world/props";
+import { standingOn, type Deck } from "../world/decks";
 import { DynamicShadow } from "../world/shadows";
 import { makeCharacter, type Character, type Vehicle } from "./models";
 import { SPECS, makeFor, type VehicleClass, type VehicleSpec } from "./vehicles";
@@ -197,6 +198,17 @@ export class Player {
    * an arch has to be two legs you can drive between, not one blocking disc.
    */
   landmarkSolids: { x: number; z: number; radius: number }[] = [];
+  /**
+   * Surfaces that are not the terrain — a runway, a jetty deck.
+   *
+   * Clyde: "I can drive and walk through the now level airfield. it should be
+   * a thing I can jump, climb whatever up onto and walk around/in."
+   *
+   * Resolved once a frame by main, for the same reason the solids are: these
+   * come from landmarks, landmarks come from a hash, and hashing the same
+   * cells four times per wheel per frame would be work for nothing.
+   */
+  decks: Deck[] = [];
 
   private vehPos = new THREE.Vector3();
   private vehHeading = 0;
@@ -471,10 +483,10 @@ export class Player {
     this.character.root.visible = this.mode === "foot";
     this.footShadow.mesh.visible = this.mode === "foot";
     if (this.mode === "foot") {
-      const g = heightAt(this.position.x, this.position.z);
+      const g = standingOn(this.position.x, this.position.z, heightAt(this.position.x, this.position.z), this.decks);
       this.footShadow.update(this.position.x, this.position.z, g, this.heading, this.position.y - g);
     }
-    const vg = heightAt(this.vehPos.x, this.vehPos.z);
+    const vg = standingOn(this.vehPos.x, this.vehPos.z, heightAt(this.vehPos.x, this.vehPos.z), this.decks);
     this.vehShadow.update(this.vehPos.x, this.vehPos.z, vg, this.vehHeading, this.vehPos.y - vg);
 
     this.updateCamera(dt);
@@ -627,7 +639,13 @@ export class Player {
      * on it, within its edges, and the view is yours to look around from —
      * which is what he actually asked for and what a lookout is for.
      */
-    let ground = heightAt(this.position.x, this.position.z);
+    // Built surfaces come first, and specifically BEFORE the water test
+    // below: standing on a jetty must not be read as standing in the sea.
+    let ground = standingOn(
+      this.position.x, this.position.z,
+      heightAt(this.position.x, this.position.z),
+      this.decks
+    );
 
     /**
      * Water.
@@ -1072,7 +1090,11 @@ export class Player {
       [-1.35, 0.95],
       [-1.35, -0.95],
     ]) {
-      sum += heightAt(this.vehPos.x + hx * f + sx * s, this.vehPos.z + hz * f + sz * s);
+      // Each contact patch separately, so climbing an embankment tips the
+      // truck the way the slope does rather than teleporting it level.
+      const wx = this.vehPos.x + hx * f + sx * s;
+      const wz = this.vehPos.z + hz * f + sz * s;
+      sum += standingOn(wx, wz, heightAt(wx, wz), this.decks);
     }
     const groundY = sum / 4;
 

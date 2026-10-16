@@ -1,4 +1,5 @@
 import { heightAt, slopeAt, moistureAt, temperatureAt, slotRandom, SEA_LEVEL } from "./field";
+import { toWorld } from "./frame";
 
 /**
  * Landmarks — the reason to steer somewhere.
@@ -196,7 +197,24 @@ export const LANDMARK_SOLIDS: Record<LandmarkKind, { dx: number; dz: number; r: 
     { dx: -0.85, dz: -12, r: 0.5 },
     { dx: 0.85, dz: -12, r: 0.5 },
   ],
-  airfield: [{ dx: 0, dz: -16, r: 5.5 }],
+  /**
+   * The hangar's walls, and nothing else.
+   *
+   * It was one 5.5 m disc sixteen metres down the RUNWAY — an invisible
+   * bollard in the middle of the strip, with the hangar itself left as
+   * scenery you walked through. Clyde asked to be able to walk around and in
+   * these, so the three walls are solid and the open front is not: you drive
+   * in, park, and walk out past the drums.
+   */
+  airfield: [
+    // Back wall, across the top of the shed.
+    ...Array.from({ length: 7 }, (_, i) => ({ dx: 25 + (i - 3) * 2.6, dz: -12.4, r: 1.35 })),
+    // The two sides, stopping short of the opening.
+    ...Array.from({ length: 5 }, (_, i) => ({ dx: 17.2, dz: -11 + i * 2.6, r: 1.35 })),
+    ...Array.from({ length: 5 }, (_, i) => ({ dx: 32.8, dz: -11 + i * 2.6, r: 1.35 })),
+    // The windsock mast, which is thin but you should not walk through it.
+    { dx: 12, dz: 12, r: 0.5 },
+  ],
   // The boulders round the mouth are solid; the opening between them is not.
   cave: [
     { dx: -4.6, dz: -1.5, r: 2.0 },
@@ -453,7 +471,16 @@ function build(
     // Was 0.85 to 1.25, which is barely a difference. Clyde asked for bigger
     // and for more variation between them; collision scales with this, so a
     // big one is big to drive into as well as to look at.
-    scale: 1.0 + size * 0.85,
+    /**
+     * The airstrip is the one kind that does not vary in size.
+     *
+     * Everything about it is measured in absolute metres — the drop along its
+     * axis, the clearing, the pads you stand on — and an 85% size range would
+     * turn a 224 m strip into a 414 m one while all three of those kept
+     * believing it was 224. A runway is also just not a thing that comes in
+     * sizes: it is as long as it needs to be to get off the ground.
+     */
+    scale: kind === "airfield" ? 1 : 1.0 + size * 0.85,
     variant,
     wear,
     gx,
@@ -583,6 +610,14 @@ const seawardDepth = (x: number, z: number) => seaward(x, z).depth;
 /** Half-length and half-width of the graded strip, matching the geometry. */
 export const STRIP_HALF_L = 112;
 export const STRIP_HALF_W = 13;
+/**
+ * How high the graded surface stands above the strip's base.
+ *
+ * Shared with the geometry and with world/decks, because the number that
+ * decides where your feet are and the number that decides where the dirt is
+ * drawn have to be the same number or you fall through a runway.
+ */
+export const STRIP_TOP = 2.2;
 
 /**
  * Drop along the length of a runway, sampled where the runway actually is.
@@ -690,11 +725,12 @@ export function geyserLevel(lm: Landmark, timeOfDay: number): number {
 }
 
 export function landmarkSolids(lm: Landmark): { x: number; z: number; r: number }[] {
-  const c = Math.cos(lm.rot);
-  const s = Math.sin(lm.rot);
-  return LANDMARK_SOLIDS[lm.kind].map((o) => ({
-    x: lm.x + (o.dx * c - o.dz * s) * lm.scale,
-    z: lm.z + (o.dx * s + o.dz * c) * lm.scale,
-    r: o.r * lm.scale,
-  }));
+  // Via world/frame, which is the only place that knows which way a landmark
+  // turns. This function used to rotate the opposite way to the renderer, so
+  // on any kind placed at an angle the solids sat mirrored across it — the
+  // dock's own posts were on the wrong side of its jetty.
+  return LANDMARK_SOLIDS[lm.kind].map((o) => {
+    const w = toWorld(lm, o.dx, o.dz);
+    return { x: w.x, z: w.z, r: o.r * lm.scale };
+  });
 }

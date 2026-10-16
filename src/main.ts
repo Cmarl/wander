@@ -9,6 +9,7 @@ import { Grass } from "./world/grass";
 import { LandmarkField } from "./world/landmarkRender";
 import { SettlementField } from "./world/settlementRender";
 import { geyserLevel, landmarkSolids } from "./world/landmarks";
+import { decksOf, type Deck } from "./world/decks";
 import { hasAccretion } from "./world/accretions";
 import { Discoveries } from "./game/discovery";
 import { Camp } from "./game/camp";
@@ -1297,6 +1298,7 @@ function frame(now: number) {
   // Only landmarks you could actually touch take part in collision, and only
   // the nearest is a candidate for discovery.
   const solids: { x: number; z: number; radius: number }[] = [];
+  const decks: Deck[] = [];
   let nearest: { name: string; id: string; kind: string; x: number; z: number; d2: number } | null = null;
   for (const lm of landmarks.loaded) {
     const dx = lm.x - player.position.x;
@@ -1305,6 +1307,9 @@ function frame(now: number) {
     if (d2 < 160 * 160) {
       for (const c of landmarkSolids(lm)) solids.push({ x: c.x, z: c.z, radius: c.r });
     }
+    // Wider than the solids, because an airstrip is 224 m long and you want to
+    // be standing on the far threshold, not falling through it.
+    if (d2 < 420 * 420) decks.push(...decksOf(lm));
     if (d2 < 55 * 55 && (!nearest || d2 < nearest.d2)) {
       nearest = { name: lm.name, id: lm.id, kind: lm.kind, x: lm.x, z: lm.z, d2 };
     }
@@ -1313,6 +1318,7 @@ function frame(now: number) {
   // space because a hamlet doesn't move.
   for (const c of settlements.solids) solids.push(c);
   player.landmarkSolids = solids;
+  player.decks = decks;
   if (nearest && !found.has(nearest.id)) {
     found.add({
       id: nearest.id,

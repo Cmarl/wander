@@ -1,0 +1,177 @@
+<!doctype html><meta charset=utf8>
+<!--
+  Is the airstrip a thing, or a picture of a thing?
+
+  Clyde: "I can drive and walk through the now level airfield. it should be a
+  thing I can jump, climb whatever up onto and walk around/in."
+
+  Finds a real airstrip in the real world function, then walks and drives on
+  it: stands on the surface, climbs an embankment from outside, drives the
+  length of it, and goes off the side at speed to see whether the drop throws
+  the truck. Also checks nothing was scattered on top of it and that the
+  hangar's walls stop you while its open front does not.
+
+  Run:  npm run dev
+        open http://localhost:5173/tools/airstrip-probe.html
+
+  Not a build entry: vite builds index.html only, so this never ships.
+--><body><pre id=out></pre>
+<script type="module">
+import * as THREE from "three";
+import { landmarksNear, STRIP_HALF_L, STRIP_HALF_W, STRIP_TOP, landmarkSolids, LANDMARK_CELL } from "../src/world/landmarks.ts";
+import { decksOf, standingOn, AIRFIELD_PADS } from "../src/world/decks.ts";
+import { clearingsNear, inAnyClearing } from "../src/world/clearings.ts";
+import { propsInCell, CELL as PROP_CELL } from "../src/world/props.ts";
+import { heightAt } from "../src/world/field.ts";
+import { Player } from "../src/game/player.ts";
+
+const out = document.getElementById("out");
+const lines = [];
+const log = (s) => { out.textContent += s + "\n"; lines.push(s); };
+const send = () => fetch("http://127.0.0.1:8915/", { method: "POST", body: lines.join("\n") }).catch(() => {});
+// Report failures too, or a probe that throws looks exactly like a probe that
+// never ran.
+window.onerror = (m, f, l) => { log(`THREW: ${m} (line ${l})`); send(); };
+window.onunhandledrejection = (e) => { log(`REJECTED: ${e.reason}`); send(); };
+let bad = 0;
+const check = (ok, label, detail) => {
+  if (!ok) bad++;
+  log(`${ok ? "  ok  " : "  FAIL"}  ${label.padEnd(44)} ${detail}`);
+};
+const DT = 1 / 60;
+
+// --- find one ---------------------------------------------------------------
+let strip = null;
+let scanned = 0;
+outer:
+for (let gz = -70; gz < 70 && !strip; gz++) {
+  for (let gx = -70; gx < 70; gx++) {
+    scanned++;
+    for (const lm of landmarksNear(gx * LANDMARK_CELL, gz * LANDMARK_CELL, 0)) {
+      if (lm.kind === "airfield") { strip = lm; break outer; }
+    }
+  }
+}
+if (!strip) { log("no airstrip found in the scan window"); throw new Error("none"); }
+log(`airstrip "${strip.name}" at ${strip.x.toFixed(0)}, ${strip.z.toFixed(0)} — base ${strip.y.toFixed(1)} m, scale ${strip.scale}`);
+check(strip.scale === 1, "pinned to one size", `scale ${strip.scale}`);
+
+const decks = decksOf(strip);
+check(decks.length === AIRFIELD_PADS.length, "all its pads are in the world", `${decks.length} decks`);
+const surf = (x, z) => standingOn(x, z, heightAt(x, z), decks);
+const top = strip.y + STRIP_TOP;
+
+// --- the surface is flat, and it is where it should be ----------------------
+let lo = Infinity, hi = -Infinity, ground = { lo: Infinity, hi: -Infinity };
+for (let i = -20; i <= 20; i++) {
+  const z = strip.z + (i / 20) * (STRIP_HALF_L - 2);
+  const h = surf(strip.x, z);
+  lo = Math.min(lo, h); hi = Math.max(hi, h);
+  const g = heightAt(strip.x, z);
+  ground.lo = Math.min(ground.lo, g); ground.hi = Math.max(ground.hi, g);
+}
+log(`along 220 m: surface varies ${(hi - lo).toFixed(3)} m; the ground under it varies ${(ground.hi - ground.lo).toFixed(2)} m`);
+check(hi - lo < 0.01, "the runway is actually level", `${(hi - lo).toFixed(3)} m`);
+check(Math.abs(lo - top) < 0.01, "and sits where the geometry draws it", `${lo.toFixed(2)} vs ${top.toFixed(2)}`);
+check(ground.hi - ground.lo > 0.5, "over ground that is not level", `${(ground.hi - ground.lo).toFixed(2)} m of natural drop`);
+check(ground.hi < top + 0.01, "nothing pokes through the surface", `highest ground ${ground.hi.toFixed(2)} vs top ${top.toFixed(2)}`);
+
+// --- can you get onto it from outside? --------------------------------------
+// Walk in across the embankment and see that the ground rises continuously.
+let worstStep = 0, prev = null;
+for (let i = 0; i <= 120; i++) {
+  // The -x side on purpose: the hangar apron is on +x and is itself flat at
+  // runway height, so walking in from that side measures nothing at all.
+  const x = strip.x - (STRIP_HALF_W + 14) + (i / 120) * 20;
+  const h = surf(x, strip.z);
+  if (prev !== null) worstStep = Math.max(worstStep, Math.abs(h - prev));
+  prev = h;
+}
+log(`walking in from 14 m outside: biggest single step ${(worstStep * 100).toFixed(1)} cm per 17 cm travelled`);
+check(worstStep < 0.35, "you can walk up it — no wall to catch on", `${(worstStep * 100).toFixed(1)} cm`);
+
+// --- nothing growing out of it ----------------------------------------------
+let on = 0, near = 0;
+const cl = clearingsNear(strip.x, strip.z, 1);
+const gx0 = Math.round(strip.x / PROP_CELL), gz0 = Math.round(strip.z / PROP_CELL);
+for (let cx = -3; cx <= 3; cx++) for (let cz = -5; cz <= 5; cz++) {
+  const bag = [];
+  propsInCell(gx0 + cx, gz0 + cz, bag);
+  for (const pr of bag) {
+    if (Math.abs(pr.x - strip.x) > 60 || Math.abs(pr.z - strip.z) > 140) continue;
+    near++;
+    if (inAnyClearing(pr.x, pr.z, cl)) on++;
+  }
+}
+log(`${near} props within the strip's footprint area, ${on} of them inside a clearing`);
+check(on === 0, "nothing scattered on the runway", `${on} on it`);
+
+// --- the hangar is a building, not a picture --------------------------------
+const sol = landmarkSolids(strip);
+check(sol.length > 10, "the hangar has walls", `${sol.length} solids`);
+const blocked = (lx, lz) => {
+  const x = strip.x + lx, z = strip.z + lz;
+  return sol.some((s) => Math.hypot(s.x - x, s.z - z) < s.r);
+};
+check(blocked(25, -12.4), "the back wall stops you", "solid at the back");
+check(blocked(17.2, -6), "the left wall stops you", "solid on the left");
+check(!blocked(25, -4), "but you can stand inside it", "open within");
+check(!blocked(25, 2.5), "and walk in through the front", "open at the door");
+check(!blocked(0, -16), "no invisible bollard on the runway", "clear where the old one was");
+
+// --- drive on it ------------------------------------------------------------
+const camera = new THREE.PerspectiveCamera(70, 1.6, 0.1, 1e5);
+const mk = () => ({ move: { x: 0, y: 0 }, look: { x: 0, y: 0 }, zoom: 0, sprint: false,
+  jump: false, jumpHeld: false, down: false, interact: false, glass: false, pin: false,
+  camp: false, cruise: false, padHorn: false, padJournal: false, padCamp: false, isTouch: false });
+
+// Stand on the middle of the strip.
+const p = new Player(camera, new THREE.Vector2(strip.x, strip.z));
+p.decks = decks;
+const c = mk();
+for (let i = 0; i < 60; i++) p.update(DT, c);
+log(`standing at the centre: feet at ${p.position.y.toFixed(2)} m, runway at ${top.toFixed(2)} m, terrain at ${heightAt(strip.x, strip.z).toFixed(2)} m`);
+check(Math.abs(p.position.y - top) < 0.2, "ON the runway, not in it", `${(p.position.y - top).toFixed(2)} m off`);
+check(p.position.y - heightAt(strip.x, strip.z) > 0.3, "and above the natural ground", `${(p.position.y - heightAt(strip.x, strip.z)).toFixed(2)} m proud`);
+
+// Drive the length of it and watch the ride.
+const q = new Player(camera, new THREE.Vector2(strip.x, strip.z - STRIP_HALF_L + 20));
+q.decks = decks;
+const c2 = mk();
+q.adopt("truck", 0xd8c04a, q.position.x, q.position.z + 2, 0);
+c2.interact = true; q.update(DT, c2); c2.interact = false;
+c2.move.y = 1; c2.cruise = true; c2.sprint = true;
+let rough = 0, n = 0, prevY = null, top3 = 0;
+for (let i = 0; i < 60 * 14; i++) {
+  q.update(DT, c2);
+  const y = q.vehicle.root.position.y;
+  if (prevY !== null && Math.abs(q.position.z - strip.z) < STRIP_HALF_L - 25) {
+    rough += Math.abs(y - prevY); n++;
+    top3 = Math.max(top3, Math.abs(y - prevY));
+  }
+  prevY = y;
+}
+log(`drove ${(q.distanceTravelled).toFixed(0)} m down the strip: ${(rough / Math.max(n, 1) * 100).toFixed(2)} cm of vertical movement per frame, worst ${(top3 * 100).toFixed(1)} cm`);
+check(n > 100, "stayed on the strip the whole way", `${n} frames on it`);
+check(rough / Math.max(n, 1) < 0.02, "and it is a smooth ride", `${(rough / Math.max(n, 1) * 100).toFixed(2)} cm/frame`);
+
+// Off the side at speed: the drop should throw it.
+const r = new Player(camera, new THREE.Vector2(strip.x - STRIP_HALF_W + 2, strip.z));
+r.decks = decks;
+const c3 = mk();
+r.adopt("truck", 0xd8c04a, r.position.x, r.position.z + 2, Math.PI / 2);
+c3.interact = true; r.update(DT, c3); c3.interact = false;
+c3.move.y = 1; c3.cruise = true; c3.sprint = true;
+let airborne = 0, peak = 0;
+for (let i = 0; i < 60 * 6; i++) {
+  r.update(DT, c3);
+  const vy = r.vehicle.root.position.y;
+  const g = heightAt(r.vehicle.root.position.x, r.vehicle.root.position.z);
+  if (vy - g > 0.6) { airborne++; peak = Math.max(peak, vy - g); }
+}
+log(`off the side of the strip: ${(airborne / 60).toFixed(2)} s in the air, peak ${peak.toFixed(2)} m above the ground`);
+check(airborne > 6, "driving off the edge throws you", `${(airborne / 60).toFixed(2)} s airborne`);
+
+log(bad ? `\n${bad} FAILED` : "\nall assertions passed");
+send();
+</script>
