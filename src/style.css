@@ -800,32 +800,28 @@ html, body {
 /* Thumbs sit at the bottom corners, so bottom-left belongs to the stick, not
    to buttons. In portrait the width gets tight enough that the stack would
    land directly under a steering thumb — so it moves up out of the way. */
-@media (orientation: portrait) {
-  .clock { font-size: 24px; }
-  .sub { font-size: 11.5px; }
-  .compass { width: min(210px, 56vw); }
+/**
+ * Phone in landscape.
+ *
+ * Clyde: "Let's adjust so this screen is used more optimally both visually and
+ * factoring for the thumbs being on there for the controls."
+ *
+ * The screenshot shows the actual fault: six 66 px buttons in a single column
+ * with gaps is 466 px tall, and a phone in landscape has about 460 px of
+ * viewport under the browser chrome. So the column ran the full height of the
+ * screen and the top of it — CAMP, LOOK, RUN — sat straight on top of the
+ * coordinates, the odometer and the sound slider.
+ *
+ * Two fixes, both about where thumbs actually are:
+ *
+ *  - The buttons wrap into two short columns in the bottom-right corner,
+ *    inside the arc a right thumb sweeps. The first column holds the ones you
+ *    press constantly, nearest the corner.
+ *  - The journal / who / controls buttons move OUT of the bottom-left, which
+ *    is where the left thumb lives: the movement stick appears wherever you
+ *    touch the left half, so menu buttons there are directly in the way.
+ */
 
-  .hud-stack {
-    bottom: auto;
-    padding: 6px 11px;
-    font-size: 10.5px;
-  }
-
-  /* Must keep the chrome offset the base rule adds, or an embedded browser's
-     toolbar sits straight on top of the controls in portrait. */
-  .buttons { gap: 11px; bottom: calc(max(26px, env(safe-area-inset-bottom)) + var(--chrome-bottom)); }
-  .btn { width: 58px; height: 58px; font-size: 19px; }
-  .btn.small { width: 50px; height: 50px; font-size: 10.5px; }
-
-  .camp { bottom: 22%; }
-  .camp-acts { flex-direction: column; width: min(260px, 72vw); }
-  .camp-btn { width: 100%; }
-
-  .sheet-card { padding: 22px 20px 18px; }
-  .sheet-card dl { grid-template-columns: minmax(70px, auto) 1fr; gap: 9px 12px; }
-  .journal-list { max-height: 52dvh; }
-  .photo-bar { gap: 12px; padding: 9px 13px; }
-}
 
 /* Very short landscape — a phone held sideways — needs the chrome pulled in. */
 @media (orientation: landscape) and (max-height: 460px) {
@@ -938,4 +934,79 @@ html, body {
 @media (orientation: landscape) and (max-height: 460px) {
   .hud-stack { gap: 5px; }
   .hud-btn { height: 26px; min-width: 96px; font-size: 10px; }
+}
+
+/* ---------------------------------------------------------------------------
+ * Orientation overrides live at the END of this file, and that is load-bearing.
+ *
+ * A media query adds no specificity, so an override only wins if it comes
+ * after the rule it is overriding. These blocks used to sit above the base
+ * .hud-stack and .buttons rules, which meant their overrides were silently
+ * dead — the portrait layout had been shipping without its own hud-stack
+ * placement for as long as it has existed, and I only found it because the
+ * landscape version failed the same way and I measured it.
+ * ------------------------------------------------------------------------- */
+/* No pointer:coarse here on purpose. The on-screen buttons only exist when the
+   game decided this is a touch device, so the rules cannot affect a desktop
+   that has none — and leaving it out means the layout can be measured in a
+   headless browser, which reports a fine pointer and would otherwise skip the
+   whole block. */
+@media (orientation: landscape) and (max-height: 620px) {
+  .buttons {
+    flex-wrap: wrap-reverse;
+    /* Three buttons per column: 3 x 56 + 2 x 11. */
+    max-height: 190px;
+    gap: 11px;
+    bottom: calc(max(14px, env(safe-area-inset-bottom)) + var(--chrome-bottom));
+    right: max(14px, env(safe-area-inset-right));
+  }
+  .btn { width: 56px; height: 56px; font-size: 19px; }
+  .btn.small { width: 50px; height: 50px; font-size: 10px; }
+
+  /* Under the clock block, out of both thumb zones. */
+  .hud-stack {
+    top: calc(var(--pad) + 74px);
+    bottom: auto;
+    left: max(16px, env(safe-area-inset-left));
+    right: auto;
+    flex-direction: row;
+    gap: 7px;
+    padding: 0;
+    font-size: 10px;
+  }
+
+  /* Tighter, so the top strip costs less of a short screen. */
+  .clock { font-size: 22px; }
+  .sub { font-size: 10.5px; margin-top: 2px; }
+  .panel, .panel-right { top: max(10px, env(safe-area-inset-top)); }
+  .vol { width: 74px; }
+  .compass { width: min(230px, 40vw); }
+  .camp { bottom: 16%; }
+}
+
+@media (orientation: portrait) {
+  .clock { font-size: 24px; }
+  .sub { font-size: 11.5px; }
+  .compass { width: min(210px, 56vw); }
+
+  .hud-stack {
+    bottom: auto;
+    padding: 6px 11px;
+    font-size: 10.5px;
+  }
+
+  /* Must keep the chrome offset the base rule adds, or an embedded browser's
+     toolbar sits straight on top of the controls in portrait. */
+  .buttons { gap: 11px; bottom: calc(max(26px, env(safe-area-inset-bottom)) + var(--chrome-bottom)); }
+  .btn { width: 58px; height: 58px; font-size: 19px; }
+  .btn.small { width: 50px; height: 50px; font-size: 10.5px; }
+
+  .camp { bottom: 22%; }
+  .camp-acts { flex-direction: column; width: min(260px, 72vw); }
+  .camp-btn { width: 100%; }
+
+  .sheet-card { padding: 22px 20px 18px; }
+  .sheet-card dl { grid-template-columns: minmax(70px, auto) 1fr; gap: 9px 12px; }
+  .journal-list { max-height: 52dvh; }
+  .photo-bar { gap: 12px; padding: 9px 13px; }
 }

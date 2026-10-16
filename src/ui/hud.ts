@@ -168,6 +168,7 @@ export class Hud {
       <div class="hud-stack">
         <button class="hud-btn" id="h-journal">journal</button>
         <button class="hud-btn" id="h-world"><span class="dot" id="h-dot"></span><span id="h-online">solo</span></button>
+        <button class="hud-btn" id="h-full">fullscreen</button>
         <button class="hud-btn" id="h-help">controls</button>
       </div>
       <div class="sheet" id="h-world-sheet">
@@ -215,6 +216,50 @@ export class Hud {
     // Stop drags on the slider from also spinning the camera.
     for (const ev of ["pointerdown", "pointermove"]) vol.addEventListener(ev, (e) => e.stopPropagation());
     vol.addEventListener("input", () => audio.setVolume(Number(vol.value) / 100));
+
+    /**
+     * Fullscreen.
+     *
+     * Clyde: "Way to get the browser full screen?" On a phone in landscape the
+     * browser chrome was eating about a fifth of the screen, which is most of
+     * the "not used optimally" complaint before any layout work.
+     *
+     * The meta tags for standalone mode were already right, but those only
+     * apply once a page is installed to the home screen — they do nothing in a
+     * normal tab, which is where he is. This is the Fullscreen API, which does.
+     *
+     * Hidden where it is not supported rather than offered and broken: iOS
+     * Safari refuses requestFullscreen on anything that is not a video, and on
+     * there the answer really is Add to Home Screen.
+     */
+    const fullEl = document.getElementById("h-full")!;
+    const canFull = typeof document.documentElement.requestFullscreen === "function";
+    if (!canFull) fullEl.style.display = "none";
+    const syncFull = () => {
+      fullEl.textContent = document.fullscreenElement ? "exit full" : "fullscreen";
+    };
+    document.addEventListener("fullscreenchange", syncFull);
+    fullEl.addEventListener("pointerdown", (e) => {
+      e.stopPropagation();
+      if (document.fullscreenElement) void document.exitFullscreen();
+      else void document.documentElement.requestFullscreen().catch(() => {});
+    });
+
+    /**
+     * Ask once, on the first touch, and never again.
+     *
+     * A fullscreen request needs a user gesture, and the first tap on a phone
+     * is one. Asking again after someone has deliberately left would be
+     * fighting them, so it is once per load and only on touch — a desktop
+     * browser taking over the screen uninvited would be obnoxious.
+     */
+    if (canFull && controls.isTouch) {
+      const once = () => {
+        removeEventListener("pointerdown", once);
+        if (!document.fullscreenElement) void document.documentElement.requestFullscreen().catch(() => {});
+      };
+      addEventListener("pointerdown", once, { once: true });
+    }
 
     this.compassEl.innerHTML = CARDINALS.concat(CARDINALS.map(([d, n]) => [d + 360, n] as [number, string]))
       .concat(CARDINALS.map(([d, n]) => [d - 360, n] as [number, string]))
