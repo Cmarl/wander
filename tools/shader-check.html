@@ -1,0 +1,198 @@
+<!doctype html><meta charset=utf8>
+<!--
+  Do the shaders compile, and do they draw anything?
+
+  The boot gate catches a module that throws. It cannot catch a GLSL error:
+  three logs the compile log to the console and carries on, the HUD builds
+  normally, and the game ships with a black world. Every graphics change needs
+  its own gate and this is it.
+
+  Compiles the real Terrain, Water, Sky and Grass materials in a real GL
+  context, then draws each one and reads the pixels back. A shader that
+  compiles but renders black is just as broken as one that does not compile,
+  so both are checked.
+
+  Run:  npm run dev
+        open http://localhost:5173/tools/shader-check.html
+
+  Not a build entry: vite builds index.html only, so this never ships.
+--><body><pre id=out></pre>
+<script type="module">
+import * as THREE from "three";
+import { Terrain } from "../src/world/terrain.ts";
+import { Water } from "../src/world/water.ts";
+import { Sky } from "../src/world/sky.ts";
+import { Grass } from "../src/world/grass.ts";
+import { heightAt } from "../src/world/field.ts";
+
+const out = document.getElementById("out");
+const lines = [];
+const log = (s) => { out.textContent += s + "\n"; lines.push(s); };
+const send = () => fetch("http://127.0.0.1:8915/", { method: "POST", body: lines.join("\n") }).catch(() => {});
+let bad = 0;
+const check = (ok, label, detail) => { if (!ok) bad++; log(`${ok ? "  ok  " : "  FAIL"}  ${label.padEnd(40)} ${detail}`); };
+
+// three reports GLSL failures through console.error and keeps going, so the
+// only way to see them is to listen.
+const errors = [];
+const realError = console.error.bind(console);
+console.error = (...a) => { errors.push(a.map(String).join(" ")); realError(...a); };
+window.onerror = (m, f, l) => { log(`THREW: ${m} (line ${l})`); send(); };
+
+const canvas = document.createElement("canvas");
+canvas.width = 256; canvas.height = 256;
+const renderer = new THREE.WebGLRenderer({ canvas, antialias: false, preserveDrawingBuffer: true });
+renderer.setSize(256, 256, false);
+
+const camera = new THREE.PerspectiveCamera(70, 1, 0.1, 1e5);
+camera.position.set(0, 240, 0);
+camera.lookAt(600, 60, 600);
+
+const terrain = new Terrain();
+const water = new Water(20000);
+const sky = new Sky(camera);
+const grass = new Grass({ side: 24, spacing: 2.2, blades: 3 });
+
+// A plausible noon, so nothing is black for an honest reason.
+const sun = new THREE.Vector3(0.3, 0.72, 0.62).normalize();
+for (const m of [terrain.material, water.material, grass.material, sky.material]) {
+  const u = m.uniforms;
+  if (u.uSunDir) u.uSunDir.value.copy(sun);
+  if (u.uSunColor) u.uSunColor.value.setRGB(1.5, 1.4, 1.2);
+  if (u.uSkyAmbient) u.uSkyAmbient.value.setRGB(0.3, 0.4, 0.55);
+  if (u.uCloudCover) u.uCloudCover.value = 0.52;
+  if (u.uTime) u.uTime.value = 40;
+}
+
+const stats = (name) => {
+  const px = new Uint8Array(256 * 256 * 4);
+  renderer.getContext().readPixels(0, 0, 256, 256, 6408 /* RGBA */, 5121 /* UNSIGNED_BYTE */, px);
+  let sum = 0, min = 255, max = 0, nonBlack = 0;
+  for (let i = 0; i < px.length; i += 4) {
+    const v = (px[i] + px[i + 1] + px[i + 2]) / 3;
+    sum += v; min = Math.min(min, v); max = Math.max(max, v);
+    if (v > 6) nonBlack++;
+  }
+  const n = px.length / 4;
+  return { name, mean: sum / n, min, max, cover: nonBlack / n };
+};
+
+const draw = (label, obj, cam = camera) => {
+  const scene = new THREE.Scene();
+  scene.add(obj);
+  renderer.render(scene, cam);
+  const s = stats(label);
+  log(`${label.padEnd(9)} mean ${s.mean.toFixed(1).padStart(5)}  range ${s.min}-${s.max}  ` +
+      `${(s.cover * 100).toFixed(0)}% of the frame is lit`);
+  return s;
+};
+
+// The sky is parented to the camera, so the camera has to be in the scene.
+const skyScene = new THREE.Scene();
+skyScene.add(camera);
+renderer.render(skyScene, camera);
+const skyS = stats("sky");
+log(`sky       mean ${skyS.mean.toFixed(1).padStart(5)}  range ${skyS.min}-${skyS.max}  ${(skyS.cover * 100).toFixed(0)}% of the frame is lit`);
+check(skyS.cover > 0.95, "the sky draws", `${(skyS.cover * 100).toFixed(0)}% lit`);
+
+const tS = draw("terrain", terrain.group);
+check(tS.cover > 0.2, "the terrain draws", `${(tS.cover * 100).toFixed(0)}% lit`);
+check(tS.max - tS.min > 20, "and it has shading in it, not one flat tone", `range ${tS.min}-${tS.max}`);
+
+water.update(0, 0);
+const wS = draw("water", water.mesh);
+check(wS.cover > 0.2, "the water draws", `${(wS.cover * 100).toFixed(0)}% lit`);
+
+/**
+ * Grass needs its own camera, and the reason is worth keeping.
+ *
+ * The field is one 53 m patch around the player, so from 240 m up looking the
+ * other way it is simply not in frame — the probe read 0% lit and called the
+ * shader broken when the shader was fine. A test that fails for a reason that
+ * has nothing to do with what it is testing is worse than no test.
+ */
+grass.update(0, 0, 40);
+// At eye height above the GROUND, not above sea level — the terrain at the
+// origin is a few hundred metres up, so a camera at y = 2.2 was underground.
+const gy = heightAt(0, 0);
+const low = new THREE.PerspectiveCamera(70, 1, 0.1, 1e4);
+low.position.set(0, gy + 1.7, 0);
+low.lookAt(16, gy + 0.4, 16);
+low.updateMatrixWorld(true);
+const gS = draw("grass", grass.mesh, low);
+check(gS.cover > 0.001, "the grass draws", `${(gS.cover * 100).toFixed(2)}% lit`);
+
+// --- the thing this file exists for -----------------------------------------
+const glsl = errors.filter((e) => /shader|GLSL|compile|program|ERROR:/i.test(e));
+for (const e of glsl.slice(0, 6)) log(`  GL: ${e.slice(0, 300)}`);
+check(glsl.length === 0, "no shader compiled with errors", `${glsl.length} GL errors`);
+
+// --- and that the cloud shadow is actually doing something ------------------
+// Same frame twice, half an hour of cloud drift apart. If the shadows are
+// live the picture must change; if cloudShade were returning a constant it
+// would not, and nothing above would have noticed.
+const shot = () => { renderer.render(new THREE.Scene().add(terrain.group), camera); return stats("t"); };
+terrain.material.uniforms.uTime.value = 40;
+const a = shot();
+terrain.material.uniforms.uTime.value = 40 + 1800;
+const b = shot();
+log(`cloud drift: mean ${a.mean.toFixed(2)} then ${b.mean.toFixed(2)} half an hour later`);
+check(Math.abs(a.mean - b.mean) > 0.05, "cloud shadows move across the ground", `${Math.abs(a.mean - b.mean).toFixed(2)} change`);
+
+log(bad ? `\n${bad} FAILED` : "\nall assertions passed");
+send();
+
+/**
+ * And a look at it.
+ *
+ * Reuses the one renderer rather than making a second: SwiftShader would not
+ * give out a second context, and because that threw OUTSIDE the try the whole
+ * block vanished silently — the assertions above had already reported, so it
+ * looked like a pass. Hence the try around all of it, not just the draw.
+ *
+ * It will not carry the full clipmap at playing resolution, but a quarter of a
+ * million pixels is enough to see whether the light is right, and graphics
+ * work judged only by assertions is graphics work nobody has looked at.
+ */
+try {
+  // Small, and looking DOWN rather than along. SwiftShader is a CPU
+  // rasteriser and a horizon view of a 24 km clipmap is millions of triangles
+  // of overdraw — it does not fail, it just never finishes. Tilted down, most
+  // of them are off screen or facing away, and it returns in seconds.
+  const W = 400, H = 300;
+  canvas.width = W; canvas.height = H;
+  renderer.setSize(W, H, false);
+  const scene = new THREE.Scene();
+  const cam2 = new THREE.PerspectiveCamera(62, W / H, 0.5, 60000);
+  // Low, looking across country into a sun near the horizon — which is where
+  // the backscatter and the glitter path have something to say.
+  const eye = new THREE.Vector3(2400, 0, -1800);
+  eye.y = heightAt(eye.x, eye.z) + 620;
+  cam2.position.copy(eye);
+  cam2.lookAt(eye.x + 900, eye.y - 760, eye.z + 900);
+  const sun2 = new THREE.Vector3(0.62, 0.20, 0.72).normalize();
+  sky.mesh.removeFromParent();
+  cam2.add(sky.mesh);
+  scene.add(cam2);
+  for (const m of [terrain.material, water.material, sky.material]) {
+    const u = m.uniforms;
+    if (u.uSunDir) u.uSunDir.value.copy(sun2);
+    if (u.uSunColor) u.uSunColor.value.setRGB(1.85, 1.30, 0.86);
+    if (u.uSkyAmbient) u.uSkyAmbient.value.setRGB(0.26, 0.33, 0.46);
+    if (u.uGroundAmbient) u.uGroundAmbient.value.setRGB(0.07, 0.07, 0.06);
+    if (u.uCloudCover) u.uCloudCover.value = 0.46;
+    if (u.uTime) u.uTime.value = 120;
+    if (u.uFogDensity) u.uFogDensity.value = 0.00009;
+  }
+  terrain.update(eye.x, eye.z);
+  water.update(eye.x, eye.z);
+  scene.add(terrain.group, water.mesh);
+  renderer.render(scene, cam2);
+  const png = canvas.toDataURL("image/png");
+  log(`landscape render: ${png.length} bytes at ${W}x${H}`);
+  await fetch("http://127.0.0.1:8916/", { method: "POST", body: png }).catch(() => {});
+} catch (e) {
+  log(`landscape render failed: ${e.message}`);
+}
+send();
+</script>

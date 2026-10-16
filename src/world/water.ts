@@ -23,6 +23,7 @@ uniform vec3 uSunColor;
 uniform vec3 uSkyAmbient;
 uniform float uFogDensity;
 uniform float uTime;
+uniform float uCloudCover;
 
 void main() {
   // Depth comes straight from the world function — no depth buffer read needed.
@@ -45,8 +46,27 @@ void main() {
   float fres = 0.02 + 0.98 * pow(1.0 - max(dot(viewDir, n), 0.0), 5.0);
   vec3 refl = skyBase(reflect(-viewDir, n), uSunDir);
 
-  vec3 col = mix(body * (uSkyAmbient + uSunColor * 0.22), refl, fres);
-  col += uSunColor * pow(max(dot(reflect(-viewDir, n), uSunDir), 0.0), 380.0) * 2.6;
+  float shade = cloudShade(vWorld, uSunDir, uTime, uCloudCover);
+  vec3 col = mix(body * (uSkyAmbient + uSunColor * 0.22 * shade), refl, fres);
+
+  /**
+   * The glitter path.
+   *
+   * There was one specular lobe at an exponent of 380, which is a single
+   * blazing dot — a chrome ball, not water. What the sun actually makes on a
+   * lake is a PATH: a long tongue of broken light running toward you, made of
+   * thousands of little facets each catching it for an instant.
+   *
+   * So: a tight lobe for the facets that happen to line up, a much broader one
+   * underneath it for the body of the path, and a fast noise field cutting the
+   * broad one into fragments. The noise is what makes it glitter rather than
+   * glow, and it is also why the path stretches toward the viewer for free —
+   * the geometry already does that, it simply had nothing to show it with.
+   */
+  float rs = max(dot(reflect(-viewDir, n), uSunDir), 0.0);
+  float facets = wFbm(p * 0.9 + vec2(uTime * 1.7, uTime * -1.1), 2, 317u);
+  float glitter = pow(rs, 42.0) * smoothstep(0.42, 0.78, facets) * rip;
+  col += uSunColor * (pow(rs, 380.0) * 2.6 + glitter * 1.5) * shade;
 
   // Shoreline foam, pushed in and out by a slow swell.
   float swell = 0.55 + 0.45 * sin(uTime * 0.5 + wFbm(p * 0.02, 2, 311u) * 9.0);
@@ -72,6 +92,7 @@ export class Water {
         uFogDensity: { value: 0.00009 },
         uSunsetBoost: { value: 1 },
         uTime: { value: 0 },
+        uCloudCover: { value: 0.52 },
       },
       vertexShader: NOISE_GLSL + VERT,
       fragmentShader: NOISE_GLSL + TERRAIN_GLSL + SKY_GLSL + COMMON_GLSL + FRAG,

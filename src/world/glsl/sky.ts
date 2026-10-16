@@ -29,6 +29,13 @@ vec3 skyBase(vec3 dir, vec3 sunDir) {
   float g = pow(1.0 - max(d.y, 0.0), 4.0);
   vec3 c = mix(zen, hor, g);
 
+  // The last few degrees above the horizon go paler and less saturated than
+  // the gradient alone makes them. That band is air seen end-on — hundreds of
+  // kilometres of it — and it is most of what separates a sky from a ramp
+  // between two colours.
+  float band = pow(1.0 - min(abs(d.y) * 5.5, 1.0), 2.0);
+  c = mix(c, mix(c, vec3(dot(c, vec3(0.299, 0.587, 0.114))), 0.42) * 1.12, band * 0.5);
+
   // Forward scattering around the sun: the wide warm bloom at sunrise/sunset.
   float cd = max(dot(d, sunDir), 0.0);
   vec3 glow = mix(vec3(1.00, 0.45, 0.18), vec3(1.00, 0.86, 0.64), day);
@@ -63,6 +70,42 @@ float skyClouds(vec3 dir, vec3 camPos, float time, float coverage) {
   c *= smoothstep(0.015, 0.16, dir.y);          // thin out at the horizon
   c *= smoothstep(140000.0, 26000.0, dist);     // and fade into the haze
   return c;
+}
+
+/**
+ * How much of the sun a point on the ground can see.
+ *
+ * The clouds were already there and already moving, and the ground underneath
+ * them was lit as though the sky were empty. Cloud shadows are the single
+ * biggest thing you can add to an outdoor renderer for the money: a valley
+ * with light moving across it reads as weather and as scale, and a valley
+ * evenly lit reads as a diagram.
+ *
+ * It is the same field skyClouds samples, so the shadow on the ground belongs
+ * to the cloud you can actually see overhead rather than being a second,
+ * unrelated noise that happens to look cloudy. Walk the sun ray from the point
+ * up to the cloud deck and ask what is there.
+ *
+ * Three octaves against the sky's five: this runs per ground pixel, it is
+ * blurred by definition — no shadow edge from 2.6 km up is sharp — and the two
+ * finest octaves are smaller than the penumbra would be anyway.
+ */
+float cloudShade(vec3 world, vec3 sunDir, float time, float coverage) {
+  // Below the horizon there is no sun to occlude, and the ray would run away
+  // from the deck rather than toward it.
+  float up = max(sunDir.y, 0.0);
+  if (up < 0.04) return 1.0;
+  const float H = 2600.0;
+  float t = (H - world.y) / up;
+  if (t <= 0.0) return 1.0;                    // above the deck, in clear air
+  vec2 cp = world.xz + sunDir.xz * t;
+  vec2 q = cp * (1.0 / 3400.0) + vec2(time * 0.0045, time * 0.0017);
+  float c = smoothstep(coverage, coverage + 0.20, wFbm(q, 3, 211u));
+  // Never to black. Thin cloud transmits a great deal, and ground in shadow
+  // on an overcast day is dim, not unlit.
+  // Softened as the sun gets low, where the ray runs so far sideways that a
+  // sharp answer would be a lie.
+  return 1.0 - c * 0.62 * smoothstep(0.04, 0.22, up);
 }
 
 vec3 skyFull(vec3 dir, vec3 sunDir, vec3 moonDir, vec3 camPos, float time, float coverage) {

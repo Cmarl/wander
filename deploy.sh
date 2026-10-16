@@ -19,6 +19,9 @@ npm run build
 # when six deploys went out on a boot crash.
 echo "==> checking it boots"
 "$GAME_DIR/bootcheck.sh"
+# And the shaders, which bootcheck cannot see: a GLSL error is logged to the
+# console and swallowed, so the HUD builds fine over a black world.
+"$GAME_DIR/shadercheck.sh"
 
 echo "==> staging into $SITE_DIR/public"
 rm -rf "$SITE_DIR/public/wander" "$SITE_DIR/public/wander.html"

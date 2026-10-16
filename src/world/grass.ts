@@ -156,12 +156,28 @@ uniform vec3 uSunDir;
 uniform vec3 uSunColor;
 uniform vec3 uSkyAmbient;
 uniform float uFogDensity;
+uniform float uTime;
+uniform float uCloudCover;
 
 void main() {
   // Blades are flat, so a real normal is meaningless — light them as a soft
   // vertical mass and let the root-to-tip gradient do the shaping.
   float ndl = max(uSunDir.y, 0.0);
-  vec3 col = vTint * (0.48 + 0.42 * vTip) * (uSunColor * (0.30 + ndl * 0.52) + uSkyAmbient);
+  // Under the same cloud as the ground it is standing on. Grass left bright
+  // while the hillside beneath it darkened would be worse than no shadow.
+  float shade = cloudShade(vRel + cameraPosition, uSunDir, uTime, uCloudCover);
+  vec3 col = vTint * (0.48 + 0.42 * vTip) * (uSunColor * shade * (0.30 + ndl * 0.52) + uSkyAmbient);
+
+  /**
+   * Blades are thin, so they transmit — and the tips most of all. Looking into
+   * a low sun across a field, the whole thing lights up. Weighted to the tip
+   * because that is where there is least plant to stop the light.
+   */
+  vec3 viewDir = -normalize(vRel);
+  float back = pow(max(dot(viewDir, -uSunDir), 0.0), 3.0);
+  col += vTint * uSunColor * back * shade * (0.22 + 0.5 * vTip)
+       * (1.0 - smoothstep(0.06, 0.45, uSunDir.y));
+
   col = applyHaze(col, vRel, uSunDir, uFogDensity);
   fragColor = vec4(toDisplay(col), 1.0);
 }
@@ -206,6 +222,7 @@ export class Grass {
         uSkyAmbient: { value: new THREE.Color(0.3, 0.4, 0.55) },
         uFogDensity: { value: 0.000085 },
         uSunsetBoost: { value: 1 },
+        uCloudCover: { value: 0.52 },
       },
       vertexShader: NOISE_GLSL + TERRAIN_GLSL + VERT,
       fragmentShader: NOISE_GLSL + SKY_GLSL + COMMON_GLSL + FRAG,

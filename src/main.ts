@@ -1344,6 +1344,13 @@ function frame(now: number) {
     u.uFogDensity.value = env.fogDensity;
   }
   terrain.material.uniforms.uGroundAmbient.value.copy(env.groundAmbient);
+  // The ground and the water need the clouds too, now that the clouds throw
+  // shadows. Same time and same coverage as the sky, or the shadow on the
+  // hillside would belong to a cloud that is not there.
+  for (const u of [terrain.material.uniforms, water.material.uniforms, grass.material.uniforms]) {
+    u.uCloudCover.value = env.cloudCover;
+  }
+  terrain.material.uniforms.uTime.value = env.elapsed;
   water.material.uniforms.uTime.value = env.elapsed;
   sky.material.uniforms.uSunDir.value.copy(env.sunDir);
   sky.material.uniforms.uMoonDir.value.copy(env.moonDir);

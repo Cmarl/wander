@@ -78,6 +78,8 @@ uniform vec3 uSunColor;
 uniform vec3 uSkyAmbient;
 uniform vec3 uGroundAmbient;
 uniform float uFogDensity;
+uniform float uTime;
+uniform float uCloudCover;
 uniform int uDebug;
 
 void main() {
@@ -89,7 +91,36 @@ void main() {
   float wrap = max(dot(n, uSunDir) * 0.5 + 0.5, 0.0);
   vec3 ambient = mix(uGroundAmbient, uSkyAmbient, 0.5 + 0.5 * n.y);
 
-  vec3 col = albedo * (uSunColor * (ndl * 0.88 + wrap * 0.12) + ambient);
+  // Clouds that are overhead are now also underfoot.
+  float shade = cloudShade(vWorld, uSunDir, uTime, uCloudCover);
+
+  vec3 col = albedo * (uSunColor * shade * (ndl * 0.88 + wrap * 0.12) + ambient);
+
+  /**
+   * Backscatter — the reason golden hour looks like that.
+   *
+   * Grass and dry scrub are thin enough to transmit, so ground lit from BEHIND
+   * glows rather than going dark. The whole effect is one dot product against
+   * the view direction, and it is the difference between a field at sunset and
+   * a field at sunset in a game.
+   *
+   * Killed on rock and snow, which do not transmit, and strongest when the sun
+   * is low, which is when you can see it in life.
+   */
+  float dist = length(vRel);
+  vec3 viewDir = -vRel / dist;
+  float back = pow(max(dot(viewDir, -uSunDir), 0.0), 3.5);
+  float low = 1.0 - smoothstep(0.06, 0.42, uSunDir.y);
+  float soft = 1.0 - smoothstep(0.26, 0.62, 1.0 - clamp(n.y, 0.0, 1.0));
+  col += albedo * uSunColor * back * (0.18 + 0.55 * low) * soft * shade;
+
+  /**
+   * Grazing sheen. Any rough surface goes shiny when you look along it, which
+   * is why a hillside catches the light near the horizon. Broad and weak —
+   * this is sheen, not a highlight.
+   */
+  vec3 h = normalize(viewDir + uSunDir);
+  col += uSunColor * pow(max(dot(n, h), 0.0), 18.0) * 0.10 * ndl * shade;
   col = applyHaze(col, vRel, uSunDir, uFogDensity);
   if (uDebug == 1) col = albedo;
   if (uDebug == 2) col = vec3(wFbm(vWorld.xz * (1.0 / 220.0), 3, 151u));
@@ -115,6 +146,8 @@ export class Terrain {
         uGroundAmbient: { value: new THREE.Color(0.1, 0.1, 0.09) },
         uFogDensity: { value: 0.00009 },
         uSunsetBoost: { value: 1 },
+        uTime: { value: 0 },
+        uCloudCover: { value: 0.52 },
         uDebug: { value: 0 },
       },
       vertexShader: NOISE_GLSL + TERRAIN_GLSL + VERT,
