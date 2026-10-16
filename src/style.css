@@ -1096,6 +1096,32 @@ html, body {
   .hud-btn { height: 26px; min-width: 96px; font-size: 10px; }
 }
 
+/* Controller readout: a bar that moves is the only proof that matters. */
+.padaxes { display: flex; flex-direction: column; gap: 5px; padding: 2px 0 6px; }
+.padrow { display: flex; align-items: center; gap: 9px; font-size: 10.5px; }
+.padrow s { text-decoration: none; opacity: 0.5; min-width: 44px; }
+.padrow b { opacity: 0.72; min-width: 38px; text-align: right; font-weight: 500; }
+.padbar {
+  flex: 1 1 auto;
+  height: 6px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.09);
+  overflow: hidden;
+}
+.padbar i { display: block; height: 100%; background: #e2c069; }
+.padbtns { display: flex; flex-wrap: wrap; gap: 5px; padding: 2px 0 6px; }
+.padbtn {
+  width: 22px;
+  height: 22px;
+  display: grid;
+  place-items: center;
+  border-radius: 6px;
+  font-size: 10px;
+  background: rgba(255, 255, 255, 0.07);
+  opacity: 0.5;
+}
+.padbtn.on { background: rgba(226, 192, 105, 0.5); opacity: 1; }
+
 /* Paint tins found, as swatches. */
 .cans { display: flex; flex-wrap: wrap; gap: 8px; padding: 2px 0 4px; }
 .can {

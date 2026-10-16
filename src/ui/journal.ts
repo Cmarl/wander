@@ -134,7 +134,8 @@ export class Journal {
 
   private map!: HTMLCanvasElement;
   private tabs!: HTMLElement;
-  private view: "register" | "map" | "garage" = "register";
+  private view: "register" | "map" | "garage" | "pad" = "register";
+  private liveTimer = 0;
   /** What you own and what is set, for the garage tab. */
   stable: () => {
     owned: string[];
@@ -147,6 +148,13 @@ export class Journal {
     cans: { name: string; hex: number }[];
   } | null = () => null;
   onChooseVehicle?: (cls: string) => void;
+  /** Controller state and mapping, read live. */
+  pad: () => {
+    snapshot: { name: string; axes: number[]; buttons: number[] } | null;
+    actions: { id: string; label: string; what: string; binding: string }[];
+    listening: string | null;
+  } | null = () => null;
+  onRebind?: (action: string) => void;
   /** Turning a rumour into a marker, which only you can do. */
   onPinRumour?: (f: Found) => void;
   /** The dog, read live rather than from its journal line. */
@@ -168,6 +176,7 @@ export class Journal {
           <button class="jtab on" data-view="register">register</button>
           <button class="jtab" data-view="map">map</button>
           <button class="jtab" data-view="garage">garage</button>
+          <button class="jtab" data-view="pad">controller</button>
         </div>
         <div class="journal-list" id="j-list"></div>
         <canvas class="journal-map" id="j-map" width="420" height="420"></canvas>
@@ -185,7 +194,7 @@ export class Journal {
     this.tabs = this.sheet.querySelector("#j-tabs")!;
     this.tabs.addEventListener("pointerdown", (e) => {
       e.stopPropagation();
-      const v = (e.target as HTMLElement).dataset?.view as "register" | "map" | "garage" | undefined;
+      const v = (e.target as HTMLElement).dataset?.view as "register" | "map" | "garage" | "pad" | undefined;
       if (!v || v === this.view) return;
       this.view = v;
       for (const b of this.tabs.children) b.classList.toggle("on", (b as HTMLElement).dataset.view === v);
@@ -223,8 +232,16 @@ export class Journal {
     // Pinning a rumour. Delegated, because entries are rebuilt on every open.
     this.list.addEventListener("pointerdown", (e) => {
       const id = (e.target as HTMLElement).dataset?.id;
-      if (!id && !(e.target as HTMLElement).dataset?.veh) return;
+      const el = e.target as HTMLElement;
+      if (!id && !el.dataset?.veh && !el.dataset?.pad) return;
       e.stopPropagation();
+      const padAct = (e.target as HTMLElement).dataset?.pad;
+      if (padAct) {
+        e.stopPropagation();
+        this.onRebind?.(padAct);
+        this.render();
+        return;
+      }
       const veh = (e.target as HTMLElement).dataset?.veh;
       if (veh) {
         e.stopPropagation();
@@ -244,9 +261,21 @@ export class Journal {
     });
   }
 
+  /** Re-render without reopening, for the live controller readout. */
+  refresh() {
+    if (this.open) this.render();
+  }
+
   toggle(show?: boolean) {
     const on = show ?? !this.sheet.classList.contains("open");
     if (on) this.render();
+    // The controller readout has to move while you are looking at it.
+    clearInterval(this.liveTimer);
+    if (on) {
+      this.liveTimer = window.setInterval(() => {
+        if (this.view === "pad") this.render();
+      }, 180);
+    }
     this.sheet.classList.toggle("open", on);
   }
 
@@ -264,6 +293,10 @@ export class Journal {
     }
     if (this.view === "garage") {
       this.drawGarage();
+      return;
+    }
+    if (this.view === "pad") {
+      this.drawPad();
       return;
     }
 
@@ -403,6 +436,63 @@ export class Journal {
              .join("")}</div>`
         : "") +
       `</div>`;
+  }
+
+  /**
+   * The controller tab: does it see your pad, and what is mapped to what.
+   *
+   * The live readout is the point. A controller that is plugged in but not
+   * being read is indistinguishable from one that is broken, so the first
+   * thing this has to answer is "is it working" — and a bar that moves when
+   * you move the stick answers that better than any amount of text.
+   */
+  private drawPad() {
+    const p = this.pad();
+    if (!p) {
+      this.list.innerHTML = "";
+      return;
+    }
+    this.note.textContent = p.snapshot
+      ? "press a button to rebind · defaults suit most pads"
+      : "plug in a controller, then press any button on it";
+
+    if (!p.snapshot) {
+      this.list.innerHTML = `<p class="journal-empty">No controller seen yet. Plug one in and press a button —
+        browsers hide pads until you do.</p>`;
+      return;
+    }
+
+    const bar = (v: number) =>
+      `<span class="padbar"><i style="width:${Math.round(Math.abs(v) * 100)}%"></i></span>`;
+
+    this.list.innerHTML =
+      `<div class="region-head"><b>${p.snapshot.name.slice(0, 40)}</b><s>connected</s></div>` +
+      `<div class="padaxes">` +
+      p.snapshot.axes
+        .map((v, i) => `<div class="padrow"><s>axis ${i}</s>${bar(v)}<b>${v.toFixed(2)}</b></div>`)
+        .join("") +
+      `</div>` +
+      `<div class="region-head"><b>Buttons</b><s>${
+        p.snapshot.buttons.filter((b) => b > 0.1).length
+      } down</s></div>` +
+      `<div class="padbtns">` +
+      p.snapshot.buttons
+        .map((v, i) => `<span class="padbtn${v > 0.1 ? " on" : ""}">${i}</span>`)
+        .join("") +
+      `</div>` +
+      `<div class="region-head"><b>Mapping</b><s>tap to change</s></div>` +
+      p.actions
+        .map(
+          (a) => `<div class="veh${p.listening === a.id ? " on" : ""}">
+            <span class="veh-text"><b>${a.label}</b><s>${a.what}</s></span>
+            <button class="veh-pick" data-pad="${a.id}">${
+              p.listening === a.id ? "press one" : a.binding
+            }</button>
+          </div>`
+        )
+        .join("") +
+      `<div class="veh"><span class="veh-text"><b>Reset</b><s>back to the defaults</s></span>
+        <button class="veh-pick" data-pad="__reset">defaults</button></div>`;
   }
 
   /**

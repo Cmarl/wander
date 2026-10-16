@@ -37,6 +37,7 @@ import { Controls } from "./input/controls";
 import { Hud } from "./ui/hud";
 import { Postcard } from "./ui/postcard";
 import { Journal } from "./ui/journal";
+import { ACTION_LABEL as PAD_ACTIONS, type PadAction } from "./input/gamepad";
 import { haptics } from "./ui/haptics";
 import { Garage, CAN_PAINTS } from "./game/paint";
 import { Soundscape } from "./audio/soundscape";
@@ -430,6 +431,32 @@ journal.stable = () => ({
   // Colours found in tins, as swatches rather than a list of names.
   cans: garage.cans.map((i) => ({ name: CAN_PAINTS[i].name, hex: CAN_PAINTS[i].hex })),
 });
+/**
+ * The controller tab, read live every time the sheet renders.
+ *
+ * The journal re-renders on a timer while this tab is open, because a readout
+ * that only updates when you close and reopen it cannot answer "is my stick
+ * working".
+ */
+journal.pad = () => ({
+  snapshot: controls.pads.snapshot(),
+  actions: (Object.keys(PAD_ACTIONS) as PadAction[]).map((id) => ({
+    id,
+    label: id.charAt(0).toUpperCase() + id.slice(1),
+    what: PAD_ACTIONS[id],
+    binding: controls.pads.bindings[id].label,
+  })),
+  listening: controls.pads.listenFor,
+});
+journal.onRebind = (action) => {
+  if (action === "__reset") {
+    controls.pads.reset();
+    return;
+  }
+  controls.pads.listenFor = action as PadAction;
+};
+controls.pads.onBound = () => journal.refresh();
+
 journal.onChooseVehicle = (cls) => {
   stable.choose(cls as never);
   hud.announce(`${SPECS[stable.chosen].label} · summon to bring it`, "set as yours");
@@ -1091,6 +1118,8 @@ function glassing() {
 let lastBiome = "";
 /** The country you were in last frame, so a crossing fires once. */
 let lastRegion: string | null = null;
+/** Whether the pad's horn button was down last frame. */
+let padHorning = false;
 
 let lastPhase = 0;
 function stampJournal() {
@@ -1580,6 +1609,27 @@ function frame(now: number) {
     player.heldByCamp,
     staying ? { fire: camp.active, indoors: true } : undefined
   );
+
+  // Pad buttons for the things the keyboard handles in its own listener.
+  if (controls.padJournal) {
+    controls.padJournal = false;
+    journal.toggle();
+  }
+  // The camp flag is read later in the frame by the code that owns camping,
+  // so the pad just raises it rather than duplicating that logic.
+  if (controls.padCamp) {
+    controls.padCamp = false;
+    controls.camp = true;
+  }
+  if (controls.padHorn !== padHorning) {
+    padHorning = controls.padHorn;
+    if (padHorning && (player.mode === "drive" || player.ridingHost !== null)) {
+      sound.hornOn();
+      net.emote("honk");
+    } else {
+      sound.hornOff();
+    }
+  }
 
   glassing();
   signposts();

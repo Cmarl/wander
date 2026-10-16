@@ -42,6 +42,7 @@ const DESK_KEYS: [string, string][] = [
   ["V", "wave"],
   ["K", "change the paint"],
   ["H", "show these controls"],
+  ["a controller", "plug one in and press a button — journal > controller to map it"],
 ];
 
 const TOUCH_KEYS: [string, string][] = [

@@ -1,3 +1,4 @@
+import { Pads } from "./gamepad";
 /**
  * One input surface for both platforms.
  *
@@ -21,6 +22,13 @@ export class Controls {
    * happened. Clyde: "no way to go up/down".
    */
   jumpHeld = false;
+  /** Pad state, folded into the shared fields below. */
+  private padMoving = false;
+  private padSprint = false;
+  private padGlass = false;
+  padHorn = false;
+  padJournal = false;
+  padCamp = false;
   /** Descend while flying. Shift on a keyboard, the RUN button on a phone. */
   down = false;
   interact = false;
@@ -222,8 +230,53 @@ export class Controls {
    * hybrids, where it killed keyboard movement outright. A keyboard and a
    * thumbstick can coexist: whichever one you are actually using wins.
    */
+  /** Plugged-in controllers. Additive: it never takes anything away. */
+  readonly pads = new Pads();
+
   beginFrame() {
     const k = this.keys;
+
+    /**
+     * A pad, if there is one.
+     *
+     * Read first so the keyboard and touch below can still override — all
+     * three are live at once, and the last one you actually touched wins
+     * simply because it is the one producing non-zero values.
+     */
+    const pad = this.pads.read();
+    if (pad) {
+      if (pad.moveX !== 0 || pad.moveY !== 0) {
+        const len = Math.max(1, Math.hypot(pad.moveX, pad.moveY));
+        this.move.x = pad.moveX / len;
+        this.move.y = pad.moveY / len;
+        this.padMoving = true;
+      } else if (this.padMoving) {
+        this.padMoving = false;
+        if (!this.stick && !this.keyMoving) {
+          this.move.x = 0;
+          this.move.y = 0;
+        }
+      }
+      // The right stick looks around, scaled to feel like the mouse rather
+      // than like a cursor being shoved.
+      this.look.x -= pad.lookX * 0.045;
+      this.look.y -= pad.lookY * 0.035;
+      // An analogue throttle is the one thing a pad does better than a key.
+      if (Math.abs(pad.throttle) > 0.02) this.move.y = pad.throttle;
+
+      if (pad.pressed.has("interact")) this.interact = true;
+      if (pad.pressed.has("pin")) this.pin = true;
+      if (pad.pressed.has("journal")) this.padJournal = true;
+      if (pad.pressed.has("camp")) this.padCamp = true;
+      if (pad.pressed.has("cruise")) this.cruise = !this.cruise;
+      if (pad.held.has("jump")) {
+        this.jump = true;
+        this.jumpHeld = true;
+      }
+      this.padHorn = pad.held.has("horn");
+      this.padSprint = pad.held.has("sprint");
+      this.padGlass = pad.held.has("glass");
+    }
 
     // WASD and the arrows are equivalent, so a hand can sit on either while
     // the other hand is on the mouse.
@@ -244,11 +297,11 @@ export class Controls {
       }
     }
 
-    this.sprint = k.has("ShiftLeft") || k.has("ShiftRight") || this.sprintToggle;
+    this.sprint = k.has("ShiftLeft") || k.has("ShiftRight") || this.sprintToggle || this.padSprint;
     // Shift means "run" on foot and "go down" in the air — the same held key
     // reading as the opposite of Space in both cases.
     this.down = k.has("ShiftLeft") || k.has("ShiftRight") || this.sprintToggle;
-    this.glass = k.has("KeyQ") || this.glassToggle;
+    this.glass = k.has("KeyQ") || this.glassToggle || this.padGlass;
   }
 
   /** Clear one-shot inputs and accumulated deltas. Call at the end of the frame. */
