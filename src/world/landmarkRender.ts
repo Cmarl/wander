@@ -228,20 +228,53 @@ function lookout(): Layer[] {
   }
   void EYE;
 
-  // Variant 2 is a collapse: the deck and everything above it on the ground.
+  /**
+   * Variant 2: the tower has come down.
+   *
+   * This was left at the OLD proportions when the standing tower was rebuilt
+   * to human scale — half-metre-thick beams up to fourteen metres long, which
+   * at a 1.85 landmark scale became twenty-six metre black timbers sprawling
+   * across a field. Clyde: "this is a 'fire lookout' - clearly a
+   * clusterfuck haha."
+   *
+   * Rebuilt from the same parts the standing tower is made of, at the same
+   * sizes, just lying down. A collapsed thing should be recognisably the thing
+   * that collapsed.
+   */
   const fallen: THREE.BufferGeometry[] = [];
-  const wreckDeck = box(9.6, 0.5, 9.6);
-  wreckDeck.rotateZ(0.36);
-  wreckDeck.rotateY(0.5);
-  wreckDeck.translate(2.4, 1.1, -1.2);
+
+  // The deck, tipped off its legs and resting on one corner.
+  const wreckDeck = box(5.8, 0.26, 5.8);
+  wreckDeck.rotateZ(0.3);
+  wreckDeck.rotateY(0.6);
+  wreckDeck.translate(1.6, 0.55, -0.9);
   fallen.push(wreckDeck);
-  for (let i = 0; i < 5; i++) {
-    const beam = new THREE.CylinderGeometry(0.34, 0.46, 9 + i, 5);
-    beam.rotateZ(Math.PI / 2 - 0.18 * i);
-    beam.rotateY(i * 1.1);
-    beam.translate(-1.4 + i * 1.1, 0.5, 1.8 - i * 0.9);
-    fallen.push(beam);
+
+  // The four legs, down and pointing different ways. Same 0.18-0.28 taper and
+  // same 16.4 m length as when they were standing.
+  for (let i = 0; i < 4; i++) {
+    const a = i * 1.37 + 0.4;
+    const leg = new THREE.CylinderGeometry(0.18, 0.28, H, 6);
+    leg.rotateZ(Math.PI / 2 - 0.07 * i);
+    leg.rotateY(a);
+    leg.translate(Math.cos(a) * 3.4, 0.26, Math.sin(a) * 3.4 - 1);
+    fallen.push(leg);
   }
+  // Bracing, snapped and scattered. Short pieces, as bracing is.
+  for (let i = 0; i < 7; i++) {
+    const a = i * 0.9;
+    const brace = new THREE.CylinderGeometry(0.07, 0.07, 3.2 + (i % 3), 5);
+    brace.rotateZ(Math.PI / 2 - 0.25 * (i % 4));
+    brace.rotateY(a * 1.6);
+    brace.translate(Math.cos(a) * (2 + i * 0.6), 0.1, Math.sin(a) * (2 + i * 0.5) - 2);
+    fallen.push(brace);
+  }
+  // What is left of the cabin, on its side beside the deck.
+  const crushed = box(4.2, 2.3, 4.2);
+  crushed.rotateZ(1.3);
+  crushed.rotateY(0.35);
+  crushed.translate(-3.6, 1.0, 2.2);
+  fallen.push(crushed);
 
   return [
     // 0 intact · 1 burnt out · 2 collapsed

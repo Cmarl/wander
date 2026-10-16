@@ -1594,7 +1594,29 @@ function frame(now: number) {
           : null,
     // Which button the action belongs to, so the label can live ON it rather
     // than floating next to the vehicle as a separate hint.
-    promptOn: player.canCamp && !player.nearVehicle && !player.nearVehicle ? "camp" : "interact",
+    /**
+     * Which key the prompt is about.
+     *
+     * This was computed independently of the prompt chain above, so it could
+     * disagree with it — and did. Clyde's screenshot shows "C climb": the
+     * chain had picked "climb" from a landmark several branches earlier, while
+     * this said "camp" because he happened to also be able to camp there.
+     *
+     * Only the camp branch is ever a C, and it is only reached when nothing
+     * above it matched, so it has to be derived from the same condition that
+     * selects it rather than re-guessed.
+     */
+    promptOn:
+      player.ridingHost === null &&
+      !rideWins &&
+      !features.held &&
+      !(placeWins && offer) &&
+      !camp.active &&
+      !player.canSummon &&
+      player.canCamp &&
+      !player.nearVehicle
+        ? "camp"
+        : "interact",
     // Whichever is doing the moving.
     speed: player.mode === "drive" ? Math.abs(player.vehicleState.speed) : player.speed,
     driving: player.mode === "drive",
