@@ -1504,30 +1504,34 @@ function frame(now: number) {
     headingDeg,
     prompt:
       player.ridingHost !== null
-        ? `${controls.isTouch ? "⏎" : "E"}  hop out`
+        ? `hop out`
         : rideWins && lift
-          ? `${controls.isTouch ? "⏎" : "E"}  ride with ${lift.name}`
+          ? `ride with ${lift.name}`
         : features.held
-        ? `${controls.isTouch ? "⏎" : "E"}  ${features.held.spec.note || "stay a while"}`
+        ? `${features.held.spec.note || "stay a while"}`
         : placeWins && offer
-          ? `${controls.isTouch ? "⏎" : "E"}  ${ACTIONS[offer.kind].verb}`
+          ? `${ACTIONS[offer.kind].verb}`
         : camp.active
         ? null
         : player.canSummon
-          ? `${controls.isTouch ? "⏎" : "E"}  call the ${coming}`
+          ? `call the ${coming}`
         : player.canCamp && !player.nearVehicle
-          ? controls.isTouch ? "CAMP  make camp" : "C  make camp"
+          ? "make camp"
           : player.mode === "drive"
-        ? controls.isTouch
-          ? "⏎  step out"
-          : "E  step out"
+        ? "step out"
         : player.nearVehicle
-          ? `${controls.isTouch ? "⏎" : "E"}  ${SPECS[player.spec.cls].flies ? "fly the" : "drive the"} ${mine}`
+          ? `${SPECS[player.spec.cls].flies ? "fly the" : "drive the"} ${mine}`
           : null,
+    // Which button the action belongs to, so the label can live ON it rather
+    // than floating next to the vehicle as a separate hint.
+    promptOn: player.canCamp && !player.nearVehicle && !player.nearVehicle ? "camp" : "interact",
     // Whichever is doing the moving.
     speed: player.mode === "drive" ? Math.abs(player.vehicleState.speed) : player.speed,
     driving: player.mode === "drive",
   });
+  hud.setJumpLabel(
+    player.mode === "drive" && SPECS[player.spec.cls].flies ? "CLIMB" : "JUMP"
+  );
   hud.setPresence(net.status, net.peers.size);
 
   renderer.render(scene, camera);

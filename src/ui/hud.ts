@@ -15,6 +15,8 @@ export interface HudState {
   /** Metres per second, on foot or driving. Shown as km/h. */
   speed: number;
   prompt: string | null;
+  /** Which control the prompt is about. */
+  promptOn: "interact" | "camp";
   driving: boolean;
 }
 
@@ -80,6 +82,9 @@ export class Hud {
   private fpsEl!: HTMLElement;
   private compassEl!: HTMLElement;
   private promptEl!: HTMLElement;
+  /** Null on desktop, where there is no on-screen button to label. */
+  private interactEl: HTMLElement | null = null;
+  private jumpEl: HTMLElement | null = null;
 
   private muteEl!: HTMLElement;
   /** Open/close the controls sheet. Also driven by H, ? and Escape. */
@@ -188,7 +193,7 @@ export class Hud {
           ? `<div class="stick" id="h-stick"><div class="knob" id="h-knob"></div></div>
              <div class="buttons">
                <button class="btn" id="b-interact">⏎</button>
-               <button class="btn" id="b-jump">⤴</button>
+               <button class="btn small" id="b-jump">JUMP</button>
                <button class="btn small" id="b-sprint">RUN</button>
                <button class="btn small" id="b-glass">LOOK</button>
                <button class="btn small" id="b-camp">CAMP</button>
@@ -259,6 +264,8 @@ export class Hud {
       if (this.leadId) this.onPinDrop?.(this.leadId);
     });
     this.promptEl = document.getElementById("h-prompt")!;
+    this.interactEl = document.getElementById("b-interact");
+    this.jumpEl = document.getElementById("b-jump");
     this.muteEl = document.getElementById("h-mute")!;
     this.muteEl.addEventListener("pointerdown", (e) => {
       e.stopPropagation();
@@ -624,6 +631,14 @@ export class Hud {
     this.pinLeadEl.classList.toggle("drop", this.leadId !== null);
   }
 
+  /**
+   * Jump does something different in an aircraft, so it says something
+   * different. The button is the only place a touch player ever finds out.
+   */
+  setJumpLabel(text: string) {
+    if (this.jumpEl && this.jumpEl.textContent !== text) this.jumpEl.textContent = text;
+  }
+
   setMuted(muted: boolean) {
     this.muteEl.textContent = muted ? "muted" : "sound";
     this.muteEl.classList.toggle("off", muted);
@@ -643,7 +658,28 @@ export class Hud {
     this.kmEl.textContent = `${s.km.toFixed(2)} km travelled`;
     this.fpsEl.textContent = `${Math.round(s.fps)} fps`;
     this.compassEl.style.transform = `translateX(${-s.headingDeg * 2}px)`;
-    this.promptEl.textContent = s.prompt ?? "";
+    /**
+     * The label lives ON the button.
+     *
+     * Clyde: "Let's have the control tooltips just integrated into the buttons
+     * themselves", pointing at the floating "step out" hint. He is right — on
+     * a phone the thing telling you what the button does was a separate
+     * caption halfway across the screen, while the button itself said "⏎",
+     * which means nothing.
+     *
+     * On touch the action text goes on the interact button and the floating
+     * hint disappears entirely. On a desktop there are no buttons, so the hint
+     * stays and carries the KEY, which is the part that is actually unknown
+     * there.
+     */
+    if (this.interactEl) {
+      const mine = s.prompt && s.promptOn === "interact" ? s.prompt : null;
+      this.interactEl.textContent = mine ?? "⏎";
+      this.interactEl.classList.toggle("labelled", !!mine);
+      this.promptEl.textContent = "";
+    } else {
+      this.promptEl.textContent = s.prompt ? `${s.promptOn === "camp" ? "C" : "E"}  ${s.prompt}` : "";
+    }
     this.promptEl.classList.toggle("on", !!s.prompt);
   }
 }
