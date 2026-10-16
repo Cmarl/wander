@@ -14,7 +14,17 @@ import { box, mat, makeVehicle, type Vehicle } from "./models";
  * only kind of choice this game is interested in. Nothing is a tier.
  */
 
-export type VehicleClass = "truck" | "bike" | "rover" | "chopper" | "plane" | "boat";
+export type VehicleClass =
+  | "truck"
+  | "bike"
+  | "rover"
+  | "chopper"
+  | "plane"
+  | "boat"
+  | "van"
+  | "quad"
+  | "tractor"
+  | "glider";
 
 export interface VehicleSpec {
   cls: VehicleClass;
@@ -133,6 +143,53 @@ export const SPECS: Record<VehicleClass, VehicleSpec> = {
     // 2.4 m/s rather than 1.5, so letting go drifts down instead of holding
     // altitude, while speed still being what keeps you up stays true.
     flies: true, lift: 26, sink: 15, wing: 0.84, dive: 46,
+  },
+  /**
+   * Four more ways to get around, each filling a gap the others leave.
+   *
+   * The test for adding one was not "would this be cool" but "is there a
+   * journey this makes better that nothing else does". A van carries the dog
+   * and sleeps you anywhere; a quad goes where the truck will not fit; a
+   * tractor is slow and unstoppable; a glider is silence at altitude.
+   */
+  van: {
+    cls: "van", label: "Van",
+    // Heavy and unhurried. Poor on a climb, steady everywhere else.
+    top: 40, accel: 20, brake: 26, drag: 0.5, reverse: 11,
+    jump: 8, gradePull: 10.5, turn: 1.35,
+    bodyR: 1.3, bodyOffset: 1.6,
+    seat: [-0.44, 1.72, 0.9], dogSeat: [0.6, 1.0, 0.2],
+  },
+  quad: {
+    cls: "quad", label: "Quad bike",
+    // Small, light and happy on broken ground, with no speed to speak of.
+    top: 38, accel: 30, brake: 28, drag: 0.72, reverse: 9,
+    jump: 11, gradePull: 6.4, turn: 2.2,
+    bodyR: 0.62, bodyOffset: 0.7,
+    seat: [0, 1.18, -0.1], dogSeat: [0, 0.98, -0.66],
+  },
+  tractor: {
+    cls: "tractor", label: "Tractor",
+    // The slowest thing with wheels, and a hill means nothing to it.
+    top: 21, accel: 18, brake: 22, drag: 0.74, reverse: 8,
+    jump: 5, gradePull: 3.4, turn: 1.7,
+    bodyR: 1.0, bodyOffset: 1.1,
+    seat: [0, 2.1, -0.25], dogSeat: [0.7, 1.0, -0.4],
+  },
+  glider: {
+    /**
+     * No engine at all.
+     *
+     * It sinks steadily and cannot climb under its own power, so height is
+     * something you spend rather than something you have. The calmest thing
+     * in the game by a distance.
+     */
+    cls: "glider", label: "Glider",
+    top: 72, accel: 14, brake: 10, drag: 0.2, reverse: 0,
+    jump: 0, gradePull: 1.2, turn: 1.8, turnFalloff: 0.012, pitchRate: 2.6,
+    bodyR: 1.0, bodyOffset: 1.4,
+    seat: [0, 1.2, 0.3], dogSeat: [0, 1.1, -0.4],
+    flies: true, lift: 7, sink: 9, wing: 0.95, dive: 30,
   },
   boat: {
     cls: "boat", label: "Boat",
@@ -652,7 +709,255 @@ function makeBoat(paint: number): Vehicle {
   };
 }
 
+/** A van: a box on wheels, and the box is the whole silhouette. */
+function makeVan(paint: number): Vehicle {
+  const body = mat(paint);
+  const dark = mat(0x26292e);
+  const glass = new THREE.MeshLambertMaterial({ color: 0x9fc0cc, flatShading: true });
+  const lamp = new THREE.MeshBasicMaterial({ color: 0xfff0c0 });
+  const root = new THREE.Group();
+
+  const shell = box(2.1, 1.9, 3.4, body);
+  shell.position.set(0, 1.75, -0.5);
+  root.add(shell);
+  const nose = box(2.0, 1.1, 1.5, body);
+  nose.position.set(0, 1.25, 1.9);
+  root.add(nose);
+  const screen = box(1.9, 0.78, 0.1, glass);
+  screen.position.set(0, 1.75, 1.2);
+  root.add(screen);
+  for (const sx of [-1, 1]) {
+    const side = box(0.08, 0.66, 1.5, glass);
+    side.position.set(sx * 1.02, 1.85, 0.5);
+    root.add(side);
+  }
+  const rack = box(1.7, 0.1, 2.2, dark);
+  rack.position.set(0, 2.78, -0.5);
+  root.add(rack);
+
+  const wheels: THREE.Mesh[] = [];
+  const fronts: THREE.Mesh[] = [];
+  for (const sx of [-1, 1]) {
+    for (const sz of [1.5, -1.5]) {
+      const w = wheel(0.46, 0.3, dark);
+      w.position.set(sx * 1.0, 0.46, sz);
+      root.add(w);
+      wheels.push(w);
+      if (sz > 0) fronts.push(w);
+    }
+  }
+  const lamps: THREE.Mesh[] = [];
+  for (const sx of [-0.7, 0.7]) {
+    const l = box(0.32, 0.22, 0.1, lamp);
+    l.position.set(sx, 1.1, 2.62);
+    root.add(l);
+    lamps.push(l);
+  }
+
+  return {
+    root,
+    animate(_dt, speed, steer) {
+      for (const w of wheels) w.rotation.x -= (speed / 0.46) * 0.016;
+      for (const w of fronts) w.rotation.y = steer * 0.4;
+    },
+    setPaint(hex) {
+      for (const m of [shell, nose]) (m.material as THREE.MeshLambertMaterial).color.setHex(hex);
+    },
+    dent(force) {
+      shell.scale.y = Math.max(0.9, shell.scale.y - Math.min(0.03, force * 0.004));
+    },
+    setLights(on) {
+      for (const l of lamps) (l.material as THREE.MeshBasicMaterial).color.setHex(on ? 0xfff0c0 : 0x5a5346);
+    },
+  };
+}
+
+/** A quad: fat tyres, handlebars, and almost nothing else. */
+function makeQuad(paint: number): Vehicle {
+  const body = mat(paint);
+  const dark = mat(0x23262b);
+  const metal = mat(0x8e949b);
+  const lamp = new THREE.MeshBasicMaterial({ color: 0xfff0c0 });
+  const root = new THREE.Group();
+
+  const chassis = box(0.9, 0.34, 1.5, body);
+  chassis.position.set(0, 0.68, 0);
+  root.add(chassis);
+  const seat = box(0.42, 0.2, 0.7, dark);
+  seat.position.set(0, 0.92, -0.2);
+  root.add(seat);
+  const tank = box(0.5, 0.3, 0.5, body);
+  tank.position.set(0, 0.96, 0.35);
+  root.add(tank);
+  const carry = box(0.8, 0.06, 0.5, metal);
+  carry.position.set(0, 0.92, -0.8);
+  root.add(carry);
+
+  const fork = new THREE.Group();
+  fork.position.set(0, 1.0, 0.56);
+  const bars = box(0.84, 0.06, 0.06, dark);
+  fork.add(bars);
+  const light = box(0.22, 0.16, 0.1, lamp);
+  light.position.set(0, -0.05, 0.14);
+  fork.add(light);
+  root.add(fork);
+
+  const wheels: THREE.Mesh[] = [];
+  for (const sx of [-1, 1]) {
+    for (const sz of [0.62, -0.62]) {
+      const w = wheel(0.42, 0.34, dark);
+      w.position.set(sx * 0.56, 0.42, sz);
+      root.add(w);
+      wheels.push(w);
+    }
+  }
+
+  const tilt = tiltable(root);
+  return {
+    root,
+    animate(_dt, speed, steer) {
+      for (const w of wheels) w.rotation.x -= (speed / 0.42) * 0.016;
+      fork.rotation.y = steer * 0.45;
+      tilt.rotation.z = bank(steer, speed, 16, 0.14);
+    },
+    setPaint(hex) {
+      for (const m of [chassis, tank]) (m.material as THREE.MeshLambertMaterial).color.setHex(hex);
+    },
+    dent() {},
+    setLights(on) {
+      (light.material as THREE.MeshBasicMaterial).color.setHex(on ? 0xfff0c0 : 0x5a5346);
+    },
+  };
+}
+
+/** A tractor: enormous back wheels, small front ones, and a chimney. */
+function makeTractor(paint: number): Vehicle {
+  const body = mat(paint);
+  const dark = mat(0x23262b);
+  const metal = mat(0x6f7a82);
+  const lamp = new THREE.MeshBasicMaterial({ color: 0xfff0c0 });
+  const root = new THREE.Group();
+
+  const hull = box(1.1, 0.9, 2.4, body);
+  hull.position.set(0, 1.15, 0.1);
+  root.add(hull);
+  const cab = box(1.2, 1.3, 1.1, body);
+  cab.position.set(0, 2.1, -0.7);
+  root.add(cab);
+  for (const sx of [-1, 1]) {
+    const post = box(0.09, 1.3, 0.09, metal);
+    post.position.set(sx * 0.58, 2.1, -0.2);
+    root.add(post);
+  }
+  const roof = box(1.4, 0.12, 1.4, dark);
+  roof.position.set(0, 2.8, -0.6);
+  root.add(roof);
+  const stack = new THREE.Mesh(new THREE.CylinderGeometry(0.1, 0.12, 1.1, 6), metal);
+  stack.position.set(0.4, 2.1, 1.0);
+  root.add(stack);
+  const light = box(0.26, 0.2, 0.1, lamp);
+  light.position.set(0, 1.5, 1.34);
+  root.add(light);
+
+  const rear: THREE.Mesh[] = [];
+  const front: THREE.Mesh[] = [];
+  for (const sx of [-1, 1]) {
+    const b = wheel(0.95, 0.46, dark);
+    b.position.set(sx * 0.84, 0.95, -0.9);
+    root.add(b);
+    rear.push(b);
+    const f = wheel(0.46, 0.3, dark);
+    f.position.set(sx * 0.62, 0.46, 1.3);
+    root.add(f);
+    front.push(f);
+  }
+
+  return {
+    root,
+    animate(_dt, speed, steer) {
+      for (const w of rear) w.rotation.x -= (speed / 0.95) * 0.016;
+      for (const w of front) {
+        w.rotation.x -= (speed / 0.46) * 0.016;
+        w.rotation.y = steer * 0.5;
+      }
+    },
+    setPaint(hex) {
+      for (const m of [hull, cab]) (m.material as THREE.MeshLambertMaterial).color.setHex(hex);
+    },
+    dent() {},
+    setLights(on) {
+      (light.material as THREE.MeshBasicMaterial).color.setHex(on ? 0xfff0c0 : 0x5a5346);
+    },
+  };
+}
+
+/** A glider: all wing, no engine, and a very long span. */
+function makeGlider(paint: number): Vehicle {
+  const body = mat(paint);
+  const dark = mat(0x26292e);
+  const glass = new THREE.MeshLambertMaterial({ color: 0x9fc0cc, flatShading: true });
+  const lamp = new THREE.MeshBasicMaterial({ color: 0xfff0c0 });
+  const root = new THREE.Group();
+
+  const fuselage = box(0.74, 0.82, 6.4, body);
+  fuselage.position.set(0, 1.0, 0);
+  root.add(fuselage);
+  const nose = new THREE.Mesh(new THREE.SphereGeometry(0.42, 10, 7), body);
+  nose.scale.set(1, 1, 1.8);
+  nose.position.set(0, 1.0, 3.3);
+  root.add(nose);
+  const canopy = box(0.66, 0.46, 1.5, glass);
+  canopy.position.set(0, 1.45, 1.3);
+  root.add(canopy);
+
+  // Seventeen metres of span. It is the whole reason the thing flies.
+  for (const sx of [-1, 1]) {
+    const wing = box(8.0, 0.14, 1.1, body);
+    wing.rotation.z = sx * 0.07;
+    wing.position.set(sx * 4.2, 1.45, 0.5);
+    root.add(wing);
+  }
+  const tail = box(2.4, 0.1, 0.7, body);
+  tail.position.set(0, 1.8, -3.0);
+  root.add(tail);
+  const fin = box(0.1, 1.2, 0.8, body);
+  fin.position.set(0, 2.2, -3.0);
+  root.add(fin);
+  const skid = box(0.2, 0.14, 2.4, dark);
+  skid.position.set(0, 0.5, 0.4);
+  root.add(skid);
+  const light = box(0.14, 0.12, 0.1, lamp);
+  light.position.set(0, 1.25, 3.5);
+  root.add(light);
+
+  const tilt = tiltable(root);
+  let roll = 0;
+  let nosePitch = 0;
+  return {
+    root,
+    animate(dt, speed, steer, climb = 0) {
+      const want = bank(steer, speed, 26, 0.9);
+      roll += (want - roll) * Math.min(1, dt * 2.6);
+      const pitch = Math.max(-1, Math.min(1, -climb / 30)) * 0.45;
+      nosePitch += (pitch - nosePitch) * Math.min(1, dt * 2.2);
+      tilt.rotation.z = roll;
+      tilt.rotation.x = nosePitch;
+    },
+    setPaint(hex) {
+      (fuselage.material as THREE.MeshLambertMaterial).color.setHex(hex);
+    },
+    dent() {},
+    setLights(on) {
+      (light.material as THREE.MeshBasicMaterial).color.setHex(on ? 0xfff0c0 : 0x5a5346);
+    },
+  };
+}
+
 export function makeFor(cls: VehicleClass, paint: number): Vehicle {
+  if (cls === "van") return makeVan(paint);
+  if (cls === "quad") return makeQuad(paint);
+  if (cls === "tractor") return makeTractor(paint);
+  if (cls === "glider") return makeGlider(paint);
   if (cls === "boat") return makeBoat(paint);
   if (cls === "bike") return makeBike(paint);
   if (cls === "rover") return makeRover(paint);

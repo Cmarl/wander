@@ -387,6 +387,21 @@ export const VOICES: Record<string, EngineVoice> = {
   // No gearbox either. A prop rising smoothly with airspeed and a lot of wind.
   plane: { gears: 0, base: 62, span: 125, toneBase: 1100, toneSpan: 2600, toneLoad: 320,
            induction: 1.5, level: 0.95, chop: 0.05, lumpRatio: 0.25, tyres: 0, wind: 2.4 },
+  // A tired old van: fewer gears, boomier, more tyre than engine.
+  van: { gears: 4, base: 24, span: 72, toneBase: 300, toneSpan: 1020, toneLoad: 480,
+         induction: 0.6, level: 0.95, chop: 0.02, lumpRatio: 0.5, tyres: 1.3, wind: 0.9 },
+  // Small, buzzy, and always working hard.
+  quad: { gears: 3, base: 70, span: 170, toneBase: 620, toneSpan: 2000, toneLoad: 760,
+          induction: 1.2, level: 0.78, chop: 0, lumpRatio: 0.5, tyres: 0.9, wind: 0.8 },
+  // A slow diesel thump you can count.
+  tractor: { gears: 2, base: 14, span: 34, toneBase: 220, toneSpan: 560, toneLoad: 300,
+             induction: 0.5, level: 1, chop: 0.1, lumpRatio: 0.25, tyres: 1.4, wind: 0.4 },
+  // A small outboard: high, buzzy, no gearbox, and a lot of water under it.
+  boat: { gears: 0, base: 88, span: 130, toneBase: 760, toneSpan: 1700, toneLoad: 540,
+          induction: 1.0, level: 0.7, chop: 0.08, lumpRatio: 0.5, tyres: 0, wind: 1.6 },
+  // No engine at all. Wind over a wing, and nothing else.
+  glider: { gears: 0, base: 30, span: 20, toneBase: 700, toneSpan: 900, toneLoad: 60,
+            induction: 2.2, level: 0.18, chop: 0, lumpRatio: 0.3, tyres: 0, wind: 3.2 },
 };
 
 export class VehicleAudio {

@@ -388,6 +388,11 @@ const journal = new Journal(
 // Plain words rather than stat bars: you pick the one that suits where you
 // are going, not the one with the longest bar.
 const VEHICLE_NOTES: Record<string, string> = {
+  van: "heavy and unhurried, and it carries everything",
+  quad: "light, nimble, and happy where the truck will not fit",
+  tractor: "the slowest thing with wheels; a hill means nothing to it",
+  glider: "no engine at all — height is something you spend",
+  boat: "for water, and only for water",
   truck: "steady, carries anything, good anywhere",
   bike: "quickest thing out here, poor on a climb",
   rover: "slow, but a mountain barely notices it",
@@ -880,7 +885,13 @@ function moorings() {
     if (Math.hypot(mx - player.position.x, mz - player.position.z) > BOARD_RANGE + 3) continue;
 
     const cls: VehicleClass =
-      lm.kind === "dock" ? "boat" : slotRandom(lm.gx, lm.gz, 1627) > 0.55 ? "plane" : "chopper";
+      lm.kind === "dock"
+        ? "boat"
+        : // Airstrips keep all three flying machines, hashed per strip so a
+          // given field always has the same one waiting.
+          (["plane", "chopper", "glider"] as VehicleClass[])[
+            Math.floor(slotRandom(lm.gx, lm.gz, 1627) * 3) % 3
+          ];
     // Already standing at this one in this machine — nothing to announce.
     const at = player.vehicle.root.position;
     if (player.spec.cls === cls && Math.hypot(at.x - mx, at.z - mz) < 6) continue;
