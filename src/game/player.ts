@@ -17,13 +17,27 @@ import type { Controls } from "../input/controls";
  * like walking.
  */
 const WALK = 3.4;
-const RUN = 7.0;
+/**
+ * A proper run. 8.4 m/s is 30 km/h — quick for a person, and it has to be
+ * quick: the nearest anything in this world is a kilometre away, and the
+ * thesis is that movement is the product.
+ */
+const RUN = 8.4;
 /**
  * Swimming. Slower than walking, as it should be — crossing water is a
  * decision, not a shortcut. Fast enough that a lake is a pleasant few minutes
  * rather than a chore.
  */
 const SWIM = 2.2;
+/**
+ * How hard you can get moving, and how hard you can stop.
+ *
+ * Asymmetric on purpose: a runner reaches full pace in about three quarters
+ * of a second and can plant their feet in a quarter. Equal rates feel like a
+ * vehicle; this feels like legs.
+ */
+const FOOT_ACCEL = 11;
+const FOOT_BRAKE = 30;
 /** Deeper than this and your feet are off the bottom. */
 const SWIM_DEPTH = 1.25;
 /** How much of you is under when swimming. */
@@ -327,6 +341,11 @@ export class Player {
    * never have to resolve who is riding with whom to draw us correctly.
    */
   ridingHost: number | null = null;
+  /** Eased toward the stick rather than assigned from it. */
+  private footSpeed = 0;
+  private prevFootSpeed = 0;
+  /** Forward pitch while accelerating, in radians. */
+  private lean = 0;
   /** In water past your chest, floating. */
   swimming = false;
   /** In water, but still on the bottom. */
@@ -390,6 +409,11 @@ export class Player {
       this.speed = 0;
       this.character.root.position.copy(this.position);
       this.character.root.rotation.y = this.heading;
+      // Settled into a place: stand up straight. The lean belongs to running
+      // and this branch never runs the code that decays it.
+      this.lean = 0;
+      this.footSpeed = 0;
+      this.character.root.rotation.x = 0;
       this.character.animate(dt, 0, false);
       this.placeVehicle(dt, 0, true);
       return;
@@ -407,7 +431,9 @@ export class Player {
     let dz = rz * input.move.x + fz * input.move.y;
     const len = Math.hypot(dx, dz);
 
-    let moveSpeed = 0;
+    let want = 0;
+    let moveDirX = 0;
+    let moveDirZ = 0;
     let faceX = 0;
     let faceZ = 0;
     if (len > 0.001) {
@@ -430,16 +456,49 @@ export class Player {
       // Wading slows you, swimming is its own pace, and you cannot sprint
       // through either.
       const base = this.swimming ? SWIM : this.wading ? WALK * 0.55 : input.sprint ? RUN : WALK;
-      moveSpeed = base * Math.min(len, 1) * (this.swimming ? 1 : effort) * mag;
+      want = base * Math.min(len, 1) * (this.swimming ? 1 : effort) * mag;
       if (mag > 1e-4) {
         dx /= mag;
         dz /= mag;
-        this.position.x += dx * moveSpeed * dt;
-        this.position.z += dz * moveSpeed * dt;
-        this.distanceTravelled += moveSpeed * dt;
+        moveDirX = dx;
+        moveDirZ = dz;
       }
       this.heading = this.approachAngle(this.heading, Math.atan2(faceX, faceZ), dt * 9);
     }
+
+    /**
+     * Running has weight now.
+     *
+     * Clyde: "Running should be more like real good fast running. Better
+     * player mechanics and design?"
+     *
+     * Speed used to be assigned straight from the stick — nought to full
+     * sprint in a single frame, and back to nothing the instant you let go.
+     * That is why it read as sliding rather than running: there was no effort
+     * in it anywhere, because there was no build-up to have effort during.
+     *
+     * It accelerates now, and the acceleration is asymmetric: getting up to
+     * speed takes about three quarters of a second, stopping takes a quarter.
+     * You can still plant your feet; you just cannot teleport to top speed.
+     *
+     * Four scalar lerps a frame. Nothing here costs anything on a phone.
+     */
+    const rate = want > this.footSpeed ? FOOT_ACCEL : FOOT_BRAKE;
+    this.footSpeed += THREE.MathUtils.clamp(want - this.footSpeed, -rate * dt, rate * dt);
+    if (this.footSpeed > 1e-3 && (moveDirX || moveDirZ)) {
+      this.position.x += moveDirX * this.footSpeed * dt;
+      this.position.z += moveDirZ * this.footSpeed * dt;
+      this.distanceTravelled += this.footSpeed * dt;
+    }
+    const moveSpeed = this.footSpeed;
+
+    // Lean into the effort: forward as you pick up, back as you pull up. The
+    // character root only ever carries an Euler, so writing pitch here cannot
+    // fight a quaternion the way the vehicles did.
+    const accel = (this.footSpeed - this.prevFootSpeed) / Math.max(dt, 1e-4);
+    this.prevFootSpeed = this.footSpeed;
+    const wantLean = THREE.MathUtils.clamp(accel * 0.014, -0.1, 0.19);
+    this.lean += (wantLean - this.lean) * Math.min(1, dt * 6);
 
     this.settleToCamp(dt);
     this.speed = moveSpeed;
@@ -506,6 +565,7 @@ export class Player {
 
     this.character.root.position.copy(this.position);
     this.character.root.rotation.y = this.heading;
+    this.character.root.rotation.x = this.lean;
     this.character.animate(dt, moveSpeed, !this.grounded);
 
     this.placeVehicle(dt, 0, true);
@@ -1025,7 +1085,16 @@ export class Player {
   private updateCamera(dt: number) {
     if (this.glassing) return this.updateGlassCamera(dt);
     if (this.campCamera) {
-      this.camera.fov += (this.baseFov - this.camera.fov) * Math.min(1, dt * 9);
+      /**
+     * Speed opens the view a little and pushes the camera back a little.
+     *
+     * The oldest trick there is for making movement read as fast, and it
+     * costs two lerps. Deliberately small — six degrees and a metre — because
+     * the point is that you feel it without being able to say what changed.
+     */
+    const haste = Math.min(1, Math.max(0, (this.speed - WALK) / (RUN - WALK)));
+    const wantFov = this.baseFov + haste * 6;
+    this.camera.fov += (wantFov - this.camera.fov) * Math.min(1, dt * 4);
       this.camera.updateProjectionMatrix();
       // Ease in so striking camp doesn't snap the view.
       const k = this.camInit ? 1 - Math.pow(0.02, dt) : 1;
