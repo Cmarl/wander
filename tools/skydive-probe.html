@@ -1,0 +1,139 @@
+<!doctype html><meta charset=utf8>
+<!--
+  Can you actually use the parachute?
+
+  Clyde: "no way to use the parachute. I get out of the plane while I am high
+  up and am instantly standing on the ground.."
+
+  This drives the real Player class with a simulated clock and a fake control
+  surface: board an aeroplane, climb, press interact once, and watch what
+  happens. No renderer is involved — Player only needs a camera and a spawn
+  point, and the whole thing is arithmetic.
+
+  The old code failed the very first assertion: main.ts arbitrated the bail-out
+  a hundred lines AFTER player.update() had already spent the press on
+  dismount(), so one press put you on the ground. The chute then failed a
+  second time, gated behind whether a landmark was in range.
+
+  Run:  npm run dev
+        open http://localhost:5173/tools/skydive-probe.html
+
+  Not a build entry: vite builds index.html only, so this never ships.
+--><body><pre id=out></pre>
+<script type="module">
+import * as THREE from "three";
+import { Player } from "../src/game/player.ts";
+import { heightAt } from "../src/world/field.ts";
+
+const out = document.getElementById("out");
+const lines = [];
+const log = (s) => { out.textContent += s + "\n"; lines.push(s); };
+let bad = 0;
+const check = (ok, label, detail) => {
+  if (!ok) bad++;
+  log(`${ok ? "  ok  " : "  FAIL"}  ${label.padEnd(44)} ${detail}`);
+};
+
+const DT = 1 / 60;
+function controls() {
+  return {
+    move: { x: 0, y: 0 }, look: { x: 0, y: 0 }, zoom: 0,
+    sprint: false, jump: false, jumpHeld: false, down: false,
+    interact: false, glass: false, pin: false, camp: false, cruise: false,
+    padHorn: false, padJournal: false, padCamp: false, isTouch: false,
+  };
+}
+
+const camera = new THREE.PerspectiveCamera(70, 1.6, 0.1, 1e5);
+const p = new Player(camera, new THREE.Vector2(1200, 800));
+const c = controls();
+
+// An aeroplane standing in the world, two metres away — adopt() is the path a
+// real airstrip uses. switchTo() alone leaves the machine wherever the truck
+// was parked, which on a slope is far enough away to be out of reach.
+p.adopt("plane", 0x9a7f4e, p.position.x + 2, p.position.z + 1, 0);
+c.interact = true; p.update(DT, c); c.interact = false;
+log(`boarded: mode ${p.mode}, class ${p.spec.cls}`);
+check(p.mode === "drive", "in the aeroplane", `mode ${p.mode}`);
+
+// Hold climb and throttle until it is properly high.
+c.jumpHeld = true; c.move.y = 1; c.cruise = true;
+let frames = 0;
+while (p.vehicle.root.position.y - heightAt(p.vehicle.root.position.x, p.vehicle.root.position.z) < 900 && frames < 60 * 240) {
+  p.update(DT, c); frames++;
+}
+const groundBelow = heightAt(p.vehicle.root.position.x, p.vehicle.root.position.z);
+const alt = p.vehicle.root.position.y - groundBelow;
+log(`climbed to ${alt.toFixed(0)} m above the ground in ${(frames / 60).toFixed(1)} s`);
+check(alt > 880, "got high enough to jump", `${alt.toFixed(0)} m`);
+
+// ONE press of interact. This is the whole bug.
+c.interact = true; p.update(DT, c); c.interact = false;
+const altAfter = p.position.y - heightAt(p.position.x, p.position.z);
+check(p.mode === "foot", "out of the aeroplane", `mode ${p.mode}`);
+check(p.skyState === 1, "free-falling, not parked", `skyState ${p.skyState}`);
+check(altAfter > 870, "STILL IN THE AIR after one press", `${altAfter.toFixed(0)} m up`);
+
+/**
+ * Free-fall, measured twice.
+ *
+ * It BUILDS toward terminal rather than starting there, with a time constant
+ * near 1.8 s — so a three-second average from rest reads about 27 m/s even
+ * though the fall is working perfectly. An average is the wrong instrument
+ * here; what matters is that it keeps accelerating and settles near terminal.
+ */
+let y0 = p.position.y;
+for (let i = 0; i < 60 * 3; i++) p.update(DT, c);
+const freeRate = (y0 - p.position.y) / 3;
+let y1 = p.position.y;
+for (let i = 0; i < 60 * 5; i++) p.update(DT, c);
+const settled = (y1 - p.position.y) / 5;
+log(`free-fall: ${freeRate.toFixed(1)} m/s over the first 3 s, then ${settled.toFixed(1)} m/s`);
+check(freeRate > 24, "it is a fall, not a float", `${freeRate.toFixed(1)} m/s`);
+check(settled > 45, "and it builds toward terminal", `${settled.toFixed(1)} m/s, terminal 52`);
+
+// Pull the handle. Nothing is in range, which is what used to break this.
+c.interact = true; p.update(DT, c); c.interact = false;
+check(p.skyState === 2, "the chute opens in open country", `skyState ${p.skyState}`);
+
+// And it should now be a drift you can steer.
+y0 = p.position.y;
+const x0 = p.position.x, z0 = p.position.z;
+c.move.y = 1;
+for (let i = 0; i < 60 * 4; i++) p.update(DT, c);
+const chuteRate = (y0 - p.position.y) / 4;
+const drift = Math.hypot(p.position.x - x0, p.position.z - z0) / 4;
+log(`under canopy: ${chuteRate.toFixed(1)} m/s down, ${drift.toFixed(1)} m/s across`);
+check(chuteRate < 12, "canopy slows the fall", `${chuteRate.toFixed(1)} m/s`);
+check(drift > 4, "you can steer it", `${drift.toFixed(1)} m/s across`);
+
+// All the way to the ground.
+let land = 0;
+while (p.skyState > 0 && land < 60 * 400) { p.update(DT, c); land++; }
+const rest = p.position.y - heightAt(p.position.x, p.position.z);
+log(`landed after ${(land / 60).toFixed(1)} s of canopy, resting ${rest.toFixed(2)} m off the terrain`);
+check(p.skyState === 0, "back on your feet", `skyState ${p.skyState}`);
+check(Math.abs(rest) < 0.5, "standing on the ground, not in it", `${rest.toFixed(2)} m`);
+
+// The beat before the canopy answers, so one press cannot do both.
+const q = new Player(camera, new THREE.Vector2(3000, 2400));
+const c2 = controls();
+q.adopt("plane", 0x9a7f4e, q.position.x + 2, q.position.z + 1, 0);
+c2.interact = true; q.update(DT, c2); c2.interact = false;
+c2.jumpHeld = true; c2.move.y = 1; c2.cruise = true;
+for (let i = 0; i < 60 * 60 && q.vehicle.root.position.y - heightAt(q.vehicle.root.position.x, q.vehicle.root.position.z) < 300; i++) q.update(DT, c2);
+// Hold interact down continuously: it must bail out and then NOT instantly
+// deploy, or there is no free-fall at all.
+c2.interact = true;
+q.update(DT, c2);
+const stateOnBail = q.skyState;
+q.update(DT, c2);
+check(stateOnBail === 1 && q.skyState === 1, "held key does not open it instantly", `skyState ${q.skyState} after 2 frames`);
+let held = 0;
+while (q.skyState === 1 && held < 60 * 3) { q.update(DT, c2); held++; }
+log(`held interact: canopy opened ${((held + 2) / 60).toFixed(2)} s after stepping out`);
+check(q.skyState === 2, "but it does open, shortly after", `skyState ${q.skyState}`);
+
+log(bad ? `\n${bad} FAILED` : "\nall assertions passed");
+fetch("http://127.0.0.1:8915/", { method: "POST", body: lines.join("\n") }).catch(() => {});
+</script>

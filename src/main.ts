@@ -1391,18 +1391,18 @@ function frame(now: number) {
   );
 
   // --- what this place offers ---------------------------------------------
-  // Stepping out of an aircraft in flight. Checked before the normal interact
-  // arbitration, because at three thousand feet there is nothing else the key
-  // could reasonably mean.
-  if (controls.interact && player.mode === "drive" && SPECS[player.spec.cls].flies) {
-    if (player.bailOut()) controls.interact = false;
-  }
-
-  if (controls.interact && placeWins) {
-    if (player.skyState === 1) {
-      // Falling: the interact key is the handle.
-      player.deployChute();
-    } else if (features.held) {
+  /**
+   * Bailing out and opening the chute used to be arbitrated here, and both
+   * were broken by it. player.update() runs a hundred lines above this, so
+   * "checked before the normal interact arbitration" was true of the file and
+   * false of the frame: the press had already been spent on dismount(). Both
+   * now live in Player's own arbitration, which is the only code that should
+   * ever have had an opinion about what the interact key means.
+   *
+   * Nothing here may take the press while he is in the air.
+   */
+  if (controls.interact && placeWins && player.skyState === 0) {
+    if (features.held) {
       // Press again to get out. Nothing ever traps you somewhere.
       // Indoors the fire belongs to the room, so it goes out with it —
       // otherwise stepping outside left a hearth burning inside a building

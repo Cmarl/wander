@@ -52,6 +52,8 @@ const CHUTE_FALL = 5.5;
 /** How hard you can steer under canopy, and how fast you can drift. */
 const CHUTE_STEER = 9;
 const CHUTE_DRIFT = 13;
+/** The beat before the canopy will answer. */
+const CHUTE_DELAY = 0.4;
 /** Deeper than this and your feet are off the bottom. */
 const SWIM_DEPTH = 1.25;
 /** How much of you is under when swimming. */
@@ -377,6 +379,16 @@ export class Player {
    * completely differently and the transitions are the whole feature.
    */
   skyState: 0 | 1 | 2 = 0;
+  /**
+   * How long you have been falling.
+   *
+   * The chute will not open in the first fraction of a second. That keeps one
+   * press of one key from stepping out of the aeroplane AND pulling the handle
+   * in the same frame — but it is also just right: the free-fall is the thing
+   * he asked for, and a canopy that opens before you have left the door is not
+   * a skydive.
+   */
+  private fallTime = 0;
   /** Fires on leaving, on the chute opening, and on landing. */
   onSkydive?: (what: "jump" | "chute" | "land") => void;
   /** In water past your chest, floating. */
@@ -406,12 +418,46 @@ export class Player {
     const far = this.freeCamera ? 90 : 26;
     this.camDist = THREE.MathUtils.clamp(this.camDist + input.zoom * (this.freeCamera ? 1.6 : 0.6), 1.6, far);
 
-    if (input.interact && !this.suppressInteract) {
+    /**
+     * What the interact key means, and the ONE place that decides it.
+     *
+     * Clyde: "no way to use the parachute. I get out of the plane while I am
+     * high up and am instantly standing on the ground."
+     *
+     * Two separate bugs, and both were the same mistake — more than one piece
+     * of code deciding what this key does:
+     *
+     *   1. Bailing out was arbitrated in main.ts, under a comment claiming it
+     *      ran "before the normal interact arbitration". It did sit above that
+     *      arbitration IN THE FILE, and underneath it in the FRAME: update()
+     *      is called a hundred lines earlier, so by the time main.ts asked to
+     *      bail out, this function had already called dismount() and put him
+     *      on the ground at heightAt(). That is his "instantly standing on the
+     *      ground", exactly.
+     *
+     *   2. Opening the chute was gated behind `placeWins` — whether a landmark
+     *      was in range. At three thousand feet over open country nothing is,
+     *      so the key did nothing. The HUD said "open the chute" the whole
+     *      time, which is the worst version of this: the interface promising
+     *      something the code would not do.
+     *
+     * So both now live here, in the order a person would rank them, and
+     * nothing else is allowed an opinion.
+     */
+    if (this.skyState > 0) {
+      // Falling. There is nothing else a key could possibly mean, so this is
+      // checked ahead of suppressInteract rather than through it — falling
+      // past a landmark must not hand your ripcord to a signpost.
+      if (input.interact) this.deployChute();
+    } else if (input.interact && !this.suppressInteract) {
       if (this.mode === "foot" && this.nearVehicle) {
         this.mode = "drive";
         this.onMount?.();
       } else if (this.mode === "drive") {
-        this.dismount();
+        // Airborne in something that flies, the door is a door. bailOut()
+        // already refuses unless both are true, so this reads as the sentence
+        // it is: step out if you can, otherwise park.
+        if (!this.bailOut()) this.dismount();
       } else if (this.canSummon) {
         // E is simply "deal with the truck": step in if it's here, call it if
         // it isn't. No extra control to learn.
@@ -456,13 +502,14 @@ export class Player {
     this.fallX = Math.sin(this.vehHeading) * this.vehSpeed * 0.45;
     this.fallZ = Math.cos(this.vehHeading) * this.vehSpeed * 0.45;
     this.skyState = 1;
+    this.fallTime = 0;
     this.onSkydive?.("jump");
     return true;
   }
 
   /** Pull the handle. Only while falling, and only once. */
   deployChute() {
-    if (this.skyState !== 1) return false;
+    if (this.skyState !== 1 || this.fallTime < CHUTE_DELAY) return false;
     this.skyState = 2;
     this.onSkydive?.("chute");
     return true;
@@ -622,6 +669,7 @@ export class Player {
      * never pulled is a hard landing and a story, not a death.
      */
     if (this.skyState > 0) {
+      this.fallTime += dt;
       const chute = this.skyState === 2;
       const terminal = chute ? CHUTE_FALL : FREE_FALL;
       // Drag toward terminal rather than a clamp, so it eases into it.
