@@ -12,6 +12,8 @@ export interface HudState {
   km: number;
   fps: number;
   headingDeg: number;
+  /** Metres per second, on foot or driving. Shown as km/h. */
+  speed: number;
   prompt: string | null;
   driving: boolean;
 }
@@ -72,6 +74,7 @@ export class Hud {
   private clockEl!: HTMLElement;
   private biomeEl!: HTMLElement;
   private elevEl!: HTMLElement;
+  private speedEl!: HTMLElement;
   private coordEl!: HTMLElement;
   private kmEl!: HTMLElement;
   private fpsEl!: HTMLElement;
@@ -126,6 +129,7 @@ export class Hud {
         <div class="clock" id="h-clock">00:00</div>
         <div class="sub" id="h-biome">—</div>
         <div class="sub" id="h-elev">—</div>
+        <div class="speed" id="h-speed"></div>
       </div>
       <div class="panel panel-right">
         <div class="sub" id="h-coord">—</div>
@@ -225,6 +229,7 @@ export class Hud {
     this.clockEl = document.getElementById("h-clock")!;
     this.biomeEl = document.getElementById("h-biome")!;
     this.elevEl = document.getElementById("h-elev")!;
+    this.speedEl = document.getElementById("h-speed")!;
     this.coordEl = document.getElementById("h-coord")!;
     this.kmEl = document.getElementById("h-km")!;
     this.fpsEl = document.getElementById("h-fps")!;
@@ -609,6 +614,12 @@ export class Hud {
     this.clockEl.textContent = s.clock;
     this.biomeEl.textContent = s.biome;
     this.elevEl.textContent = `${s.region} · ${Math.round(s.elevation)} m`;
+    // Shown from a walking pace upward. Standing still it fades out rather
+    // than sitting there reading zero.
+    const kmh = s.speed * 3.6;
+    const moving = kmh > 2;
+    this.speedEl.classList.toggle("on", moving);
+    if (moving) this.speedEl.innerHTML = `${Math.round(kmh)}<s>km/h</s>`;
     this.coordEl.textContent = `${Math.round(s.x)}, ${Math.round(s.z)}`;
     this.kmEl.textContent = `${s.km.toFixed(2)} km travelled`;
     this.fpsEl.textContent = `${Math.round(s.fps)} fps`;

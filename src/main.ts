@@ -1524,6 +1524,8 @@ function frame(now: number) {
         : player.nearVehicle
           ? `${controls.isTouch ? "⏎" : "E"}  ${SPECS[player.spec.cls].flies ? "fly the" : "drive the"} ${mine}`
           : null,
+    // Whichever is doing the moving.
+    speed: player.mode === "drive" ? Math.abs(player.vehicleState.speed) : player.speed,
     driving: player.mode === "drive",
   });
   hud.setPresence(net.status, net.peers.size);

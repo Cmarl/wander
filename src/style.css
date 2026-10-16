@@ -31,12 +31,31 @@ html, body {
   position: fixed;
   inset: 0;
   pointer-events: none;
-  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.55);
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.8), 0 0 10px rgba(0, 0, 0, 0.35);
 }
 
-.panel { position: absolute; top: var(--pad); }
-.panel-left { left: max(16px, env(safe-area-inset-left)); }
-.panel-right { right: max(16px, env(safe-area-inset-right)); text-align: right; }
+/**
+ * Readable against a bright sky.
+ *
+ * Clyde: "we need the metadata on screen (location and all that) slightly more
+ * legible somehow. Especially during the day it's a tough read against the
+ * color of the sky."
+ *
+ * Pale text at 0.78 opacity with a soft shadow is fine against dusk and gone
+ * against noon cloud or a golden steppe. The same fix the compass already got:
+ * a scrim that fades out so it reads as shade rather than a panel, a harder
+ * shadow under the glyphs, and more opacity. More readable, not more present.
+ */
+.panel { position: absolute; top: var(--pad); padding: 10px 14px; margin: -10px -14px; }
+.panel-left {
+  left: max(16px, env(safe-area-inset-left));
+  background: radial-gradient(ellipse 120% 100% at 0% 0%, rgba(6, 10, 16, 0.66), transparent 74%);
+}
+.panel-right {
+  right: max(16px, env(safe-area-inset-right));
+  text-align: right;
+  background: radial-gradient(ellipse 120% 100% at 100% 0%, rgba(6, 10, 16, 0.66), transparent 74%);
+}
 
 .clock {
   font-size: 30px;
@@ -44,8 +63,27 @@ html, body {
   letter-spacing: 0.02em;
   line-height: 1;
 }
-.sub { font-size: 12.5px; opacity: 0.78; margin-top: 4px; letter-spacing: 0.04em; }
-.dim { opacity: 0.4; }
+.sub { font-size: 12.5px; opacity: 0.93; margin-top: 4px; letter-spacing: 0.04em; }
+.dim { opacity: 0.55; }
+
+/**
+ * Speed.
+ *
+ * Only while you are actually moving, which keeps it out of the way when you
+ * are stood still and makes it the one number on screen that is always about
+ * what you are doing right now. km/h because that is the unit a speed is
+ * read in, whatever the simulation stores.
+ */
+.speed {
+  font-size: 19px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  margin-top: 7px;
+  opacity: 0;
+  transition: opacity 0.25s;
+}
+.speed.on { opacity: 0.95; }
+.speed s { text-decoration: none; font-size: 11px; opacity: 0.62; margin-left: 3px; }
 
 /* compass */
 .compass {
