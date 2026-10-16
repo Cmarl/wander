@@ -130,6 +130,33 @@ export class Hud {
         <div class="sub" id="h-biome">—</div>
         <div class="sub" id="h-elev">—</div>
         <div class="speed" id="h-speed"></div>
+        ${
+          /**
+           * On touch the menu buttons live INSIDE the metadata panel, after
+           * the speed.
+           *
+           * They used to be absolutely positioned at a fixed offset from the
+           * top, which meant the offset had to guess how tall the panel was —
+           * and it guessed wrong the moment a speedometer was added below the
+           * altitude. Clyde: "Speedometer is slightly covered by the menu and
+           * journal buttons on mobile landscape mode."
+           *
+           * In the flow they are pushed down by whatever is above them, so
+           * the overlap is not fixed, it is impossible. A longer region name
+           * or another line added later moves them too.
+           */
+          controls.isTouch
+            ? `<div class="hud-stack compact">
+                 <button class="hud-ico" id="h-journal" aria-label="field journal">▤</button>
+                 <button class="hud-ico" id="h-menu" aria-label="more">⋯</button>
+                 <div class="hud-more" id="h-more">
+                   <button class="hud-btn" id="h-world"><span class="dot" id="h-dot"></span><span id="h-online">solo</span></button>
+                   <button class="hud-btn" id="h-full">fullscreen</button>
+                   <button class="hud-btn" id="h-help">controls</button>
+                 </div>
+               </div>`
+            : ``
+        }
       </div>
       <div class="panel panel-right">
         <div class="sub" id="h-coord">—</div>
@@ -187,15 +214,7 @@ export class Hud {
          * one it got.
          */
         controls.isTouch
-          ? `<div class="hud-stack compact">
-               <button class="hud-ico" id="h-journal" aria-label="field journal">▤</button>
-               <button class="hud-ico" id="h-menu" aria-label="more">⋯</button>
-               <div class="hud-more" id="h-more">
-                 <button class="hud-btn" id="h-world"><span class="dot" id="h-dot"></span><span id="h-online">solo</span></button>
-                 <button class="hud-btn" id="h-full">fullscreen</button>
-                 <button class="hud-btn" id="h-help">controls</button>
-               </div>
-             </div>`
+          ? ``
           : `<div class="hud-stack">
                <button class="hud-btn" id="h-journal">journal</button>
                <button class="hud-btn" id="h-world"><span class="dot" id="h-dot"></span><span id="h-online">solo</span></button>

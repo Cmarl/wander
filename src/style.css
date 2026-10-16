@@ -1016,10 +1016,17 @@ html, body {
 }
 
 /* The collapsed HUD menu, on touch only. */
+/*
+ * In the flow, inside the metadata panel, so nothing above it can ever be
+ * covered. position:static is the whole fix — the absolute version had to
+ * guess the panel's height and guessed wrong as soon as a line was added.
+ */
 .hud-stack.compact {
+  position: static;
   flex-direction: row;
   align-items: flex-start;
   gap: 8px;
+  margin-top: 12px;
   pointer-events: none;
 }
 .hud-ico {
