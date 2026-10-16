@@ -1,0 +1,135 @@
+<!doctype html><meta charset=utf8>
+<!--
+  Is the truck actually softer?
+
+  Clyde, a while back: the truck engine is "a touch abrasive". The fix claimed
+  most of that was the tone filter sweeping to 3.2 kHz under load, and lowered
+  it. This checks the claim instead of trusting it.
+
+  The old engine's numbers map exactly onto the EngineVoice shape the code now
+  uses, so both can be rendered down the SAME synthesis path with nothing
+  different but the voice. That matters: an A/B where the two sides go through
+  different code measures the code as much as the sound.
+
+  "Abrasive" is high-frequency energy. Two measures, both standard:
+    - the share of total energy above 2 kHz, which is where a synthetic
+      sawtooth starts to sting
+    - the spectral centroid, the energy-weighted mean frequency, which is the
+      usual stand-in for perceived brightness
+
+  Measured at FULL THROTTLE, because that is the condition he was complaining
+  about and the one the load term acts on.
+
+  Run:  npm run dev
+        open http://localhost:5173/tools/engine-tone.html
+
+  Not a build entry: vite builds index.html only, so this never ships.
+--><body><pre id=out></pre>
+<script type="module">
+import { AudioEngine } from "../src/audio/engine.ts";
+import { Sfx, VehicleAudio, VOICES } from "../src/audio/sfx.ts";
+
+const out = document.getElementById("out");
+const lines = [];
+const log = (s) => { out.textContent += s + "\n"; lines.push(s); };
+const send = () => fetch("http://127.0.0.1:8915/", { method: "POST", body: lines.join("\n") }).catch(() => {});
+window.onerror = (m, f, l) => { log(`THREW: ${m} (line ${l})`); send(); };
+let bad = 0;
+const check = (ok, label, detail) => { if (!ok) bad++; log(`${ok ? "  ok  " : "  FAIL"}  ${label.padEnd(44)} ${detail}`); };
+
+const SR = 48000;
+
+/**
+ * The truck as it was before the soften, lifted from the commit before
+ * dc19d77 where the numbers were hardcoded in update():
+ *
+ *   f = 26 + rpm * 86
+ *   tone.frequency = 380 + rpm * 1900 + load * 900
+ *   induction = 0.012 + load * 0.03 * rpm
+ *   engGain = 0.085 + rpm * 0.045 + load * 0.028
+ */
+const BEFORE = {
+  gears: 4, base: 26, span: 86,
+  toneBase: 380, toneSpan: 1900, toneLoad: 900,
+  induction: 1, level: 1, chop: 0, lumpRatio: 0.5, tyres: 1, wind: 1,
+};
+
+async function render(voice, norm, secs = 4) {
+  const ctx = new OfflineAudioContext(1, SR * secs, SR);
+  let clock = 0;
+  Object.defineProperty(ctx, "currentTime", { get: () => clock, configurable: true });
+  const real = window.AudioContext;
+  window.AudioContext = function () { return ctx; };
+  const e = new AudioEngine(); e.start();
+  Object.defineProperty(e, "ready", { get: () => true, configurable: true });
+  window.AudioContext = real;
+  e.master.gain.cancelScheduledValues(0); e.master.gain.value = 1;
+
+  const v = new VehicleAudio(e, new Sfx(e));
+  v.build(); v.setVoice(voice); v.ignition();
+  for (let i = 0; i < secs * 60; i++) {
+    clock = i / 60;
+    v.update(1 / 60, { speed: 30 * norm, throttle: 1, topSpeed: 30, y: 100 });
+  }
+  return (await ctx.startRendering()).getChannelData(0);
+}
+
+/**
+ * A Goertzel sweep rather than a full FFT: this needs a spectrum shape, not a
+ * spectrum, and forty bins of exact single-frequency power is less code than
+ * an FFT and has no windowing to argue about.
+ */
+function spectrum(s, from) {
+  const bins = [];
+  for (let k = 0; k < 44; k++) {
+    // Logarithmic, 40 Hz to 12 kHz, which is how hearing is laid out.
+    const f = 40 * Math.pow(12000 / 40, k / 43);
+    const w = 2 * Math.PI * f / SR;
+    const coeff = 2 * Math.cos(w);
+    let s1 = 0, s2 = 0;
+    for (let i = from; i < s.length; i++) {
+      const s0 = s[i] + coeff * s1 - s2;
+      s2 = s1; s1 = s0;
+    }
+    bins.push({ f, p: Math.sqrt(Math.max(s1 * s1 + s2 * s2 - coeff * s1 * s2, 0)) });
+  }
+  return bins;
+}
+
+function describe(label, s) {
+  // Skip the ignition and the gain ramp.
+  const from = SR * 1.5;
+  const bins = spectrum(s, from);
+  const total = bins.reduce((a, b) => a + b.p, 0);
+  const high = bins.filter((b) => b.f > 2000).reduce((a, b) => a + b.p, 0);
+  const centroid = bins.reduce((a, b) => a + b.f * b.p, 0) / Math.max(total, 1e-9);
+  let q = 0;
+  for (let i = from; i < s.length; i++) q += s[i] * s[i];
+  const rms = Math.sqrt(q / (s.length - from));
+  log(`${label.padEnd(22)} above 2 kHz ${((high / total) * 100).toFixed(1).padStart(5)}%   ` +
+      `centroid ${centroid.toFixed(0).padStart(5)} Hz   rms ${(rms * 1000).toFixed(1)}`);
+  return { high: high / total, centroid, rms };
+}
+
+log("truck at full throttle, mid-rev\n");
+const before = describe("before the soften", await render(BEFORE, 0.62));
+const after = describe("as it ships now", await render(VOICES.truck, 0.62));
+
+log("");
+check(after.high < before.high * 0.8, "noticeably less energy above 2 kHz",
+  `${(after.high * 100).toFixed(1)}% vs ${(before.high * 100).toFixed(1)}%`);
+check(after.centroid < before.centroid * 0.85, "and a duller centre of gravity",
+  `${after.centroid.toFixed(0)} Hz vs ${before.centroid.toFixed(0)} Hz`);
+// Softer must not mean inaudible. If the whole thing just got quieter that is
+// not a rounder engine, it is a smaller one.
+check(after.rms > before.rms * 0.7, "without simply being turned down",
+  `rms ${(after.rms * 1000).toFixed(1)} vs ${(before.rms * 1000).toFixed(1)}`);
+
+log("\nand the rest, for context:");
+for (const cls of ["bike", "rover", "chopper", "plane", "van", "quad", "tractor", "boat"]) {
+  describe(cls, await render(VOICES[cls], 0.62));
+}
+
+log(bad ? `\n${bad} FAILED` : "\nall assertions passed");
+send();
+</script>
