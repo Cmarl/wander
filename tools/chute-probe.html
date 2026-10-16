@@ -1,0 +1,150 @@
+<!doctype html><meta charset=utf8>
+<!--
+  Is there a parachute, and can you see it?
+
+  Clyde: "no visible parachute.." — the descent worked, the picture did not.
+
+  Two halves, because "visible" is two separate claims:
+
+    1. GEOMETRY. Build the real Character, put it under canopy, and measure
+       the thing in metres: how wide, how far above the feet, hidden in the
+       other two states.
+
+    2. IN FRAME. Drive the real Player out of a real aeroplane, pull the
+       chute, and project the canopy through the real chase camera to check it
+       lands on screen. A parachute that exists behind your head is still
+       "no visible parachute".
+
+  Then it renders the character and canopy alone to a PNG. The full world is
+  four million triangles and SwiftShader will not rasterise it, but a person
+  and a parachute are about a hundred, so this part actually produces pixels.
+
+  Run:  npm run dev
+        open http://localhost:5173/tools/chute-probe.html
+
+  Not a build entry: vite builds index.html only, so this never ships.
+--><body style="margin:0;background:#8fa9bd"><pre id=out></pre><canvas id=cv width=560 height=560></canvas>
+<script type="module">
+import * as THREE from "three";
+import { makeCharacter } from "../src/game/models.ts";
+import { Player } from "../src/game/player.ts";
+import { heightAt } from "../src/world/field.ts";
+
+const out = document.getElementById("out");
+const lines = [];
+const log = (s) => { out.textContent += s + "\n"; lines.push(s); };
+let bad = 0;
+const check = (ok, label, detail) => {
+  if (!ok) bad++;
+  log(`${ok ? "  ok  " : "  FAIL"}  ${label.padEnd(46)} ${detail}`);
+};
+const DT = 1 / 60;
+
+// --- 1. the canopy, in metres ----------------------------------------------
+const ch = makeCharacter();
+const scene = new THREE.Scene();
+scene.add(ch.root);
+
+const chuteOf = (char) => char.root.getObjectByName("chute");
+const span = () => {
+  ch.root.updateMatrixWorld(true);
+  return new THREE.Box3().setFromObject(chuteOf(ch));
+};
+
+ch.setSky(0); ch.animate(DT, 0, false);
+const hiddenOnFoot = chuteOf(ch).visible;
+check(hiddenOnFoot === false, "no canopy while walking", `visible ${hiddenOnFoot}`);
+
+ch.setSky(1); ch.animate(DT, 0, true);
+const hiddenFalling = chuteOf(ch).visible;
+check(hiddenFalling === false, "no canopy in free-fall", `visible ${hiddenFalling}`);
+
+ch.setSky(2);
+// Past the snap-open, so this measures the deployed size.
+for (let i = 0; i < 60 * 2; i++) ch.animate(DT, 0, true);
+const b = span();
+const w = b.max.x - b.min.x, d = b.max.z - b.min.z, top = b.max.y;
+log(`canopy: ${w.toFixed(2)} m across, ${d.toFixed(2)} m deep, apex ${top.toFixed(2)} m above the feet`);
+check(chuteOf(ch).visible === true, "canopy is there under canopy", "visible true");
+check(w > 6 && w < 8, "about seven metres across, like a real one", `${w.toFixed(2)} m`);
+check(top > 5 && top < 8, "overhead, not worn as a hat", `apex ${top.toFixed(2)} m`);
+check(Math.abs(w - d) < 0.4, "round", `${w.toFixed(2)} x ${d.toFixed(2)}`);
+
+// The snap open: small at the instant it is pulled, full a third of a second later.
+const ch2 = makeCharacter();
+ch2.setSky(2);
+ch2.animate(DT, 0, true);
+const g2 = chuteOf(ch2);
+const first = g2.scale.x;
+for (let i = 0; i < 22; i++) ch2.animate(DT, 0, true);
+const half = g2.scale.x;
+for (let i = 0; i < 120; i++) ch2.animate(DT, 0, true);
+const full = g2.scale.x;
+log(`snap open: ${first.toFixed(2)} at the pull, ${half.toFixed(2)} at 0.38 s, ${full.toFixed(2)} settled`);
+check(first < 0.3, "starts as a bundle", `scale ${first.toFixed(2)}`);
+check(full > 0.97 && full < 1.03, "ends up full size", `scale ${full.toFixed(2)}`);
+check(half > full, "and overshoots on the way, as silk does", `${half.toFixed(2)} vs ${full.toFixed(2)}`);
+
+// --- 2. is it in the player's view? -----------------------------------------
+const camera = new THREE.PerspectiveCamera(70, 560 / 560, 0.1, 1e5);
+const p = new Player(camera, new THREE.Vector2(1200, 800));
+const c = { move: { x: 0, y: 0 }, look: { x: 0, y: 0 }, zoom: 0, sprint: false, jump: false,
+  jumpHeld: false, down: false, interact: false, glass: false, pin: false, camp: false,
+  cruise: false, padHorn: false, padJournal: false, padCamp: false, isTouch: false };
+
+p.adopt("plane", 0x9a7f4e, p.position.x + 2, p.position.z + 1, 0);
+c.interact = true; p.update(DT, c); c.interact = false;
+c.jumpHeld = true; c.move.y = 1; c.cruise = true;
+for (let i = 0; i < 60 * 240 && p.vehicle.root.position.y - heightAt(p.vehicle.root.position.x, p.vehicle.root.position.z) < 700; i++) p.update(DT, c);
+c.interact = true; p.update(DT, c); c.interact = false;        // step out
+for (let i = 0; i < 60 * 2; i++) p.update(DT, c);              // fall a moment
+c.interact = true; p.update(DT, c); c.interact = false;        // pull
+check(p.skyState === 2, "under canopy for the camera test", `skyState ${p.skyState}`);
+
+for (let i = 0; i < 60 * 3; i++) p.update(DT, c);
+p.character.root.updateMatrixWorld(true);
+camera.updateMatrixWorld(true);
+const liveChute = chuteOf(p.character);
+const bb = liveChute && liveChute.visible ? new THREE.Box3().setFromObject(liveChute) : new THREE.Box3();
+const mid = bb.getCenter(new THREE.Vector3());
+const ndc = mid.clone().project(camera);
+log(`canopy centre ${(mid.y - p.position.y).toFixed(2)} m above the player, at NDC ` +
+    `x ${ndc.x.toFixed(2)} y ${ndc.y.toFixed(2)} z ${ndc.z.toFixed(3)}`);
+check(!bb.isEmpty(), "the canopy is in the live scene", bb.isEmpty() ? "missing" : "found");
+check(Math.abs(ndc.x) < 1 && Math.abs(ndc.y) < 1 && ndc.z > -1 && ndc.z < 1,
+  "ON SCREEN in the chase camera", `NDC ${ndc.x.toFixed(2)}, ${ndc.y.toFixed(2)}`);
+const dist = camera.position.distanceTo(mid);
+check(dist > 2 && dist < 60, "a sensible distance from the camera", `${dist.toFixed(1)} m`);
+
+log(bad ? `\n${bad} FAILED` : "\nall assertions passed");
+
+// --- 3. pixels --------------------------------------------------------------
+// Just the person and the canopy. A hundred triangles renders anywhere.
+const shot = new THREE.Scene();
+shot.background = new THREE.Color(0x8fa9bd);
+shot.add(new THREE.HemisphereLight(0xdfeaf2, 0x5a6b4a, 0.9));
+const sun = new THREE.DirectionalLight(0xfff2d8, 1.1);
+sun.position.set(-4, 7, 5);
+shot.add(sun);
+const hero = makeCharacter();
+hero.setSky(2);
+for (let i = 0; i < 60 * 2; i++) hero.animate(DT, 0, true);
+shot.add(hero.root);
+const cam = new THREE.PerspectiveCamera(50, 1, 0.1, 500);
+// Behind and a little below, looking up past the figure — which is the angle
+// the chase camera gives you on the way down.
+cam.position.set(5.5, 1.2, 9);
+cam.lookAt(0, 4.4, 0);
+let png = "";
+try {
+  const r = new THREE.WebGLRenderer({ canvas: document.getElementById("cv"), antialias: true });
+  r.setSize(560, 560, false);
+  r.render(shot, cam);
+  png = document.getElementById("cv").toDataURL("image/png");
+  log(`rendered ${png.length} bytes of png`);
+} catch (e) {
+  log(`render failed: ${e.message}`);
+}
+fetch("http://127.0.0.1:8915/", { method: "POST", body: lines.join("\n") }).catch(() => {});
+if (png) fetch("http://127.0.0.1:8916/", { method: "POST", body: png }).catch(() => {});
+</script>

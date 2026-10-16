@@ -720,7 +720,11 @@ export class Player {
 
     this.character.root.position.copy(this.position);
     this.character.root.rotation.y = this.heading;
-    this.character.root.rotation.x = this.lean;
+    // The running lean must not reach the canopy: a parachute hangs from the
+    // sky, not off the shoulders of whoever is steering it. In the air the
+    // body's attitude is the pose's business instead.
+    this.character.root.rotation.x = this.skyState > 0 ? 0 : this.lean;
+    this.character.setSky(this.skyState);
     this.character.animate(dt, moveSpeed, !this.grounded);
 
     this.placeVehicle(dt, 0, true);

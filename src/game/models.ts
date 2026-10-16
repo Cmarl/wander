@@ -14,6 +14,12 @@ export interface Character {
   /** Advance the walk cycle. `speed` in m/s, `airborne` freezes the legs. */
   animate(dt: number, speed: number, airborne: boolean): void;
   setPalette(p: CharacterPalette): void;
+  /**
+   * Out of the aeroplane. 0 on the ground, 1 falling, 2 under canopy —
+   * the same three states Player keeps, because they are three completely
+   * different pictures and not degrees of one.
+   */
+  setSky(state: 0 | 1 | 2): void;
 }
 
 export interface CharacterPalette {
@@ -91,13 +97,165 @@ export function makeCharacter(palette: CharacterPalette = DEFAULT_PALETTE): Char
   legR.position.set(0.14, 0, 0);
   hips.add(legR);
 
+  /**
+   * The canopy.
+   *
+   * Clyde: "no visible parachute.." — he was floating down under nothing at
+   * all, which makes the best moment in the game read as a bug.
+   *
+   * Sized off the person, like everything else here: a round canopy for one
+   * adult is about seven metres across, and the lines are about four and a
+   * half long. Pick those two numbers right and it needs no art.
+   *
+   * Eight gores in two alternating colours, because that is what makes a dome
+   * read instantly as a PARACHUTE rather than a mushroom — the radial seams
+   * are the whole silhouette. DoubleSide matters: you spend the descent
+   * looking up into it from underneath.
+   */
+  const chute = new THREE.Group();
+  chute.visible = false;
+  // Named so the scene graph can be asked about it from outside — the chute
+  // has to be measured in metres and checked against the camera frustum, and
+  // neither is possible if the only handle on it is a closure variable.
+  chute.name = "chute";
+  root.add(chute);
+
+  const CANOPY_R = 3.5;
+  const LINES = 4.4;
+  const canopy = new THREE.Group();
+  canopy.position.y = 0.95 + LINES;
+  chute.add(canopy);
+
+  /**
+   * Silk, with a floor under the shading.
+   *
+   * You spend the whole descent looking UP at the inside of this, which is the
+   * face pointed away from the sun — so lit by nothing but the sky term, it
+   * came out very nearly black. The emissive is not a cheat: a canopy with the
+   * sun on it genuinely glows from underneath, because thin fabric transmits.
+   * Without it the one thing he is looking at is a dark hole.
+   */
+  const silk = [
+    new THREE.MeshLambertMaterial({ color: 0xd8d2c0, emissive: 0x565349, flatShading: true, side: THREE.DoubleSide }),
+    new THREE.MeshLambertMaterial({ color: 0xc2563c, emissive: 0x4e241a, flatShading: true, side: THREE.DoubleSide }),
+  ];
+  const GORES = 8;
+  for (let i = 0; i < GORES; i++) {
+    const gore = new THREE.SphereGeometry(
+      CANOPY_R, 3, 4,
+      (i / GORES) * Math.PI * 2, (Math.PI * 2) / GORES,
+      // A vent at the apex, and a skirt that stops short of the equator so the
+      // dome is flattened rather than a full half-sphere.
+      0.12, Math.PI * 0.44
+    );
+    // Squashed, which is the shape a canopy under load actually takes.
+    gore.scale(1, 0.62, 1);
+    canopy.add(new THREE.Mesh(gore, silk[i % 2]));
+  }
+
+  // Rigging. Eight lines from the skirt down to the harness at the shoulders.
+  const cord = mat(0xe2ddcf);
+  for (let i = 0; i < GORES; i++) {
+    const a = ((i + 0.5) / GORES) * Math.PI * 2;
+    const ex = Math.cos(a) * CANOPY_R * 0.92;
+    const ez = Math.sin(a) * CANOPY_R * 0.92;
+    const top = new THREE.Vector3(ex, 0.95 + LINES + CANOPY_R * 0.62 * 0.35, ez);
+    const bot = new THREE.Vector3(0, 1.5, 0);
+    const line = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.016, 0.016, top.distanceTo(bot), 3),
+      cord
+    );
+    line.position.copy(top).add(bot).multiplyScalar(0.5);
+    // Point the cylinder's own axis along the line it has to span.
+    line.quaternion.setFromUnitVectors(
+      new THREE.Vector3(0, 1, 0),
+      top.clone().sub(bot).normalize()
+    );
+    chute.add(line);
+  }
+
   let phase = 0;
+  let sky: 0 | 1 | 2 = 0;
+  /** Seconds since the canopy was pulled, which is what drives the snap open. */
+  let opened = 0;
 
   return {
     root,
+    setSky(state) {
+      if (state === sky) return;
+      // Restarted on each deployment rather than only on the first, so a
+      // second jump opens as sharply as the first.
+      if (state === 2) opened = 0;
+      sky = state;
+      chute.visible = state === 2;
+    },
     animate(dt, speed, airborne) {
       const stride = Math.min(speed / 4.5, 1.4);
       phase += dt * (3.0 + speed * 1.9);
+
+      /**
+       * Falling, with or without the canopy.
+       *
+       * Two quite different pictures. In free-fall you are flat and spread —
+       * arms out and wide, legs apart, chest down — which is the pose that
+       * makes a tiny figure against the ground read as skydiving rather than
+       * as falling off something. Under canopy you hang: arms up on the risers
+       * and legs together underneath.
+       */
+      if (sky > 0) {
+        phase += dt * 1.1;
+        hips.position.y = 0.86;
+        hips.rotation.y = 0;
+        if (sky === 1) {
+          /**
+           * Signs matter here and I had them backwards.
+           *
+           * A limb hangs down its own -y, and rotateZ sends (0,-1) to
+           * (sin t, -cos t). So POSITIVE z swings a limb to the player's
+           * RIGHT — which put the left arm across the chest and the left leg
+           * over the right one. Spread means left arm negative, right arm
+           * positive. The render is how I found it.
+           */
+          torso.rotation.x = 1.15;
+          armL.rotation.x = -0.4; armL.rotation.z = -1.4;
+          armR.rotation.x = -0.4; armR.rotation.z = 1.4;
+          legL.rotation.x = 0.55; legL.rotation.z = -0.32;
+          legR.rotation.x = 0.55; legR.rotation.z = 0.32;
+          // A slow roll, so a long fall is never a frozen frame.
+          hips.rotation.z = Math.sin(phase * 1.7) * 0.12;
+          return;
+        }
+        opened += dt;
+
+        torso.rotation.x = 0.1;
+        hips.rotation.z = 0;
+        // Hands UP on the risers, not held out sideways: past a right angle,
+        // so the arms angle above the shoulders towards where the lines go.
+        armL.rotation.x = -0.1; armL.rotation.z = -2.05;
+        armR.rotation.x = -0.1; armR.rotation.z = 2.05;
+        legL.rotation.x = 0.2; legL.rotation.z = -0.07;
+        legR.rotation.x = 0.2; legR.rotation.z = 0.07;
+
+        /**
+         * The snap open, then the sway.
+         *
+         * It grows from a bundle to full in about a third of a second and goes
+         * a little past full on the way, because a canopy catching air
+         * overshoots and that overshoot is the entire feeling of the thing
+         * working. After that it is a slow pendulum on two periods that do not
+         * divide into each other, so the drift never loops.
+         */
+        const k = Math.min(opened / 0.34, 1);
+        // The overshoot outlasts the growth, or it is over before the canopy
+        // has finished arriving and nobody ever sees it.
+        const pop = 1 + Math.sin(Math.min(opened / 0.75, 1) * Math.PI) * 0.16;
+        chute.scale.setScalar((0.18 + 0.82 * k * k * (3 - 2 * k)) * pop);
+        chute.rotation.z = Math.sin(opened * 0.9) * 0.065;
+        chute.rotation.x = Math.sin(opened * 0.63 + 1.1) * 0.05;
+        // The silk breathes a little without the lines changing length.
+        canopy.scale.set(1 + Math.sin(opened * 1.4) * 0.025, 1, 1 + Math.cos(opened * 1.2) * 0.025);
+        return;
+      }
 
       if (airborne) {
         legL.rotation.x = -0.5;
@@ -106,6 +264,11 @@ export function makeCharacter(palette: CharacterPalette = DEFAULT_PALETTE): Char
         armR.rotation.x = -1.1;
         return;
       }
+      // Back on the ground: undo everything the sky poses set on the other
+      // axes, or a landed walker keeps their arms out sideways forever.
+      armL.rotation.z = 0; armR.rotation.z = 0;
+      legL.rotation.z = 0; legR.rotation.z = 0;
+      hips.rotation.z = 0;
 
       const s = Math.sin(phase) * stride;
       const c = Math.cos(phase);
