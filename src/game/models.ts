@@ -1,7 +1,8 @@
 import * as THREE from "three";
+import { worldLit } from "../world/worldMaterial";
 
 export const mat = (hex: number, rough = true) =>
-  new THREE.MeshLambertMaterial({ color: hex, flatShading: rough });
+  worldLit(new THREE.MeshLambertMaterial({ color: hex, flatShading: rough }));
 
 export function box(w: number, h: number, d: number, m: THREE.Material) {
   return new THREE.Mesh(new THREE.BoxGeometry(w, h, d), m);
@@ -136,8 +137,8 @@ export function makeCharacter(palette: CharacterPalette = DEFAULT_PALETTE): Char
    * Without it the one thing he is looking at is a dark hole.
    */
   const silk = [
-    new THREE.MeshLambertMaterial({ color: 0xd8d2c0, emissive: 0x565349, flatShading: true, side: THREE.DoubleSide }),
-    new THREE.MeshLambertMaterial({ color: 0xc2563c, emissive: 0x4e241a, flatShading: true, side: THREE.DoubleSide }),
+    worldLit(new THREE.MeshLambertMaterial({ color: 0xd8d2c0, emissive: 0x565349, flatShading: true, side: THREE.DoubleSide })),
+    worldLit(new THREE.MeshLambertMaterial({ color: 0xc2563c, emissive: 0x4e241a, flatShading: true, side: THREE.DoubleSide })),
   ];
   const GORES = 8;
   for (let i = 0; i < GORES; i++) {
@@ -317,7 +318,7 @@ export interface Vehicle {
 export function makeVehicle(paint = 0xd8c04a): Vehicle {
   const body = mat(paint);
   const dark = mat(0x2a2d33);
-  const glass = new THREE.MeshLambertMaterial({ color: 0x9fc0cc, flatShading: true });
+  const glass = worldLit(new THREE.MeshLambertMaterial({ color: 0x9fc0cc, flatShading: true }));
   const rack = mat(0x4a4e55);
   const crate1 = mat(0x8a5a3c);
   const crate2 = mat(0x3f6b55);

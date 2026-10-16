@@ -10,6 +10,7 @@ import { LandmarkField } from "./world/landmarkRender";
 import { SettlementField } from "./world/settlementRender";
 import { geyserLevel, landmarkSolids } from "./world/landmarks";
 import { decksOf, type Deck } from "./world/decks";
+import { WORLD_UNIFORMS } from "./world/worldMaterial";
 import { hasAccretion } from "./world/accretions";
 import { Discoveries } from "./game/discovery";
 import { Camp } from "./game/camp";
@@ -80,7 +81,14 @@ const grass = new Grass(
 scene.add(terrain.group, water.mesh, grass.mesh, scatter.group, env.sunLight, env.sunLight.target, env.hemiLight);
 // Tuned so distant landmarks fade at roughly the same rate as the terrain
 // shader hazes the hills behind them.
-scene.fog = new THREE.FogExp2(0x9fb4c8, 0.0001);
+/**
+ * No scene fog.
+ *
+ * Every solid thing now fades into the real sky on the terrain's own curve
+ * (see world/worldMaterial), and leaving FogExp2 switched on would apply a
+ * second, differently-shaped fog underneath it — which is how the two came to
+ * disagree in the first place.
+ */
 
 const landmarks = new LandmarkField();
 scene.add(landmarks.group);
@@ -1350,6 +1358,16 @@ function frame(now: number) {
   for (const u of [terrain.material.uniforms, water.material.uniforms, grass.material.uniforms]) {
     u.uCloudCover.value = env.cloudCover;
   }
+  /**
+   * And every solid thing, which shares ONE set of uniform objects by
+   * reference. Walking the scene graph to find hundreds of materials would be
+   * both slower and the sort of thing that quietly misses one.
+   */
+  WORLD_UNIFORMS.uSunDir.value.copy(env.sunDir);
+  WORLD_UNIFORMS.uFogDensity.value = env.fogDensity;
+  WORLD_UNIFORMS.uSunsetBoost.value = env.sunsetBoost;
+  WORLD_UNIFORMS.uTime.value = env.elapsed;
+  WORLD_UNIFORMS.uCloudCover.value = env.cloudCover;
   terrain.material.uniforms.uTime.value = env.elapsed;
   water.material.uniforms.uTime.value = env.elapsed;
   sky.material.uniforms.uSunDir.value.copy(env.sunDir);
@@ -1367,7 +1385,7 @@ function frame(now: number) {
     const root = player.vehicle.root;
     vehicleLamp.position.set(root.position.x, root.position.y + 1.4, root.position.z);
   }
-  (scene.fog as THREE.FogExp2).color.copy(env.horizonColor);
+  // (the scene fog that used to be updated here is gone — see above)
   env.sunLight.target.position.copy(camera.position);
   scatter.setSunElevation(env.sunDir.y);
   player.setSunElevation(env.sunDir.y);

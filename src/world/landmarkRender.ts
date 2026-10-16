@@ -1,4 +1,5 @@
 import * as THREE from "three";
+import { worldLit } from "./worldMaterial";
 import { blobTexture } from "./shadows";
 import { slotRandom } from "./field";
 import { box, merge, strut, type Layer } from "./geom";
@@ -744,7 +745,7 @@ export class LandmarkField {
       const meshes = built.map((layer) => {
         const mat = layer.unlit
           ? new THREE.MeshBasicMaterial({ color: layer.colour })
-          : new THREE.MeshLambertMaterial({ color: layer.colour, flatShading: true });
+          : worldLit(new THREE.MeshLambertMaterial({ color: layer.colour, flatShading: true }));
         const mesh = new THREE.InstancedMesh(layer.geo, mat, BUDGET);
         mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
         mesh.frustumCulled = false;
@@ -761,7 +762,7 @@ export class LandmarkField {
           m.geo,
           m.unlit
             ? new THREE.MeshBasicMaterial({ color: m.colour })
-            : new THREE.MeshLambertMaterial({ color: m.colour, flatShading: true }),
+            : worldLit(new THREE.MeshLambertMaterial({ color: m.colour, flatShading: true })),
           ACCRETION_BUDGET
         );
         mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);

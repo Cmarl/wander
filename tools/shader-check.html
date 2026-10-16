@@ -24,6 +24,7 @@ import { Water } from "../src/world/water.ts";
 import { Sky } from "../src/world/sky.ts";
 import { Grass } from "../src/world/grass.ts";
 import { heightAt } from "../src/world/field.ts";
+import { worldLit, WORLD_UNIFORMS } from "../src/world/worldMaterial.ts";
 
 const out = document.getElementById("out");
 const lines = [];
@@ -121,6 +122,95 @@ low.lookAt(16, gy + 0.4, 16);
 low.updateMatrixWorld(true);
 const gS = draw("grass", grass.mesh, low);
 check(gS.cover > 0.001, "the grass draws", `${(gS.cover * 100).toFixed(2)}% lit`);
+
+// --- the patched world materials --------------------------------------------
+/**
+ * Props, landmarks and vehicles are ordinary three materials patched by
+ * onBeforeCompile (world/worldMaterial). That is a shader path like any other
+ * and it fails like any other — a bad chunk replacement is a compile error
+ * and a silently-skipped patch is an invisible one — so both are checked:
+ * does it draw, and does the haze actually do something with distance.
+ */
+const lit = worldLit(new THREE.MeshLambertMaterial({ color: 0xb4643c, flatShading: true }));
+Object.assign(WORLD_UNIFORMS.uSunDir.value ? {} : {}, {});
+WORLD_UNIFORMS.uSunDir.value.copy(sun);
+WORLD_UNIFORMS.uFogDensity.value = 0.00009;
+WORLD_UNIFORMS.uCloudCover.value = 0.52;
+WORLD_UNIFORMS.uTime.value = 40;
+
+const litScene = new THREE.Scene();
+litScene.add(new THREE.HemisphereLight(0xdfeaf2, 0x5a6b4a, 1.0));
+const d = new THREE.DirectionalLight(0xfff2d8, 2.0);
+d.position.copy(sun).multiplyScalar(100);
+litScene.add(d);
+// Instanced, because everything this patch exists for is instanced, and the
+// instancing is the part that was wrong first time.
+const inst = new THREE.InstancedMesh(new THREE.BoxGeometry(6, 10, 6), lit, 2);
+const near3 = new THREE.Matrix4().setPosition(0, 0, -30);
+/**
+ * The far one is scaled up as well as moved out.
+ *
+ * First version just moved a 6 m box to 14 km, where it is far smaller than
+ * one pixel — so the centre sample read the empty black background, the
+ * "hazes with distance" assertion compared a lit box against nothing, and it
+ * passed without testing anything. Green on what it had not done, which is
+ * the failure mode I had just written a commit message about.
+ */
+const far3 = new THREE.Matrix4().makeScale(700, 700, 700).setPosition(0, 0, -14000);
+inst.setMatrixAt(0, near3); inst.setMatrixAt(1, far3);
+inst.instanceMatrix.needsUpdate = true;
+inst.frustumCulled = false;
+litScene.add(inst);
+
+const litCam = new THREE.PerspectiveCamera(60, 1, 0.1, 60000);
+litCam.position.set(0, 0, 0);
+litCam.lookAt(0, 0, -100);
+litCam.updateMatrixWorld(true);
+
+const sampleAt = (cam) => {
+  renderer.render(litScene, cam);
+  const px = new Uint8Array(256 * 256 * 4);
+  renderer.getContext().readPixels(0, 0, 256, 256, 6408, 5121, px);
+  // The centre pixel, which is the box dead ahead.
+  const i = ((128 * 256) + 128) * 4;
+  return [px[i], px[i + 1], px[i + 2]];
+};
+const nearPx = sampleAt(litCam);
+// Only the far one, so the centre pixel can only be the distant box.
+inst.setMatrixAt(0, far3);
+inst.instanceMatrix.needsUpdate = true;
+const farPx = sampleAt(litCam);
+const bright = (c) => (c[0] + c[1] + c[2]) / 3;
+log(`patched material: near rgb ${nearPx.join(",")} (${bright(nearPx).toFixed(0)})  ` +
+    `at 14 km rgb ${farPx.join(",")} (${bright(farPx).toFixed(0)})`);
+check(bright(nearPx) > 10, "props and landmarks draw at all", `brightness ${bright(nearPx).toFixed(0)}`);
+// Hazed means it has gone TOWARD THE SKY, which at this sun angle is bright
+// and blue. Merely "different from near" would also be satisfied by black.
+check(bright(farPx) > 90, "and 14 km of it fades toward the sky, not to black", `brightness ${bright(farPx).toFixed(0)}`);
+
+/**
+ * The real test of haze: two different colours converge.
+ *
+ * Asking whether the far box "went blue" was wrong — a quarter of a terracotta
+ * box still shows through at 14 km, so red leads whatever the air does, and
+ * the assertion failed a working shader. Measuring the CONVERGENCE needs no
+ * knowledge of what the sky colour happens to be at this sun angle: if the
+ * air is doing its job, a red thing and a blue thing fifteen kilometres away
+ * are nearly the same colour, and side by side they are not.
+ */
+const colourAt = (hex, matrix) => {
+  lit.color.setHex(hex);
+  inst.setMatrixAt(0, matrix);
+  inst.instanceMatrix.needsUpdate = true;
+  return sampleAt(litCam);
+};
+const spread = (a, b) => Math.abs(a[0]-b[0]) + Math.abs(a[1]-b[1]) + Math.abs(a[2]-b[2]);
+const nearSpread = spread(colourAt(0xc0301a, near3), colourAt(0x1a40c0, near3));
+const farSpread = spread(colourAt(0xc0301a, far3), colourAt(0x1a40c0, far3));
+lit.color.setHex(0xb4643c);
+log(`a red thing and a blue thing differ by ${nearSpread} up close, ${farSpread} at 14 km`);
+check(nearSpread > 60, "two colours look different up close", `${nearSpread}`);
+check(farSpread < nearSpread * 0.35, "and nearly the same through 14 km of air", `${farSpread} vs ${nearSpread}`);
 
 // --- the thing this file exists for -----------------------------------------
 const glsl = errors.filter((e) => /shader|GLSL|compile|program|ERROR:/i.test(e));

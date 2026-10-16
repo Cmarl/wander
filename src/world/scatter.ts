@@ -1,4 +1,5 @@
 import * as THREE from "three";
+import { worldLit } from "./worldMaterial";
 import { mergeGeometries } from "three/examples/jsm/utils/BufferGeometryUtils.js";
 import { CELL, propsInCell, type Prop, type PropKind } from "./props";
 import { blobGeometry, blobMaterial } from "./shadows";
@@ -239,7 +240,7 @@ export class Scatter {
   constructor() {
     const reach = CELL * RADIUS_CELLS;
     for (const kind of Object.keys(GEOMETRY) as PropKind[]) {
-      const mat = new THREE.MeshLambertMaterial({ flatShading: true });
+      const mat = worldLit(new THREE.MeshLambertMaterial({ flatShading: true }));
       addWakeResponse(mat, reach, BEND_HEIGHT[kind]);
       const geo = GEOMETRY[kind]();
       geo.setAttribute("aBend", new THREE.InstancedBufferAttribute(new Float32Array(BUDGET[kind]), 1));
