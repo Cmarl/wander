@@ -1320,6 +1320,36 @@ function frame(now: number) {
         });
         if (fresh) hud.announce("green in the rock, at the end of it", "you find");
       }
+      /**
+       * Make the thing happen.
+       *
+       * Clyde: "'worked the pump' with nothing happening = ultra boring. they
+       * need to actually be a cool thing happening."
+       *
+       * Every action now makes a noise the object would actually make, and
+       * the ones with something to move, move.
+       */
+      sound.action(offer.kind);
+      haptics.discover();
+      if (offer.kind === "windpump") {
+        // The sails race, and water arrives in the tank.
+        landmarks.spinBoost = 2.6;
+        const c = Math.cos(offer.rot);
+        const sn = Math.sin(offer.rot);
+        landmarks.puff(
+          offer.x + (5.5 * c + 1.5 * sn) * offer.scale,
+          offer.y + 2.6 * offer.scale,
+          offer.z + (-5.5 * sn + 1.5 * c) * offer.scale,
+          3.2
+        );
+      }
+      if (offer.kind === "spring") {
+        // Getting in disturbs it: steam comes up properly for a while.
+        landmarks.puff(offer.x, offer.y + 1, offer.z, 6);
+        landmarks.puff(offer.x + 1.6, offer.y + 1, offer.z - 1.2, 5);
+      }
+      if (offer.kind === "adit") landmarks.puff(offer.x, offer.y + 1.4, offer.z, 5, true);
+
       const sustained = features.begin(offer, player.position);
       if (sustained) {
         const at = features.holdPosition(new THREE.Vector3());

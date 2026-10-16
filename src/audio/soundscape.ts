@@ -145,6 +145,11 @@ export class Soundscape {
     this.drift.motif();
   }
 
+  /** Doing what a place offers. See sfx.action. */
+  action(kind: string) {
+    this.sfx.action(kind);
+  }
+
   splash(force: number) {
     this.sfx.splash(force);
   }

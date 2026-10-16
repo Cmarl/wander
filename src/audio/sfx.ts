@@ -174,6 +174,67 @@ export class Sfx {
     }
   }
 
+  /**
+   * The sound of doing the thing a place offers.
+   *
+   * Clyde: "I found a wind pump. did the action 'work the pump' — nothing
+   * happens, just text shows up. all the landmark actions are like this,
+   * ultra boring."
+   *
+   * Each one is the noise the object would actually make, which is both the
+   * cheapest way to make an action land and the only one that tells you what
+   * you just did without reading anything.
+   */
+  action(kind: string) {
+    if (!this.e.ready) return;
+    const d = this.e.sfxBus;
+    switch (kind) {
+      /** Iron turning, then water arriving. */
+      case "windpump":
+        for (let i = 0; i < 5; i++) {
+          this.e.tone({ dest: d, type: "triangle", from: 150 + i * 14, to: 90, level: 0.03, attack: 0.01, decay: 0.26, delay: i * 0.21 });
+        }
+        this.e.burst({ dest: d, type: "bandpass", freq: 700, q: 0.6, level: 0.05, decay: 1.5, sweepTo: 220 });
+        break;
+      /** Metal shifting, a latch, something coming free. */
+      case "wreck":
+        for (let i = 0; i < 3; i++) {
+          this.e.burst({ dest: d, type: "bandpass", freq: 1800 + i * 600, q: 2.4, level: 0.04, decay: 0.2, delay: i * 0.1 });
+        }
+        this.e.tone({ dest: d, type: "square", from: 180, to: 120, level: 0.02, decay: 0.3, delay: 0.3 });
+        break;
+      /** Static, then something almost like a voice. */
+      case "mast":
+        this.e.burst({ dest: d, type: "bandpass", freq: 2200, q: 0.5, level: 0.045, decay: 1.1, sweepTo: 900 });
+        for (let i = 0; i < 3; i++) {
+          this.e.tone({ dest: d, type: "square", from: 420 + Math.random() * 500, level: 0.012, attack: 0.03, decay: 0.22, delay: 0.3 + i * 0.26 });
+        }
+        break;
+      /** Leaves, and something coming off a branch. */
+      case "orchard":
+        this.e.burst({ dest: d, type: "highpass", freq: 3200, q: 0.5, level: 0.03, decay: 0.5 });
+        this.e.tone({ dest: d, type: "sine", from: 520, to: 300, level: 0.022, decay: 0.2, delay: 0.34 });
+        break;
+      /** Getting into water. */
+      case "spring":
+        this.e.burst({ dest: d, type: "bandpass", freq: 900, q: 0.5, level: 0.05, decay: 1.2, sweepTo: 280 });
+        this.e.burst({ dest: d, type: "highpass", freq: 2600, q: 0.6, level: 0.022, decay: 0.7 });
+        break;
+      /** Boots on timber, going up. */
+      case "lookout":
+        for (let i = 0; i < 9; i++) {
+          this.e.burst({ dest: d, type: "bandpass", freq: 320 + (i % 3) * 90, q: 1.4, level: 0.028, decay: 0.16, delay: i * 0.17 });
+        }
+        break;
+      /** Cold air out of a hole in a hill. */
+      case "adit":
+        this.e.burst({ dest: d, type: "lowpass", freq: 500, q: 0.4, level: 0.045, decay: 2.4, sweepTo: 180 });
+        break;
+      default:
+        this.e.burst({ dest: d, type: "bandpass", freq: 900, q: 0.8, level: 0.03, decay: 0.4 });
+    }
+  }
+
   doorOpen() {
     if (!this.e.ready) return;
     const dest = this.e.sfxBus;

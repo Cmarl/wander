@@ -104,6 +104,11 @@ interface Plume {
   geyser?: boolean;
   /** Geysers only: how hard it is going right now, recomputed each frame. */
   level: number;
+  /**
+   * Seconds left, for plumes raised by doing something rather than by being
+   * somewhere. Absent means it lives as long as its landmark is loaded.
+   */
+  life?: number;
   /** The spring itself, so its own eruption hour can be looked up. */
   lm?: Landmark;
 }
@@ -798,7 +803,29 @@ export class LandmarkField {
    */
   timeOfDay = 0;
 
+  /**
+   * A plume raised by an action — water off a pump, steam off a disturbed
+   * spring. It dies on its own, so nothing has to remember to clear it.
+   */
+  puff(x: number, y: number, z: number, seconds: number, smoke = false) {
+    this.plumes.push({
+      x, y, z,
+      rise: smoke ? 26 : 16,
+      spread: 0.8,
+      drift: smoke ? 11 : 7,
+      smoke,
+      level: 1,
+      life: seconds,
+    });
+  }
+
+  /**
+   * Spin the sails harder for a moment. Working a pump should visibly work it.
+   */
+  spinBoost = 0;
+
   update(px: number, pz: number, time: number, camera: THREE.Camera) {
+    if (this.spinBoost > 0) this.spinBoost = Math.max(0, this.spinBoost - 1 / 60);
     const cx = Math.round(px / LANDMARK_CELL);
     const cz = Math.round(pz / LANDMARK_CELL);
     if (cx !== this.cellX || cz !== this.cellZ) {
@@ -823,7 +850,7 @@ export class LandmarkField {
     const out = new THREE.Matrix4();
     const touched = new Set<THREE.InstancedMesh>();
     for (const sp of this.spinners) {
-      local.makeRotationY(sp.phase + time * sp.rate);
+      local.makeRotationY(sp.phase + time * sp.rate * (1 + this.spinBoost * 5));
       local.setPosition(0, SAIL_HUB[1], SAIL_HUB[2]);
       out.multiplyMatrices(sp.base, local);
       sp.mesh.setMatrixAt(sp.index, out);
@@ -960,6 +987,14 @@ export class LandmarkField {
     const scl = new THREE.Vector3();
     const q = new THREE.Quaternion();
     camera.getWorldQuaternion(q);
+
+    // Action plumes expire; place plumes do not have a life at all.
+    for (let i = this.plumes.length - 1; i >= 0; i--) {
+      const p = this.plumes[i];
+      if (p.life === undefined) continue;
+      p.life -= 1 / 60;
+      if (p.life <= 0) this.plumes.splice(i, 1);
+    }
 
     let n = 0;
     let k = 0;

@@ -171,9 +171,11 @@ export class AudioEngine {
     attack?: number;
     decay: number;
     sweepTo?: number;
+    /** Seconds from now, so a sequence of bursts can be staggered. */
+    delay?: number;
   }) {
     const ctx = this.ctx!;
-    const t = ctx.currentTime;
+    const t = ctx.currentTime + (opts.delay ?? 0);
     const src = this.noise(false);
     src.playbackRate.value = 0.8 + Math.random() * 0.4;
     const f = this.filter(opts.type ?? "bandpass", opts.freq, opts.q ?? 1);
