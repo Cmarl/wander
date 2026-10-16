@@ -203,6 +203,109 @@ log(`flying, above JUMP: ${flyCol.map((b) => b.id).join(" ")}`);
 check(flyCol[1]?.id === "b-down", "in the slot RUN used to hold — third up", flyCol[1]?.id ?? "none");
 hud.setJumpLabel("JUMP");
 
+/**
+ * Text that fits its button.
+ *
+ * Clyde: "Button text sizing is wonky". Two things in the screenshots: JUMP
+ * shouting at 19px among 10px neighbours, and the action label breaking
+ * mid-word into "DRIVE / THE / TRUC / K" with the K clipped off the bottom.
+ *
+ * Both are measurable without looking: a label that does not fit reports a
+ * scrollWidth larger than its clientWidth, and a label that wraps is taller
+ * than one line. Nothing here needs an opinion.
+ */
+const withPrompt = (text) => hud.update({
+  elevation: 412, region: "Western Meadow Vale", x: 1200, z: 800, km: 12.4,
+  fps: 60, headingDeg: 34, prompt: text, promptOn: "interact", speed: 0,
+});
+/**
+ * Measured on the TEXT, not on the button.
+ *
+ * scrollWidth and scrollHeight on a <button> describe the button's own box,
+ * which is 50px tall for an 11px line — so dividing scrollHeight by the line
+ * height reported "5.3 lines" for a label sitting perfectly on one, and
+ * scrollWidth claimed a 10px overflow that was just padding arithmetic. Two
+ * failed assertions against a correct layout.
+ *
+ * A Range over the contents gives one client rect per LINE BOX. That is
+ * literally the question — how many lines is this on, and how wide is the
+ * ink — with nothing to misread.
+ */
+const act = document.getElementById("b-interact");
+const textRects = () => {
+  const range = document.createRange();
+  range.selectNodeContents(act);
+  return [...range.getClientRects()];
+};
+const fits = (verb) => {
+  withPrompt(verb);
+  const rects = textRects();
+  const box = act.getBoundingClientRect();
+  const cs = getComputedStyle(act);
+  const padL = parseFloat(cs.paddingLeft), padR = parseFloat(cs.paddingRight);
+  const widest = Math.max(...rects.map((r) => r.width));
+  const room = box.width - padL - padR;
+  log(`"${verb}": button ${box.width.toFixed(0)}px, ink ${widest.toFixed(0)}px on ` +
+      `${rects.length} line${rects.length === 1 ? "" : "s"}, room ${room.toFixed(0)}px, font ${cs.fontSize}`);
+  return { rects, widest, room, box };
+};
+
+const drive = fits("drive the truck");
+check(drive.rects.length === 1, "the action label sits on one line", `${drive.rects.length} lines`);
+check(drive.widest <= drive.room + 1, "and is not cut off",
+  `ink ${drive.widest.toFixed(0)}px in ${drive.room.toFixed(0)}px`);
+
+// The longest verb in the game, which is the one that has to fit.
+const longest = fits("call the aeroplane");
+check(longest.rects.length === 1, "so does the longest one in the game", `${longest.rects.length} lines`);
+check(longest.widest <= longest.room + 1, "without clipping",
+  `ink ${longest.widest.toFixed(0)}px in ${longest.room.toFixed(0)}px`);
+check(longest.box.right <= window.innerWidth, "and it stays on screen",
+  `right edge ${longest.box.right.toFixed(0)} of ${window.innerWidth}`);
+
+/**
+ * Right edges in line — within a column.
+ *
+ * Comparing every button in the cluster reported 178px of drift in short
+ * landscape, which is correct and meaningless: the cluster wraps into two
+ * columns there, so of course the right edges differ by a column. The claim
+ * worth making is that a longer label does not shove the circles sideways,
+ * and that is a claim about one column.
+ */
+const inCol = [...document.querySelectorAll(".buttons .btn")]
+  .map((el) => el.getBoundingClientRect())
+  // Within 30px of the pill's right edge, which is one column. 200px was
+  // wider than the gap between columns in short landscape, so it swept in the
+  // next column and reported its offset as drift.
+  .filter((r) => r.height > 0 && Math.abs(r.right - longest.box.right) < 30);
+const colSpread = Math.max(...inCol.map((r) => r.right)) - Math.min(...inCol.map((r) => r.right));
+log("all right edges: " + [...document.querySelectorAll(".buttons .btn")]
+  .map((el) => { const r = el.getBoundingClientRect();
+    return r.height ? `${el.id} r=${r.right.toFixed(0)} t=${r.top.toFixed(0)} w=${r.width.toFixed(0)}` : null; })
+  .filter(Boolean).join("  "));
+log(`column beside the pill: ${inCol.length} buttons, ${colSpread.toFixed(1)}px of right-edge drift`);
+// A spread over one element is always zero. Without this the assertion below
+// passes hardest exactly when the grouping has gone wrong and found nothing
+// to compare the pill against.
+check(inCol.length >= 2, "there is something to compare the pill against",
+  `${inCol.length} buttons in its column`);
+check(colSpread < 2, "and the buttons beside it line up on the right",
+  `${colSpread.toFixed(1)}px of drift`);
+
+// Sizes in one family: the big one a step up, not a different species.
+const sizes = [...document.querySelectorAll(".buttons .btn")]
+  .filter((el) => el.getBoundingClientRect().height > 0)
+  .map((el) => ({ id: el.id, px: parseFloat(getComputedStyle(el).fontSize) }));
+log(`font sizes: ${sizes.map((x) => `${x.id} ${x.px}px`).join(", ")}`);
+const big = sizes.find((x) => x.id === "b-jump").px;
+const rest = sizes.filter((x) => x.id !== "b-jump").map((x) => x.px);
+check(big <= Math.max(...rest) * 1.6, "JUMP is a step up, not a shout",
+  `${big}px against ${Math.max(...rest)}px`);
+check(Math.max(...rest) - Math.min(...rest) <= 1.5, "and the rest match each other",
+  `${Math.min(...rest)}-${Math.max(...rest)}px`);
+// Leave a real label on screen: this page is also what gets photographed.
+withPrompt("drive the truck");
+
 // Thumb-sized, all of them, after the reshuffle.
 const small = Math.min(...btns.map((b) => b.r.height));
 check(small >= 44, "every button is still thumb-sized", `smallest ${small.toFixed(0)}px`);

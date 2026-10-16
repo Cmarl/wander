@@ -649,7 +649,13 @@ html, body {
   display: flex;
   flex-direction: column-reverse;
   gap: 14px;
-  align-items: center;
+  /*
+   * Right-aligned, not centred. Centring was harmless while every button was
+   * a circle of nearly the same size; with a pill in the stack it would push
+   * the circles left by half the pill's extra width — moving JUMP away from
+   * the thumb every time the action label got longer.
+   */
+  align-items: flex-end;
   pointer-events: auto;
 }
 .btn {
@@ -667,22 +673,47 @@ html, body {
 }
 .btn.small { width: 58px; height: 58px; font-size: 12px; font-weight: 700; letter-spacing: 0.06em; }
 /*
+ * The big one carries a WORD now, not a glyph.
+ *
+ * It was 22px because it held "⏎", which wants to be big. JUMP moved into it
+ * and inherited the glyph's size, so the cluster read as one shouting button
+ * and four quiet ones — Clyde: "Button text sizing is wonky". Sized as a word
+ * in the same family as its neighbours, just a step up because it is primary.
+ */
+.btn:not(.small) { font-size: 15px; font-weight: 700; letter-spacing: 0.08em; }
+
+/*
  * The interact button wears the action. A circle holding "⏎" told you nothing
  * and the thing that did was a caption on the far side of the screen.
+ *
+ * IT IS A PILL, NOT A CIRCLE. It used to be the big button, where "drive the
+ * truck" fits on three calm lines. Clyde moved it to a small slot — and the
+ * media queries below set .btn.small to 50px at EQUAL specificity and LATER
+ * in the file, so they beat the 68px this rule asked for. A fifty-pixel
+ * circle with three lines of 10.5px text and `word-break: break-word` gave
+ * him "DRIVE / THE / TRUC / K", with the K alone on a clipped fourth line.
+ *
+ * Letting the text set the width fixes the whole class of problem rather than
+ * this one verb: no wrapping, no breaking, nothing to clip, and a long action
+ * simply makes a longer pill. The height still matches its neighbours so the
+ * column reads even.
+ *
+ * Specificity is deliberate. `.buttons .btn.labelled` cannot be clobbered by
+ * a later `.btn.small`, which is exactly how this broke.
  */
-.btn.labelled {
-  /* A touch larger than its neighbours. It is the primary control and the
-     longest action, "call the aeroplane", needs three lines to sit calmly. */
-  width: 68px;
-  height: 68px;
-  font-size: 10.5px;
+.buttons .btn.labelled {
+  width: auto;
+  min-width: 58px;
+  border-radius: 999px;
+  padding: 0 15px;
+  font-size: 11px;
   font-weight: 700;
-  letter-spacing: 0.04em;
-  line-height: 1.15;
+  letter-spacing: 0.07em;
+  line-height: 1;
   text-transform: uppercase;
-  padding: 0 6px;
-  white-space: normal;
-  word-break: break-word;
+  /* One line, always. A word that has to break is a label that is too long
+     for its box, and the box is the thing that should give. */
+  white-space: nowrap;
 }
 /* Invisible margin around every button, so a thumb that misses slightly still
    lands. Costs nothing and matters a lot on a phone. */
@@ -1301,6 +1332,19 @@ html, body {
 @media (orientation: landscape) and (max-height: 620px) {
   .buttons {
     flex-wrap: wrap-reverse;
+    /*
+     * flex-START here, and it means the same thing as flex-END above.
+     *
+     * wrap-reverse reverses the CROSS axis, so the keyword that right-aligns
+     * a single column left-aligns a wrapped one. Measured, the cluster came
+     * out sharing a LEFT edge at x=734 — jump ending at 790, the action pill
+     * at 901, glass at 784 — a ragged right side that got worse the longer
+     * the action label was.
+     *
+     * There is no direction-agnostic keyword for this, so the two rules have
+     * to disagree in writing to agree on screen.
+     */
+    align-items: flex-start;
     /* Three buttons per column: 3 x 56 + 2 x 11. */
     max-height: 190px;
     gap: 11px;

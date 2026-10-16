@@ -1,0 +1,81 @@
+<!doctype html><meta charset=utf8>
+<!--
+  A picture of the button cluster.
+
+  Clyde asked for a VISUAL pass, and Brave's --screenshot produces nothing in
+  this environment (it has never worked here, on WebGL or on plain DOM). So
+  the DOM is drawn into a canvas through an SVG foreignObject, which needs no
+  library: serialise the cluster plus the stylesheet, load it as an image,
+  draw it, read the pixels out over fetch like everything else in tools/.
+
+  backdrop-filter does not survive this, so the buttons come out without their
+  blur. Everything the complaint was about — text size, wrapping, clipping,
+  alignment — does.
+
+  Not a build entry: vite builds index.html only, so this never ships.
+--><body style="margin:0;background:#4a5f3a"><div id=ui></div>
+<canvas id=cv width=430 height=560 style="position:fixed;left:-9999px"></canvas>
+<script type="module">
+import "../src/style.css";
+import { Hud } from "../src/ui/hud.ts";
+
+const controls = {
+  isTouch: true, pads: { snapshot: () => null, bindings: {}, listenFor: null },
+  bindStick() {}, bindButton() {}, bindLook() {}, bindZoom() {},
+};
+const hud = new Hud(controls,
+  { toggleMute: () => false, setVolume() {}, volume: 0.7, muted: false },
+  { name: "p", world: "p", join() {}, solo() {} });
+const show = (prompt, flying) => {
+  hud.update({
+    elevation: 412, region: "Pine Forest", x: 12623, z: 14411, km: 240.7,
+    fps: 60, headingDeg: 34, prompt, promptOn: "interact", speed: 0,
+  });
+  hud.setJumpLabel(flying ? "CLIMB" : "JUMP");
+};
+show("drive the truck", false);
+await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
+
+// Every rule the page has, inlined — the SVG is its own document and cannot
+// reach back out to the stylesheet.
+let css = "";
+for (const sheet of document.styleSheets) {
+  try { for (const rule of sheet.cssRules) css += rule.cssText + "\n"; } catch {}
+}
+
+const cluster = document.querySelector(".buttons");
+const r = cluster.getBoundingClientRect();
+const W = Math.ceil(r.width) + 24, H = Math.ceil(r.height) + 24;
+/**
+ * Photographed as it sits, not flattened to static.
+ *
+ * Making the clone position:static removed the constraints that decide how
+ * the cluster WRAPS, so the picture showed an arrangement the game never
+ * produces. It stays absolute inside a box of its own size instead.
+ */
+const clone = cluster.cloneNode(true);
+clone.style.right = "12px";
+clone.style.bottom = "12px";
+
+const svg =
+  `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}">` +
+  `<foreignObject width="100%" height="100%">` +
+  `<div xmlns="http://www.w3.org/1999/xhtml" style="position:relative;width:${W}px;height:${H}px;font-family:system-ui,sans-serif">` +
+  `<style>${css.replace(/[<>&]/g, (c) => ({ "<": "&lt;", ">": "&gt;", "&": "&amp;" }[c]))}</style>` +
+  new XMLSerializer().serializeToString(clone) +
+  `</div></foreignObject></svg>`;
+
+const cv = document.getElementById("cv");
+cv.width = W; cv.height = H;
+const ctx = cv.getContext("2d");
+ctx.fillStyle = "#4a5f3a";
+ctx.fillRect(0, 0, W, H);
+const img = new Image();
+await new Promise((res, rej) => {
+  img.onload = res; img.onerror = () => rej(new Error("svg would not load"));
+  img.src = "data:image/svg+xml;charset=utf-8," + encodeURIComponent(svg);
+});
+ctx.drawImage(img, 0, 0);
+await fetch("http://127.0.0.1:8916/", { method: "POST", body: cv.toDataURL("image/png") }).catch(() => {});
+await fetch("http://127.0.0.1:8915/", { method: "POST", body: `drew the cluster at ${W}x${H}\nassertions: n/a (this one is a photograph)` }).catch(() => {});
+</script>
