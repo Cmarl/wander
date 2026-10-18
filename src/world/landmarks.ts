@@ -292,6 +292,13 @@ function baseInCell(gx: number, gz: number): Landmark | null {
     // cut on top of it was doing nothing but starving the kind: both together
     // produced two landings in seventy-six thousand landmarks.
     if (seawardDepth(x, z) > 0.4) {
+      // Three, not two. Clyde, asked whether the airstrip and the landing
+      // should turn up more often: "Make them slightly more common." They
+      // were the two rarest things in the world at one per 66 and 77 km, and
+      // they are the gateways to the aeroplane and the boat — but the rarity
+      // is part of why finding one lands, so this is a nudge rather than a
+      // flood.
+      options.push("dock");
       options.push("dock");
       options.push("dock");
     }
@@ -348,7 +355,11 @@ function baseInCell(gx: number, gz: number): Landmark | null {
   // Measured: 2.4 m of drop over 224 m passes 0.4% of sites, which produced no
   // airstrips at all. 4.0 passes about 3% and is still ground somebody could
   // plausibly have graded — the slab is built to bridge exactly that much.
-  if (y > 25 && y < 900 && stripDrop(x, z) < 4.0 && slotRandom(gx, gz, 1619) > 0.35)
+  // The hash gate was turning away a third of otherwise perfect sites on top
+  // of the drop test, which is two filters doing the same job. The drop test
+  // is the one with a reason behind it; this one only has to stop every flat
+  // place in the world being an airstrip.
+  if (y > 25 && y < 900 && stripDrop(x, z) < 4.0 && slotRandom(gx, gz, 1619) > 0.08)
     options.push("airfield");
   if (moist < 0.70 && y > 80 && y < 1500) options.push("lonetree");
   // Rarer than the rest, or every other cell would be a dead truck.
