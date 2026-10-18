@@ -4,6 +4,7 @@ import { blobTexture } from "./shadows";
 import { slotRandom } from "./field";
 import { box, merge, strut, type Layer } from "./geom";
 import { steadingLayers } from "./buildings";
+import { snag } from "./beacons";
 import { LANDMARK_CELL, geyserLevel, landmarksNear, type Landmark, type LandmarkKind } from "./landmarks";
 import { ACCRETION_KINDS, accretionsAt, type AccretionKind } from "./accretions";
 import {
@@ -405,7 +406,18 @@ function spring(): Layer[] {
     rock.push(b);
   }
 
+  /**
+   * A dead tree standing in the mineral water.
+   *
+   * A hot spring was 2.9 m — invisible past six hundred metres. The snag
+   * belongs: hot springs really do kill what grows in them, and the bleached
+   * trunks stand for decades, which is why they are what you see first.
+   */
+  const dead = snag(13, 11);
+  dead.translate(-6.4, 0, 4.2);
+
   return [
+    { geo: dead, colour: 0xb0a694 },
     { geo: merge(stone), colour: 0xcfc4a8 },
     { geo: merge(rock), colour: 0x8d8678 },
     { geo: merge(water), colour: 0x47c0b4 },
@@ -489,12 +501,42 @@ function wreck(): Layer[] {
   loose.translate(-2.3, 0.2, -1.9);
   dark.push(loose);
 
+  /**
+   * A telegraph pole, leaning.
+   *
+   * The abandoned truck was 2.1 m — the shortest thing in the game, visible
+   * from under five hundred metres, which is to say findable only by walking
+   * into it. A pole explains the truck as well as revealing it: somebody ran
+   * a line out here and this did not make it. The lean says the same thing
+   * the wreck does.
+   *
+   * Added AFTER the tilt below, because the truck is rotated onto its springs
+   * and the pole should not be.
+   */
   const out: Layer[] = [
     { geo: merge(rust), colour: 0x8a5a3e },
     { geo: merge(dark), colour: 0x3c3a36 },
     { geo: merge(glass), colour: 0x7f8f88 },
   ];
   for (const l of out) l.geo.rotateZ(0.16); // settled onto its springs
+
+  const pole: THREE.BufferGeometry[] = [];
+  const shaft = new THREE.CylinderGeometry(0.17, 0.27, 13, 6);
+  shaft.translate(0, 6.5, 0);
+  shaft.rotateZ(0.13);
+  pole.push(shaft);
+  const crossarm = box(3.2, 0.16, 0.16);
+  crossarm.translate(-1.5, 11.3, 0);
+  pole.push(crossarm);
+  for (const dx of [-2.6, -1.5, -0.5]) {
+    const pin = new THREE.CylinderGeometry(0.075, 0.075, 0.5, 5);
+    pin.translate(dx, 11.6, 0);
+    pole.push(pin);
+  }
+  const timber = merge(pole);
+  timber.translate(7.2, 0, -4.6);
+  out.push({ geo: timber, colour: 0x6b5b48 });
+
   return out;
 }
 
@@ -687,7 +729,12 @@ const ACCRETION_MODELS: Record<AccretionKind, AccretionModel[]> = {
 const ACCRETION_BUDGET = 220;
 
 
-const BUILDERS: Record<LandmarkKind, () => Layer[]> = {
+/**
+ * Exported so the geometry can be MEASURED from outside — how tall a landmark
+ * actually is decides whether anyone ever sees it, and that should come from
+ * the model rather than from someone's estimate of it.
+ */
+export const BUILDERS: Record<LandmarkKind, () => Layer[]> = {
   lookout,
   arch,
   mast,

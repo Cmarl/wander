@@ -1,4 +1,5 @@
 import * as THREE from "three";
+import { waterTower } from "./beacons";
 import { box, merge, type Layer } from "./geom";
 import type { Form } from "./settlements";
 
@@ -332,8 +333,22 @@ export const FORM_LAYERS: Record<Form, Layer[]> = {
  * to a zero-scale matrix.
  */
 export function steadingLayers(): Layer[] {
+  /**
+   * And a water tower, on every variant.
+   *
+   * A steading was 7.6 m — visible from 1.7 km, which is just under the
+   * median gap between landmarks, so from a typical spot you could not see
+   * one. A tower is also the honest thing to add: somewhere people lived and
+   * kept animals had water up where it could feed a trough by itself.
+   *
+   * It is what you see first coming over a rise, which is exactly the job.
+   */
+  const tower = waterTower(14);
+  tower.translate(8.6, 0, -5.2);
+
   // 0 cabin · 1 barn · 2 line shack — and the naming grammar matches.
   return [
+    { geo: tower, colour: 0x7d6a52 },
     ...FORM_LAYERS.cabin.map((l) => ({ ...l, on: [0] })),
     ...FORM_LAYERS.barn.map((l) => ({ ...l, on: [1] })),
     ...FORM_LAYERS.shack.map((l) => ({ ...l, on: [2] })),

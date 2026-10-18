@@ -133,8 +133,26 @@ export function settlementInCell(gx: number, gz: number): Settlement | null {
     const bx = x + ax * (t + slide) - az * off;
     const bz = z + az * (t + slide) + ax * off;
 
+    /**
+     * One of them is always the tower.
+     *
+     * Clyde: "I still haven't located a settlement, is there a way or trick?"
+     * Measured, there was not. A hamlet's tallest ordinary building is the
+     * barn at 7.6 m, which is visible from 1.7 km; the tower is 11.6 m and
+     * reads from 2.6. But the tower was a one-in-ten roll per building, so
+     * about half of all hamlets had none and topped out at the barn.
+     *
+     * Every hamlet has one now — which is not a concession, it is what a
+     * group of houses out here would actually have. Water has to come from
+     * somewhere and it has to be up high to feed a trough by itself. It is
+     * also the thing you genuinely see first coming over a rise.
+     *
+     * Placed at the middle of the street rather than an end, so it reads as
+     * belonging to the hamlet rather than standing next to it.
+     */
+    const isTower = i === (count >> 1);
     buildings.push({
-      form: pickForm(slotRandom(gx, gz, salt + 2)),
+      form: isTower ? "tower" : pickForm(slotRandom(gx, gz, salt + 2)),
       x: bx,
       y: heightAt(bx, bz),
       z: bz,

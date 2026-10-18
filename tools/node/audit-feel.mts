@@ -26,6 +26,7 @@ import * as THREE from "three";
 import { Player } from "../../src/game/player";
 import { heightAt, slopeAt, SEA_LEVEL } from "../../src/world/field";
 import { landmarksNear, LANDMARK_CELL, LANDMARK_NAMES, type LandmarkKind } from "../../src/world/landmarks";
+import { BUILDERS } from "../../src/world/landmarkRender";
 
 const DT = 1 / 60;
 const out: string[] = [];
@@ -45,18 +46,32 @@ const ctrl = (): any => ({
  */
 say("## CAN YOU SEE THEM FROM ANYWHERE");
 const DEG_PER_PX = 70 / 1080;
-const HEIGHTS: Record<string, number> = {
-  lookout: 26, mast: 34, arch: 22, windpump: 14, steading: 7, lonetree: 12,
-  stones: 6, shipwreck: 9, wreck: 2.5, spring: 1.5, adit: 4, sinkhole: 2,
-  bonefield: 4, orchard: 7, frozenlake: 1, dock: 3, airfield: 9, cave: 5,
-};
+/**
+ * Measured off the real geometry rather than estimated.
+ *
+ * The first version of this table was hand-written and ran low — it had a
+ * mine adit at 4 m against an actual 3.8, but the wreck at 2.5 against an
+ * actual 13.9 for the shipwreck. The conclusion survived, but a table of
+ * guesses has no business deciding what gets rebuilt.
+ */
+const HEIGHTS: Record<string, number> = Object.fromEntries(
+  Object.keys(LANDMARK_NAMES).map((kind) => {
+    const box = new THREE.Box3();
+    for (const l of (BUILDERS as any)[kind]?.() ?? []) {
+      if (!l.geo) continue;
+      l.geo.computeBoundingBox();
+      box.union(l.geo.boundingBox);
+    }
+    return [kind, box.isEmpty() ? 1 : box.max.y];
+  })
+);
 const visibleTo = (h: number, px: number) => h / Math.tan((px * DEG_PER_PX) * Math.PI / 180);
 const rows = Object.entries(HEIGHTS).sort((a, b) => b[1] - a[1]);
 say(`a landmark needs ~4 px of height to read as a shape worth steering toward`);
 for (const [kind, h] of rows) {
   const r4 = visibleTo(h, 4) / 1000;
   const r12 = visibleTo(h, 12) / 1000;
-  say(`  ${(LANDMARK_NAMES[kind as LandmarkKind] ?? kind).padEnd(18)} ${String(h).padStart(4)} m tall  ` +
+  say(`  ${(LANDMARK_NAMES[kind as LandmarkKind] ?? kind).padEnd(18)} ${h.toFixed(1).padStart(5)} m tall  ` +
       `recognisable to ${r12.toFixed(1).padStart(4)} km, a dot to ${r4.toFixed(1).padStart(5)} km`);
 }
 

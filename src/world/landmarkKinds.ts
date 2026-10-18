@@ -2,6 +2,7 @@ import * as THREE from "three";
 import { box, merge, rock, strut, type Layer } from "./geom";
 import { AIRFIELD_PADS, PAD_THICK } from "./decks";
 import { STRIP_HALF_L, STRIP_TOP } from "./landmarks";
+import { flagMast, snag, headframe, poplar } from "./beacons";
 
 /**
  * The eight kinds added in the world pass.
@@ -121,9 +122,23 @@ export function dock(): Layer[] {
   handrail.translate(0.92, 2.18, -LEN / 2);
   timber.push(handrail);
 
+  /**
+   * The mooring mast, at the shore end where it is on dry footings.
+   *
+   * A landing topped out at 2.2 m, which is visible from under five hundred
+   * metres — you had to be standing on it. A mast is also simply what a
+   * landing has: it is how you find it from the water, which is the same
+   * problem from the other side.
+   */
+  const mast = flagMast(13, 0xb8452f);
+  mast.timber.translate(2.4, 0, -1.5);
+  mast.flag.translate(2.4, 0, -1.5);
+  timber.push(mast.timber);
+
   return [
     { geo: merge(timber), colour: 0x8a6e4e },
     { geo: merge(posts), colour: 0x5e4c3a },
+    { geo: mast.flag, colour: 0xb8452f },
   ];
 }
 
@@ -342,7 +357,12 @@ export function cave(): Layer[] {
   skull.translate(2.3, 0.3, -D + 4.2);
   bones.push(skull);
 
+  // Something tall enough to see: the tree the cave's cold air killed.
+  const dead = snag(14, 3);
+  dead.translate(-5.2, 0, 3.4);
+
   return [
+    { geo: dead, colour: 0xa49a87 },
     { geo: merge(rockOuter), colour: 0x7e7a72 },
     { geo: merge(dark), colour: 0x1a1b1f },
     { geo: merge(bones), colour: 0xcfc9b6 },
@@ -403,7 +423,19 @@ export function stones(): Layer[] {
     fallen.push(s);
   }
 
+  /**
+   * A heel stone, set apart and far taller than the ring — which real stone
+   * circles have, and which is the only part of one you can see from a
+   * distance. The ring itself is 6.9 m and reads from 1.5 km.
+   */
+  const heel = rock(2.3, 0.42, 91);
+  heel.scale(1, 5.4, 0.75);
+  heel.rotateY(0.6);
+  heel.rotateZ(0.08);
+  heel.translate(17, 5.6, -4);
+
   return [
+    { geo: heel, colour: 0x8d8b85 },
     // 0 ring · 1 avenue · 2 mostly fallen
     { geo: merge(ring), colour: 0x8e8b82, on: [0] },
     { geo: merge(avenue), colour: 0x8e8b82, on: [1] },
@@ -516,7 +548,17 @@ export function adit(): Layer[] {
   const lamp = new THREE.IcosahedronGeometry(0.17, 0);
   lamp.translate(1.2, 1.9, -4.2);
 
+  /**
+   * The headframe. An adit was 3.8 m — a dark hole in a hillside you could
+   * only find by walking into it — and a winding tower over the shaft is both
+   * taller and more legible: a hole could be anything, a headframe says MINE
+   * from three kilometres.
+   */
+  const frame = headframe(16);
+  frame.translate(0, 0, -3.2);
+
   return [
+    { geo: frame, colour: 0x6a5a4a },
     { geo: merge(timber), colour: 0x6f5a42 },
     { geo: merge(dark), colour: 0x15171a },
     { geo: merge(spoil), colour: 0x7e7a70 },
@@ -620,7 +662,12 @@ export function sinkhole(): Layer[] {
   floor.translate(0, -17.5, 0);
   dark.push(floor);
 
+  // Something tall enough to see: a dead tree leaning over the rim, which is how you know the rim is there.
+  const dead = snag(13, 7);
+  dead.translate(0, 0, -15.5);
+
   return [
+    { geo: dead, colour: 0xa49a87 },
     { geo: merge(rim), colour: 0x9b9384 },
     { geo: merge(dark), colour: 0x1b1d22, unlit: true },
   ];
@@ -661,7 +708,21 @@ export function bonefield(): Layer[] {
     bone.push(jaw);
   }
 
-  return [{ geo: merge(bone), colour: 0xd8d2c0 }];
+  /**
+   * One rib standing clear of the rest, which is what makes a bone field read
+   * as something enormous having died rather than as scattered rubble. The
+   * field itself was 4.5 m and invisible past a kilometre.
+   */
+  const tall: THREE.BufferGeometry[] = [];
+  for (const sx of [-1, 1]) {
+    const rib = new THREE.TorusGeometry(6.2, 0.42, 5, 12, Math.PI * 0.82);
+    rib.rotateZ(Math.PI * (sx > 0 ? 0.09 : 0.91));
+    rib.translate(sx * 1.1, 5.4, 2);
+    tall.push(rib);
+  }
+
+  return [
+    { geo: merge(tall), colour: 0xcfc6ad },{ geo: merge(bone), colour: 0xd8d2c0 }];
 }
 
 /** An old orchard. Rows read instantly as something somebody planted. */
@@ -702,7 +763,19 @@ export function orchard(): Layer[] {
     wall.push(t);
   }
 
+  /**
+   * A windbreak, which is a real thing orchards have and happens to be the
+   * tallest thing for a mile. Down one side only, as they are planted.
+   */
+  const break_: THREE.BufferGeometry[] = [];
+  for (let i = 0; i < 5; i++) {
+    const t = poplar(15 + (i % 3), i);
+    t.translate((i - 2) * 7.4, 0, -13);
+    break_.push(t);
+  }
+
   return [
+    { geo: merge(break_), colour: 0x3f5a38 },
     { geo: merge(bark), colour: 0x6b543c },
     { geo: merge(leaf), colour: 0x56703a },
     { geo: merge(wall), colour: 0x8e8b82 },
@@ -735,7 +808,23 @@ export function frozenLake(): Layer[] {
     snow.push(s);
   }
 
+  /**
+   * Marker poles, which is how anybody crossing ice knows where the safe line
+   * is. Three of them, so it reads as a route rather than a flagpole.
+   */
+  const poles: THREE.BufferGeometry[] = [];
+  const pennants: THREE.BufferGeometry[] = [];
+  for (let i = 0; i < 3; i++) {
+    const m2 = flagMast(12 - i, 0xd8532f);
+    m2.timber.translate(-14 + i * 13, 0, -9 + i * 11);
+    m2.flag.translate(-14 + i * 13, 0, -9 + i * 11);
+    poles.push(m2.timber);
+    pennants.push(m2.flag);
+  }
+
   return [
+    { geo: merge(poles), colour: 0x6f6a60 },
+    { geo: merge(pennants), colour: 0xd8532f },
     { geo: merge(ice), colour: 0xbcd4de },
     { geo: merge(snow), colour: 0xe4e9ec },
   ];
