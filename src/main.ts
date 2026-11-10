@@ -11,6 +11,8 @@ import { SettlementField } from "./world/settlementRender";
 import { geyserLevel, landmarkSolids } from "./world/landmarks";
 import { decksOf, type Deck } from "./world/decks";
 import { WORLD_UNIFORMS } from "./world/worldMaterial";
+import { SunShadows } from "./world/sunShadow";
+import { Post } from "./world/post";
 import { hasAccretion } from "./world/accretions";
 import { Discoveries } from "./game/discovery";
 import { Camp } from "./game/camp";
@@ -79,6 +81,21 @@ const grass = new Grass(
 );
 
 scene.add(terrain.group, water.mesh, grass.mesh, scatter.group, env.sunLight, env.sunLight.target, env.hemiLight);
+/**
+ * Real shadows, and a lens.
+ *
+ * Phones get a smaller map over a smaller patch of ground — nearly the same
+ * texel size, about 6 cm, so a shadow edge is as sharp and there is just
+ * less of it — and no multisampling on the scene target, which matches what
+ * they had before. The texel size is set by the truck: it is on screen every
+ * second, a few metres from the camera, and at 11 cm its shadow had stairs.
+ */
+const sunShadows = new SunShadows(
+  renderer,
+  env.sunLight,
+  controls.isTouch ? { size: 2048, range: 70 } : { size: 4096, range: 120 }
+);
+const post = new Post(renderer, { msaa: !controls.isTouch });
 // Tuned so distant landmarks fade at roughly the same rate as the terrain
 // shader hazes the hills behind them.
 /**
@@ -517,7 +534,7 @@ if (localStorage.getItem("wander.solo") !== "1") {
 
 // Live handle for tuning from the console: __wander.env.timeOfDay = 0.5, etc.
 (window as Window & { __wander?: unknown }).__wander = {
-  env, controls, terrain, water, sky, grass, landmarks, wildlife, found, camp, features, dust, birds, postcard, journal, garage, player, camera, renderer, scene, sound, net, peers,
+  env, controls, terrain, sunShadows, post, water, sky, grass, landmarks, wildlife, found, camp, features, dust, birds, postcard, journal, garage, player, camera, renderer, scene, sound, net, peers,
 };
 
 function resize() {
@@ -534,6 +551,7 @@ function resize() {
   camera.aspect = w / h;
   camera.updateProjectionMatrix();
   renderer.setSize(w, h, false);
+  post.setSize(renderer.domElement.width, renderer.domElement.height);
 }
 addEventListener("resize", resize);
 addEventListener("orientationchange", () => setTimeout(resize, 120));
@@ -1407,7 +1425,8 @@ function frame(now: number) {
     vehicleLamp.position.set(root.position.x, root.position.y + 1.4, root.position.z);
   }
   // (the scene fog that used to be updated here is gone — see above)
-  env.sunLight.target.position.copy(camera.position);
+  sunShadows.markCasters(scene);
+  sunShadows.update(camera, env.sunDir, heightAt);
   scatter.setSunElevation(env.sunDir.y);
   player.setSunElevation(env.sunDir.y);
 
@@ -1909,7 +1928,7 @@ function frame(now: number) {
   );
   hud.setPresence(net.status, net.peers.size);
 
-  renderer.render(scene, camera);
+  post.render(scene, camera);
   // Must read the buffer in the same frame as the draw, or it's already cleared.
   if (postcard.pending) {
     postcard.grab(renderer.domElement, {
@@ -1927,6 +1946,19 @@ function frame(now: number) {
       dpr = Math.max(0.75, dpr - 0.15);
       renderer.setPixelRatio(dpr);
       resize();
+      slowFrames = 0;
+    }
+  } else if (fps < 34 && (sunShadows.enabled || post.enabled)) {
+    /**
+     * Out of pixels to give back, and still slow.
+     *
+     * Then the new work goes, in the order it is least missed: the lens
+     * first, the shadows after. A phone that cannot afford them gets exactly
+     * the game it had before this pass rather than a slower one.
+     */
+    if (++slowFrames > 150) {
+      if (post.enabled) post.enabled = false;
+      else sunShadows.enabled = false;
       slowFrames = 0;
     }
   } else {

@@ -328,7 +328,7 @@ export function makeVehicle(paint = 0xd8c04a): Vehicle {
   const rack = mat(0x4a4e55);
   const crate1 = mat(0x8a5a3c);
   const crate2 = mat(0x3f6b55);
-  const lamp = new THREE.MeshBasicMaterial({ color: 0xfff0c0 });
+  const lamp = new THREE.MeshBasicMaterial({ color: 0x8e8873 });
 
   const root = new THREE.Group();
 

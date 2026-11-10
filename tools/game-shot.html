@@ -1,0 +1,47 @@
+<!doctype html><meta charset=utf8>
+<!--
+  A picture of the real game, at a chosen place and hour.
+
+  Boots the actual main.ts, sets the clock, lets the world streaming settle,
+  then grabs the canvas in the same task as a frame's draw (the buffer is
+  cleared afterwards) and posts the PNG out.
+
+    tools/game-shot.html?at=x,z&tod=0.36&wait=9000&name=day
+
+  Not a build entry: vite builds index.html only, so this never ships.
+-->
+<link rel="stylesheet" href="../src/style.css">
+<body style="margin:0;background:#111">
+<canvas id="view"></canvas><div id="ui"></div><div id="boot"><p>shaping the land…</p></div>
+<script>
+const q = new URLSearchParams(location.search);
+const errs = [];
+addEventListener("error", (e) => errs.push("ERROR: " + e.message));
+const realError = console.error.bind(console);
+console.error = (...a) => { errs.push(a.map(String).join(" ").slice(0, 400)); realError(...a); };
+localStorage.setItem("wander.solo", "1");
+const realRaf = window.requestAnimationFrame.bind(window);
+let grab = false, frames = 0, t0 = 0;
+window.requestAnimationFrame = (cb) => realRaf((t) => {
+  cb(t);
+  frames++;
+  if (grab) {
+    grab = false;
+    const png = document.getElementById("view").toDataURL("image/png");
+    const fps = frames / ((performance.now() - t0) / 1000);
+    fetch("http://127.0.0.1:8917/?name=" + (q.get("name") || "shot") + "&fps=" + fps.toFixed(1), { method: "POST", body: png + "\n" + errs.join("\n") }).catch(() => {});
+  }
+});
+const wait = Number(q.get("wait") || 9000);
+const set = () => {
+  const w = window.__wander;
+  if (!w) return;
+  if (q.get("tod")) w.env.timeOfDay = Number(q.get("tod"));
+  if (q.get("cloud")) w.env.today.cloud = Number(q.get("cloud"));
+  if (q.get("js")) new Function("w", q.get("js"))(w);
+};
+setInterval(set, 250);
+setTimeout(() => { frames = 0; t0 = performance.now(); }, wait - 3000);
+setTimeout(() => { grab = true; }, wait);
+</script>
+<script type="module">import("../src/main.ts");</script>

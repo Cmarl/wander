@@ -26,6 +26,8 @@ import { Grass } from "../src/world/grass.ts";
 import { heightAt } from "../src/world/field.ts";
 import { worldLit, WORLD_UNIFORMS } from "../src/world/worldMaterial.ts";
 import { makeFor } from "../src/game/vehicles.ts";
+import { SunShadows, SHADOW_UNIFORMS } from "../src/world/sunShadow.ts";
+import { Post } from "../src/world/post.ts";
 
 const out = document.getElementById("out");
 const lines = [];
@@ -452,6 +454,170 @@ if (coast) {
    * bottom.
    */
   check(open.sd < 3, "and the open sea has no bottom to show", `sd ${open.sd.toFixed(1)}`);
+}
+
+// --- does anything cast a shadow? -------------------------------------------
+/**
+ * The real terrain under a real patched solid, lit by the real SunShadows.
+ *
+ * Same frame twice with nothing changed but `enabled`, read at two places:
+ * the ground where the slab's shadow must fall, and ground well clear of it.
+ * The first has to darken and the second has to stay exactly as it was — a
+ * shadow system that dims everything would pass the first check alone.
+ *
+ * Then the caster itself: the sunlit top of a second slab UNDER the first
+ * must darken too, which is the patched-material receiver, a different shader
+ * path from the terrain's and just as able to be silently broken.
+ */
+{
+  const sc = new THREE.Scene();
+  const sx = 300, sz = 300;
+  const gy = heightAt(sx, sz);
+  const sunS = new THREE.Vector3(0.25, 0.9, 0.2).normalize();
+  const light = new THREE.DirectionalLight(0xffffff, 1);
+  light.color.setRGB(1.5, 1.4, 1.2);
+  sc.add(light, light.target, new THREE.HemisphereLight(0xdfeaf2, 0x5a6b4a, 0.6));
+  const shadows = new SunShadows(renderer, light, { size: 2048, range: 100 });
+  terrain.update(sx, sz);
+  for (const u of [terrain.material.uniforms, WORLD_UNIFORMS]) {
+    u.uSunDir.value.copy(sunS);
+    u.uSunColor.value.setRGB(1.5, 1.4, 1.2);
+    u.uCloudCover.value = 0.95;   // clear sky: the only shadow is the slab's
+  }
+  sc.add(terrain.group);
+  const slabMat = worldLit(new THREE.MeshLambertMaterial({ color: 0xc8c8c8, flatShading: true }));
+  // High slab: casts onto the ground and onto the low slab.
+  const high = new THREE.Mesh(new THREE.BoxGeometry(14, 1, 14), slabMat);
+  high.position.set(sx, gy + 60, sz);
+  // Low slab, off to one side and big enough to catch part of that shadow.
+  const lowSlab = new THREE.Mesh(new THREE.BoxGeometry(10, 1, 10), slabMat);
+  const shadowAt = (y) => new THREE.Vector3(sx, gy + 60, sz).addScaledVector(sunS, -(gy + 60 - y) / sunS.y);
+  const onLow = shadowAt(gy + 9);
+  lowSlab.position.set(onLow.x + 20, gy + 8.5, onLow.z);
+  sc.add(high, lowSlab);
+
+  const scam = new THREE.PerspectiveCamera(50, 1, 0.5, 5000);
+  // Off to the side the shadow falls on, or the slab hides its own shadow.
+  scam.position.set(sx - 40, gy + 110, sz - 30);
+  scam.lookAt(sx - 12, gy, sz - 10);
+  scam.updateMatrixWorld(true);
+  // Where the high slab's shadow lands on the ground (near enough: the hill
+  // is not flat, so aim at the centre of a 14 m shadow and read one pixel).
+  const groundHit = shadowAt(heightAt(sx - 17, sz - 13));
+  const clear = new THREE.Vector3(sx - 45, heightAt(sx - 45, sz - 42), sz - 42);
+  const pixelOf = (v) => {
+    const p = v.clone().project(scam);
+    return [Math.round((p.x * 0.5 + 0.5) * 255), Math.round((p.y * 0.5 + 0.5) * 255)];
+  };
+  const read = () => {
+    shadows.markCasters(sc);
+    shadows.update(scam, sunS, heightAt);
+    renderer.render(sc, scam);
+    // Twice: the map texture does not exist until the first draw has made it.
+    shadows.update(scam, sunS, heightAt);
+    renderer.render(sc, scam);
+    const px = new Uint8Array(256 * 256 * 4);
+    renderer.getContext().readPixels(0, 0, 256, 256, 6408, 5121, px);
+    const at = (v) => { const [x, y] = pixelOf(v); const i = (y * 256 + x) * 4; return (px[i] + px[i + 1] + px[i + 2]) / 3; };
+    return { ground: at(groundHit), clear: at(clear), high: at(new THREE.Vector3(onLow.x + 20, gy + 9, onLow.z)) };
+  };
+  shadows.enabled = false;
+  const off = read();
+  shadows.enabled = true;
+  const on = read();
+  // The low slab is moved INTO the shadow for its own reading.
+  lowSlab.position.set(onLow.x, gy + 8.5, onLow.z);
+  const lowTop = new THREE.Vector3(onLow.x, gy + 9, onLow.z);
+  const readLow = () => {
+    shadows.update(scam, sunS, heightAt);
+    renderer.render(sc, scam);
+    const px = new Uint8Array(256 * 256 * 4);
+    renderer.getContext().readPixels(0, 0, 256, 256, 6408, 5121, px);
+    const [x, y] = pixelOf(lowTop); const i = (y * 256 + x) * 4;
+    return (px[i] + px[i + 1] + px[i + 2]) / 3;
+  };
+  shadows.enabled = false;
+  const lowOff = readLow();
+  shadows.enabled = true;
+  const lowOn = readLow();
+
+  log(`sun shadow: ground under the slab ${off.ground.toFixed(0)} -> ${on.ground.toFixed(0)}, ` +
+      `open ground ${off.clear.toFixed(0)} -> ${on.clear.toFixed(0)}, ` +
+      `a solid in the shadow ${lowOff.toFixed(0)} -> ${lowOn.toFixed(0)}, ` +
+      `a sunlit top out in the open ${off.high.toFixed(0)} -> ${on.high.toFixed(0)}`);
+  check(on.ground < off.ground - 25, "a solid throws a shadow on the ground", `${off.ground.toFixed(0)} -> ${on.ground.toFixed(0)}`);
+  check(Math.abs(on.clear - off.clear) < 3, "and only where the shadow falls", `${off.clear.toFixed(0)} -> ${on.clear.toFixed(0)}`);
+  check(lowOn < lowOff - 25, "solids are shadowed by other solids", `${lowOff.toFixed(0)} -> ${lowOn.toFixed(0)}`);
+  check(Math.abs(on.high - off.high) < 3, "and a sunlit face does not shadow itself", `${off.high.toFixed(0)} -> ${on.high.toFixed(0)}`);
+
+  // --- and the lens --------------------------------------------------------
+  /**
+   * Post draws the scene into a texture pretending to be the screen. If that
+   * pretence is off by anything — a second sRGB encode, a missing tone map —
+   * the game still looks like a game, just a wrong one. So: the same scene
+   * straight to the canvas and through Post with every effect at zero must
+   * be the same pixels. Terrain (encodes itself) and patched solids (three
+   * encodes them) are both in frame because they fail in opposite directions.
+   */
+  const grabAll = () => {
+    const px = new Uint8Array(256 * 256 * 4);
+    renderer.getContext().readPixels(0, 0, 256, 256, 6408, 5121, px);
+    return px;
+  };
+  shadows.update(scam, sunS, heightAt);
+  renderer.setRenderTarget(null);
+  renderer.render(sc, scam);
+  const direct = grabAll();
+  const post = new Post(renderer, { msaa: false });
+  post.setSize(256, 256);
+  post.bloomStrength = 0; post.vignette = 0; post.dither = 0;
+  post.render(sc, scam);
+  const through = grabAll();
+  let worstD = 0, sumD = 0;
+  for (let i = 0; i < direct.length; i += 4) {
+    const dd = Math.max(Math.abs(direct[i] - through[i]), Math.abs(direct[i + 1] - through[i + 1]), Math.abs(direct[i + 2] - through[i + 2]));
+    sumD += dd; if (dd > worstD) worstD = dd;
+  }
+  log(`lens, effects at zero: mean difference ${(sumD / (256 * 256)).toFixed(3)}/255, worst pixel ${worstD}`);
+  check(worstD <= 2, "the lens at zero is the picture unchanged", `worst ${worstD}/255`);
+
+  // Bloom: a white-hot slab on a dark field must glow PAST its own edge, and
+  // a frame with nothing bright in it must not change at all.
+  const dark = new THREE.Scene();
+  const hot = new THREE.Mesh(new THREE.PlaneGeometry(0.5, 0.5), new THREE.MeshBasicMaterial({ color: 0xffffff }));
+  hot.position.z = -5;
+  const dim = new THREE.Mesh(new THREE.PlaneGeometry(40, 40), new THREE.MeshBasicMaterial({ color: 0x20262c }));
+  dim.position.z = -6;
+  dark.add(hot, dim);
+  const bcam = new THREE.PerspectiveCamera(40, 1, 0.1, 100);
+  const justOutside = () => {
+    const px = grabAll();
+    // The slab spans about 17 px either side of centre; 26 px out is field.
+    const i = (128 * 256 + 128 + 26) * 4;
+    return (px[i] + px[i + 1] + px[i + 2]) / 3;
+  };
+  post.bloomStrength = 0; post.render(dark, bcam); const noBloom = justOutside();
+  post.bloomStrength = 0.7; post.render(dark, bcam); const withBloom = justOutside();
+  hot.visible = false;
+  post.bloomStrength = 0; post.render(dark, bcam); const dimOff = justOutside();
+  post.bloomStrength = 0.7; post.render(dark, bcam); const dimOn = justOutside();
+  log(`bloom: beside a white-hot edge ${noBloom.toFixed(0)} -> ${withBloom.toFixed(0)}; ` +
+      `with nothing bright in frame ${dimOff.toFixed(0)} -> ${dimOn.toFixed(0)}`);
+  check(withBloom > noBloom + 6, "bright things glow past their own edge", `${noBloom.toFixed(0)} -> ${withBloom.toFixed(0)}`);
+  check(Math.abs(dimOn - dimOff) < 1.5, "and a frame with nothing bright is left alone", `${dimOff.toFixed(0)} -> ${dimOn.toFixed(0)}`);
+
+  // Leave the world as the later sections expect to find it.
+  renderer.setRenderTarget(null);
+  shadows.enabled = false;
+  shadows.update(scam, sunS, heightAt);
+  renderer.shadowMap.enabled = false;
+  terrain.group.removeFromParent();
+  terrain.update(0, 0);
+  for (const u of [terrain.material.uniforms, WORLD_UNIFORMS]) {
+    u.uSunDir.value.copy(sun);
+    u.uCloudCover.value = 0.52;
+  }
+  terrain.material.uniforms.uSunColor.value.setRGB(1.5, 1.4, 1.2);
 }
 
 // --- the thing this file exists for -----------------------------------------

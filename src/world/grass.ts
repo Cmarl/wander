@@ -3,6 +3,7 @@ import { NOISE_GLSL } from "./glsl/noise";
 import { TERRAIN_GLSL } from "./glsl/terrain";
 import { SKY_GLSL } from "./glsl/sky";
 import { COMMON_GLSL } from "./glsl/common";
+import { SHADOW_GLSL, SHADOW_UNIFORMS } from "./sunShadow";
 import { clearingsNear } from "./clearings";
 import { CRUSH_POINTS, crushPoints, updateCrush } from "./crush";
 
@@ -62,6 +63,8 @@ uniform float uWind;
 out vec3 vRel;
 out float vTip;
 out vec3 vTint;
+out float vSun;
+uniform vec3 uSunDir;
 
 void main() {
   vec2 base = uOrigin + aCell * uSpacing;
@@ -138,6 +141,15 @@ void main() {
   vec3 world = vec3(wp.x + local.x, y + local.y, wp.y + local.z);
   vRel = world - cameraPosition;
   vTip = tip;
+  /**
+   * Shadowed per tuft, at the root, in the vertex shader.
+   *
+   * A blade is a few pixels wide; asking each of its fragments separately
+   * whether it can see the sun would be nine texture reads to colour a
+   * sliver. One answer per tuft is what the eye resolves, and it means a
+   * tuft is in the shade or out of it as a whole, like the ground it is on.
+   */
+  vSun = sunShadow(vec3(wp.x, y + 0.05, wp.y) - cameraPosition, vec3(0.0, 1.0, 0.0), uSunDir);
 
   // Match the ground it grows out of, a touch more saturated.
   const vec3 GOLD   = SRGB(0.82, 0.69, 0.33);
@@ -152,6 +164,7 @@ const FRAG = /* glsl */ `
 in vec3 vRel;
 in float vTip;
 in vec3 vTint;
+in float vSun;
 uniform vec3 uSunDir;
 uniform vec3 uSunColor;
 uniform vec3 uSkyAmbient;
@@ -165,7 +178,7 @@ void main() {
   float ndl = max(uSunDir.y, 0.0);
   // Under the same cloud as the ground it is standing on. Grass left bright
   // while the hillside beneath it darkened would be worse than no shadow.
-  float shade = cloudShade(vRel + cameraPosition, uSunDir, uTime, uCloudCover);
+  float shade = cloudShade(vRel + cameraPosition, uSunDir, uTime, uCloudCover) * vSun;
   vec3 col = vTint * (0.48 + 0.42 * vTip) * (uSunColor * shade * (0.30 + ndl * 0.52) + uSkyAmbient);
 
   /**
@@ -223,8 +236,9 @@ export class Grass {
         uFogDensity: { value: 0.000085 },
         uSunsetBoost: { value: 1 },
         uCloudCover: { value: 0.52 },
+        ...SHADOW_UNIFORMS,
       },
-      vertexShader: NOISE_GLSL + TERRAIN_GLSL + VERT,
+      vertexShader: NOISE_GLSL + TERRAIN_GLSL + SHADOW_GLSL + VERT,
       fragmentShader: NOISE_GLSL + SKY_GLSL + COMMON_GLSL + FRAG,
     });
 

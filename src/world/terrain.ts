@@ -3,6 +3,7 @@ import { NOISE_GLSL } from "./glsl/noise";
 import { TERRAIN_GLSL } from "./glsl/terrain";
 import { SKY_GLSL } from "./glsl/sky";
 import { COMMON_GLSL } from "./glsl/common";
+import { SHADOW_GLSL, SHADOW_UNIFORMS } from "./sunShadow";
 
 /**
  * Geometry clipmap.
@@ -93,6 +94,10 @@ void main() {
 
   // Clouds that are overhead are now also underfoot.
   float shade = cloudShade(vWorld, uSunDir, uTime, uCloudCover);
+  // And whatever is standing between this ground and the sun. Folded into
+  // the same term as the cloud, because it is the same statement: how much
+  // of the direct light gets here.
+  shade *= sunShadow(vRel, n, uSunDir);
 
   vec3 col = albedo * (uSunColor * shade * (ndl * 0.88 + wrap * 0.12) + ambient);
 
@@ -149,9 +154,10 @@ export class Terrain {
         uTime: { value: 0 },
         uCloudCover: { value: 0.52 },
         uDebug: { value: 0 },
+        ...SHADOW_UNIFORMS,
       },
       vertexShader: NOISE_GLSL + TERRAIN_GLSL + VERT,
-      fragmentShader: NOISE_GLSL + TERRAIN_GLSL + SKY_GLSL + COMMON_GLSL + FRAG,
+      fragmentShader: NOISE_GLSL + TERRAIN_GLSL + SKY_GLSL + COMMON_GLSL + SHADOW_GLSL + FRAG,
     });
 
     for (let l = 0; l < LEVELS; l++) {

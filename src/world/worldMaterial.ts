@@ -1,6 +1,7 @@
 import * as THREE from "three";
 import { NOISE_GLSL } from "./glsl/noise";
 import { SKY_GLSL } from "./glsl/sky";
+import { SHADOW_GLSL, SHADOW_UNIFORMS } from "./sunShadow";
 
 /**
  * Everything solid, standing in the same air as the ground.
@@ -84,7 +85,7 @@ const GLOSS_GLSL = /* glsl */ `
             // Lambert has no specular term in its output, so this joins the
             // diffuse. It is added light either way.
             reflectedLight.directDiffuse +=
-              uSunColor * (lacquer + body) * uGloss * uGlossScale * shade * max(uSunDir.y, 0.0);
+              uSunColor * (lacquer + body) * uGloss * uGlossScale * shade * sunSh * max(uSunDir.y, 0.0);
           }
 `;
 
@@ -130,7 +131,7 @@ export function worldLit<T extends THREE.Material>(mat: T, gloss = 0): T {
   const uGloss = { value: gloss };
 
   mat.onBeforeCompile = (shader) => {
-    Object.assign(shader.uniforms, WORLD_UNIFORMS);
+    Object.assign(shader.uniforms, WORLD_UNIFORMS, SHADOW_UNIFORMS);
     shader.uniforms.uGloss = uGloss;
 
     // The world position, which three only varies when something asks for it.
@@ -183,7 +184,8 @@ export function worldLit<T extends THREE.Material>(mat: T, gloss = 0): T {
         uniform float uGlossScale;
         uniform vec3 uSunColor;
         ${NOISE_GLSL}
-        ${SKY_GLSL}`
+        ${SKY_GLSL}
+        ${SHADOW_GLSL}`
       )
       /**
        * Cloud shadow goes on the DIRECT light only.
@@ -197,6 +199,26 @@ export function worldLit<T extends THREE.Material>(mat: T, gloss = 0): T {
       .replace(
         "#include <lights_fragment_end>",
         `#include <lights_fragment_end>
+        /**
+         * The sun's shadow comes off the SUN's light, not off "direct light".
+         *
+         * Multiplying directDiffuse would be one line, and it would also put
+         * out the lamp in a mine and the fire in a steading whenever the roof
+         * over them shaded the floor — which is always. So the sun's own
+         * Lambert term is rebuilt here and only the shadowed part of it is
+         * taken back out. uSunColor is the light's colour by construction.
+         */
+        float sunSh = 1.0;
+        {
+          vec3 sunVS = normalize((viewMatrix * vec4(uSunDir, 0.0)).xyz);
+          vec3 nVS = normalize(normal);
+          float sunNdl = max(dot(nVS, sunVS), 0.0);
+          if (sunNdl > 0.0) {
+            sunSh = sunShadow(vWorldRel, inverseTransformDirection(nVS, viewMatrix), uSunDir);
+            vec3 sunTerm = sunNdl * uSunColor * RECIPROCAL_PI * diffuseColor.rgb;
+            reflectedLight.directDiffuse = max(reflectedLight.directDiffuse - sunTerm * (1.0 - sunSh), vec3(0.0));
+          }
+        }
         // This dims every direct light, the headlamp included — which costs
         // nothing, because cloudShade returns 1.0 whenever the sun is below
         // the horizon, and the headlamp is only ever on after dark.
