@@ -72,12 +72,23 @@ c.interact = true; p.update(DT, c); c.interact = false;
 check(p.skyState === 1, "stepped out while holding climb", `skyState ${p.skyState}`);
 check(stopped === 1, "the engine was told to stop", `${stopped} shutdowns`);
 
-for (let k = 0; k < 60 * 20; k++) p.update(DT, c);
+/**
+ * It used to be set down on the ground the instant you left. Now it flies on
+ * with nobody in it, so the claim is no longer "it is on the ground twenty
+ * seconds later" but the two things that actually mattered: it never goes UP
+ * (the stuck-climb bug this probe was written for), and it does come down.
+ */
+let peak = alt, glide = 0;
+while (p.coasting && !p.wrecked && glide < 60 * 300) {
+  p.update(DT, c);
+  peak = Math.max(peak, p.vehicle.root.position.y);
+  glide++;
+}
 const now = p.vehicle.root.position;
 const ground = heightAt(now.x, now.z);
-console.log(`aeroplane was at ${alt.toFixed(0)} m; twenty seconds later ${now.y.toFixed(0)} m, ground ${ground.toFixed(0)} m`);
-check(now.y < alt - 100, "it does not fly off into the sky", `${(now.y - alt).toFixed(0)} m change`);
-check(Math.abs(now.y - ground) < 3, "it is sitting on the ground", `${(now.y - ground).toFixed(2)} m off it`);
+console.log(`aeroplane was at ${alt.toFixed(0)} m; it flew on for ${(glide / 60).toFixed(0)} s and ${p.wrecked ? "crashed" : `stopped at ${now.y.toFixed(0)} m, ground ${ground.toFixed(0)} m`}`);
+check(peak < alt + 12, "it does not fly off into the sky", `peaked ${(peak - alt).toFixed(0)} m above where you left it`);
+check(p.wrecked || Math.abs(now.y - Math.max(ground, 0)) < 3, "it comes down, one way or the other", p.wrecked ? "wrecked" : `${(now.y - ground).toFixed(2)} m off the ground`);
 
 // Down, then call it back.
 let drop = 0;

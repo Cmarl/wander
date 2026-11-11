@@ -27,7 +27,7 @@ import { Aurora } from "./world/aurora";
 import { SPECS } from "./game/vehicles";
 import { Features, ACTIONS } from "./game/features";
 import { PAINTS } from "./game/paint";
-import { Dust, Birds, Explosion } from "./world/particles";
+import { Dust, Birds, Explosion, Flames } from "./world/particles";
 import { Wildlife } from "./world/wildlife";
 import { surfaceAt, moistureAt, treeDensityAt, slopeAt, temperatureAt, slotRandom } from "./world/field";
 import { findSpawn } from "./world/spawn";
@@ -153,7 +153,8 @@ const dust = new Dust();
 const birds = new Birds();
 scene.add(dust.mesh, birds.mesh);
 const explosion = new Explosion();
-scene.add(explosion.group);
+const flames = new Flames();
+scene.add(explosion.group, flames.mesh);
 
 const atParam = new URLSearchParams(location.search).get("at");
 const atMatch = atParam?.match(/^(-?\d+(?:\.\d+)?),(-?\d+(?:\.\d+)?)$/);
@@ -288,8 +289,12 @@ player.onVehicleLand = (f) => {
  * Nothing is taken: the garage still has everything in it.
  */
 let wreckSmoke = 0;
-player.onWreck = (x, y, z) => {
-  explosion.burst(x, y, z, Math.sin(player.heading), Math.cos(player.heading), heightAt);
+player.onWreck = (x, y, z, dirX, dirZ) => {
+  explosion.burst(x, y, z, dirX, dirZ, heightAt);
+  // It may have gone off a long way from you, with nobody in it. The bang
+  // and the shake belong to being there.
+  const far = Math.hypot(x - player.position.x, z - player.position.z);
+  if (far > 400) return;
   sound.explode();
   haptics.crash(1);
   wreckSmoke = 0;
@@ -304,10 +309,14 @@ player.onWreck = (x, y, z) => {
     region: regionAt(x, z).name,
   });
   // Said once the dust has settled and you are on your feet, not over the bang.
-  setTimeout(
-    () => hud.announce(first ? "not a scratch on you" : "walked away again", first ? "call for another whenever you like" : ""),
-    1500
-  );
+  // Only if you were in it. A machine that crashed on its own after you
+  // stepped out is not something you walked away from.
+  if (player.tumble > 0) {
+    setTimeout(
+      () => hud.announce(first ? "not a scratch on you" : "walked away again", first ? "call for another whenever you like" : ""),
+      1500
+    );
+  }
 };
 /**
  * Big air gets said out loud.
@@ -317,7 +326,7 @@ player.onWreck = (x, y, z) => {
  * and a game that does not notice is a game that was not watching.
  */
 let bestAir = Number(localStorage.getItem("wander.bestAir") || 0);
-player.onStunt = (air, turns) => {
+player.onStunt = (air, turns, flips) => {
   const record = air > bestAir + 0.05;
   if (record) {
     bestAir = air;
@@ -325,7 +334,11 @@ player.onStunt = (air, turns) => {
     // Only a record takes the middle of the screen. Every other jump was
     // already counted, small and to one side, while it was happening.
     if (air > 2) {
-      hud.found("your longest air yet", `${air.toFixed(1)} seconds`, turns >= 0.5 ? `with ${Math.round(turns * 360)}° in it` : "");
+      const tricks = [
+        turns >= 0.5 ? `${Math.round(turns * 360)}°` : "",
+        flips > 1 ? `${flips} flips` : flips === 1 ? "a flip" : "",
+      ].filter(Boolean).join(" and ");
+      hud.found("your longest air yet", `${air.toFixed(1)} seconds`, tricks ? `with ${tricks} in it` : "");
     }
   }
   if (air > 3) {
@@ -733,9 +746,9 @@ function wake(dt: number) {
     }
 
     // A slide throws dirt whatever it is on, and a boost leaves a trail.
-    if (driving && (player.drifting > 0.35 || player.boost > 0)) {
+    if (driving && (player.drifting > 0.35 || player.boosting)) {
       const ground = heightAt(px, pz);
-      driftDebt += dt * (player.drifting * 46 + (player.boost > 0 ? 22 : 0));
+      driftDebt += dt * (player.drifting * 46 + (player.boosting ? 14 : 0));
       const h = player.heading;
       while (driftDebt >= 1) {
         driftDebt -= 1;
@@ -761,6 +774,31 @@ function wake(dt: number) {
   dust.update(dt, camera);
   birds.update(dt);
   explosion.update(dt, heightAt);
+  /**
+   * Fire off the back wheels while a boost is pushing. Thrown backward
+   * relative to the vehicle, so at speed it trails as two short jets.
+   */
+  if (player.boosting && !SPECS[player.spec.cls].flies && !SPECS[player.spec.cls].floats) {
+    flameDebt += dt * 150;
+    const root = player.vehicle.root;
+    const h = player.heading;
+    const fx = Math.sin(h), fz = Math.cos(h);
+    const v = player.vehicleState.speed;
+    while (flameDebt >= 1) {
+      flameDebt -= 1;
+      const side = Math.random() < 0.5 ? -1 : 1;
+      const back = 1.5 + Math.random() * 0.3;
+      flames.emit(
+        root.position.x - fx * back + fz * side * 0.95 + (Math.random() - 0.5) * 0.2,
+        root.position.y + 0.32 + Math.random() * 0.15,
+        root.position.z - fz * back - fx * side * 0.95 + (Math.random() - 0.5) * 0.2,
+        fx * (v * 0.55) + (Math.random() - 0.5) * 2,
+        0.6 + Math.random() * 1.6,
+        fz * (v * 0.55) + (Math.random() - 0.5) * 2
+      );
+    }
+  }
+  flames.update(dt);
   if (player.wrecked) {
     wreckSmoke -= dt;
     if (wreckSmoke <= 0) {
@@ -772,6 +810,7 @@ function wake(dt: number) {
 }
 
 let driftDebt = 0;
+let flameDebt = 0;
 const DRIFT_TINT = new THREE.Color(0xb9a98a);
 
 // --- glassing: looking as a verb -------------------------------------------

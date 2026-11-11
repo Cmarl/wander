@@ -186,5 +186,73 @@ for (const [label, spinFor] of [["tail-first", 0.92], ["sideways", 0.46]] as [st
   check(p.drifting < 0.2, `${label}: then it straightens out on its own`, `drifting ${p.drifting.toFixed(2)}`);
 }
 
+// Flips. The stick is read from where it was at take-off, so simply keeping
+// your foot down must never tip the truck over.
+for (const [label, back, expect] of [
+  ["throttle held, stick untouched", 0, "lands"],
+  ["eased back for one whole flip", 1.5, "lands"],
+  ["eased back for half a flip", 0.72, "wrecks"],
+] as [string, number, string][]) {
+  const { p, c } = drive();
+  c.move.y = 1;
+  for (let k = 0; k < 60 * 9; k++) p.update(DT, c);
+  let landed = false, flips = 0;
+  p.onStunt = (_a, _t, f) => { landed = true; flips = f; };
+  tap(p, c, "jump");
+  let t = 0;
+  for (let k = 0; k < 60 * 6 && !landed && !p.wrecked; k++) {
+    // Rotation only starts once it is real air, a little after the wheels leave.
+    c.move.y = t > 0.3 && t < 0.3 + back ? 0 : 1;
+    p.update(DT, c);
+    t += DT;
+  }
+  console.log(`a jump with ${label}: ${p.wrecked ? "wrecked" : `landed${flips ? ` with ${flips} flip${flips > 1 ? "s" : ""}` : ""}`}`);
+  check((expect === "wrecks") === p.wrecked, `${label}: ${expect}`, p.wrecked ? "wrecked" : "on its wheels");
+  if (expect === "wrecks") {
+    check(p.mode === "foot" && p.tumble > 0, "and you are thrown clear of it", `${p.mode}, tumbling ${p.tumble.toFixed(2)} s`);
+    // The pieces: the model is gone and its parts are where the blast put them.
+    const parts = (p as any).debris.length;
+    check(!p.vehicle.root.visible && parts > 8, "the vehicle is in pieces, not standing there", `${parts} parts, model hidden`);
+    for (let k = 0; k < 60 * 5; k++) p.update(DT, c);
+    const spread = Math.max(...(p as any).debris.map((d: any) => d.obj.position.distanceTo(p.vehicle.root.position)));
+    const resting = (p as any).debris.filter((d: any) => d.rest).length;
+    check(spread > 6 && resting === parts, "scattered, and come to rest", `furthest ${spread.toFixed(0)} m, ${resting}/${parts} at rest`);
+  }
+}
+
+// Boost needs your foot down.
+{
+  const { p, c } = drive();
+  c.move.y = 1;
+  for (let k = 0; k < 60 * 9; k++) p.update(DT, c);
+  p.boost = 2;
+  c.move.y = 0;
+  const v0 = Math.abs(p.vehicleState.speed);
+  for (let k = 0; k < 45; k++) p.update(DT, c);
+  const coasted = Math.abs(p.vehicleState.speed);
+  check(!p.boosting && coasted < v0, "a boost does nothing with the stick centred", `${(v0 * 3.6).toFixed(0)} -> ${(coasted * 3.6).toFixed(0)} km/h, boosting ${p.boosting}`);
+  p.boost = 2; c.move.y = 1;
+  for (let k = 0; k < 60; k++) p.update(DT, c);
+  check(p.boosting && Math.abs(p.vehicleState.speed) > coasted + 5, "and pushes the moment you are back on it", `${(Math.abs(p.vehicleState.speed) * 3.6).toFixed(0)} km/h`);
+}
+
+// Step out at speed: you roll, it carries on, and it stops by itself.
+{
+  const { p, c } = drive();
+  c.move.y = 1;
+  for (let k = 0; k < 60 * 6; k++) p.update(DT, c);
+  const v0 = Math.abs(p.vehicleState.speed);
+  const where = p.vehicle.root.position.clone();
+  c.move.y = 0;
+  tap(p, c, "interact");
+  check(p.mode === "foot" && p.tumble > 0, "stepping out at speed is a roll", `${p.mode}, tumble ${p.tumble.toFixed(2)}`);
+  let secs = 0;
+  while (p.coasting && !p.wrecked && secs < 120) { p.update(DT, c); secs += DT; }
+  const ran = p.vehicle.root.position.distanceTo(where);
+  console.log(`stepped out at ${(v0 * 3.6).toFixed(0)} km/h: the truck ran on ${ran.toFixed(0)} m and ${p.wrecked ? "wrecked itself" : `rolled to a stop after ${secs.toFixed(0)} s`}`);
+  check(ran > 40, "the truck carries on without you", `${ran.toFixed(0)} m`);
+  check(!p.coasting, "and comes to rest, or to grief, by itself", p.wrecked ? "wrecked" : "stopped");
+}
+
 console.log(bad ? `\n${bad} FAILED` : "\nall assertions passed");
 process.exit(bad ? 1 : 0);

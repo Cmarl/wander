@@ -732,7 +732,7 @@ export class Hud {
    * the ground, holds for a quarter of a second after they touch, and fades.
    * A new jump simply takes it over. Pass null on the ground.
    */
-  setAir(air: { time: number; turns: number } | null) {
+  setAir(air: { time: number; turns: number; flips?: number } | null) {
     // Under half a second is a hop, and a counter flickering on every crest
     // would be the same intrusion in a smaller font.
     if (air && air.time > 0.45) {
@@ -741,7 +741,11 @@ export class Hud {
         this.airText = text;
         this.airTimeEl.textContent = `${text} s`;
       }
-      const spin = air.turns >= 0.5 ? `${Math.round(air.turns * 360)}°` : "";
+      const flips = air.flips ?? 0;
+      const spin = [
+        air.turns >= 0.5 ? `${Math.round(air.turns * 360)}°` : "",
+        flips > 1 ? `${flips} flips` : flips === 1 ? "flip" : "",
+      ].filter(Boolean).join(" · ");
       if (this.airSpinEl.textContent !== spin) this.airSpinEl.textContent = spin;
       if (!this.airShown) {
         this.airShown = true;

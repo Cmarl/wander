@@ -138,6 +138,16 @@ const VEH_GRAVITY = 26;
 const AIR_GRAVITY = 17.5;
 /** How fast a vehicle can be spun in the air, radians a second. */
 const AIR_SPIN = 3.4;
+/** And flipped end over end. A full one fits inside an ordinary jump. */
+const AIR_FLIP = 4.4;
+/**
+ * How far from wheels-down a landing can be and still be a landing.
+ *
+ * The cosine of the angle between the vehicle's own up and the ground's.
+ * 0.4 is about sixty-six degrees: generous, because the point is that coming
+ * down on the roof is a wreck, not that every landing is an exam.
+ */
+const LAND_UPRIGHT = 0.4;
 /** How far the tail steps out in a slide. */
 const DRIFT_ANGLE = 0.52;
 /** Below this nothing slides: a drift is something that happens at speed. */
@@ -179,6 +189,9 @@ const WRECK_IMPACT = 30;
 /** How long you spend rolling before you are on your feet. */
 const TUMBLE = 1.15;
 const CHARRED = new THREE.MeshLambertMaterial({ color: 0x17120f, flatShading: true });
+const ROT = new THREE.Quaternion();
+const AXIS_Y = new THREE.Vector3(0, 1, 0);
+const AXIS_X = new THREE.Vector3(1, 0, 0);
 /** Two circles along the spine. Radius and spacing come from the spec. */
 const FOOT_R = 0.42;
 
@@ -242,7 +255,7 @@ export class Player {
   /** Fired on a real impact. `force` is 0..1. */
   onCrash?: (force: number) => void;
   /** The vehicle has been destroyed, at this place. */
-  onWreck?: (x: number, y: number, z: number) => void;
+  onWreck?: (x: number, y: number, z: number, dirX: number, dirZ: number) => void;
   /** True from the explosion until another machine is called or found. */
   wrecked = false;
   /** Seconds of rolling left after being thrown clear. */
@@ -250,6 +263,25 @@ export class Player {
   private tumbleX = 0;
   private tumbleZ = 0;
   private paint = 0x9a7f4e;
+  /**
+   * Nobody is driving it, and it has not stopped yet.
+   *
+   * Clyde: "jumping from a vehicle, the vehicle should carry on and naturally
+   * come to rest (or crash) without a driver."
+   */
+  coasting = false;
+  /** What is left of a destroyed vehicle, each piece on its own way down. */
+  private debris: { obj: THREE.Object3D; vx: number; vy: number; vz: number; sx: number; sy: number; sz: number; rest: boolean }[] = [];
+  private debrisGroup = new THREE.Group();
+  /** Spin and flip rates in the air, and this frame's step of each. */
+  private airYaw = 0;
+  private airPitch = 0;
+  private airYawStep = 0;
+  private airPitchStep = 0;
+  private airFlip = 0;
+  private airStickRef = 0;
+  /** In real air on wheels, where the attitude is yours. */
+  private freeAir = false;
   onSummon?: () => void;
   onVehicleLand?: (force: number) => void;
 
@@ -291,20 +323,30 @@ export class Player {
   private driftCharge = 0;
   /** Seconds of boost left. */
   boost = 0;
+  /**
+   * A boost only pushes while your foot is down.
+   *
+   * Clyde: "don't boost if the gas isnt on." It used to shove you forward
+   * with the stick centred, which is a vehicle deciding to accelerate by
+   * itself. The seconds still run out either way.
+   */
+  get boosting(): boolean {
+    return this.mode === "drive" && this.boost > 0 && this.throttle > 0.05;
+  }
   /** Seconds since the wheels left the ground, and how far it has turned since. */
   airTime = 0;
   private airSpin = 0;
   /** Real air, for the counter: seconds up and half-turns made, or null on the ground. */
-  get air(): { time: number; turns: number } | null {
+  get air(): { time: number; turns: number; flips: number } | null {
     if (this.mode !== "drive" || this.spec.flies || !this.vehAir) return null;
     if (!(this.airTime > 0.28 || this.vehLeapt)) return null;
-    return { time: this.airTime, turns: Math.round(this.airSpin / Math.PI) / 2 };
+    return { time: this.airTime, turns: Math.round(this.airSpin / Math.PI) / 2, flips: Math.floor(this.airFlip / (Math.PI * 2) + 0.12) };
   }
   /** Left the ground on purpose, with the jump button. */
   private vehLeapt = false;
   /** Sliding, 0..1. For dust, sound and the camera. */
   drifting = 0;
-  onStunt?: (air: number, turns: number) => void;
+  onStunt?: (air: number, turns: number, flips: number) => void;
   onBoost?: (seconds: number) => void;
   /** Gliding: airspeed, and how far over it is banked. */
   private glideSpeed = 0;
@@ -337,6 +379,7 @@ export class Player {
 
   constructor(private camera: THREE.PerspectiveCamera, spawn: THREE.Vector2) {
     this.baseFov = camera.fov;
+    this.group.add(this.debrisGroup);
     this.character = makeCharacter();
     this.baseSpec = SPECS.truck;
     this.spec = SPECS.truck;
@@ -367,6 +410,8 @@ export class Player {
     // there is burnt out, whatever it used to be.
     if (this.mode !== "foot" || (cls === this.spec.cls && !this.wrecked)) return;
     this.wrecked = false;
+    this.coasting = false;
+    this.clearDebris();
     this.paint = paint;
     this.group.remove(this.vehicle.root);
     this.baseSpec = SPECS[cls];
@@ -458,30 +503,119 @@ export class Player {
    * there, because the wreck is not something you could get back into.
    */
   private wreck(dirX: number, dirZ: number, speed: number) {
-    if (this.mode !== "drive") return;
+    if (this.wrecked) return;
     const at = this.vehPos.clone();
-    this.mode = "foot";
-    // Out of the side, so you are not rolling through your own wreckage.
-    this.position.set(at.x + dirZ * 1.6, at.y, at.z - dirX * 1.6);
-    this.heading = Math.atan2(dirX, dirZ);
-    this.velY = 0;
-    this.grounded = true;
-    this.skyState = 0;
-    this.footSpeed = 0;
-    const out = THREE.MathUtils.clamp(Math.abs(speed) * 0.32, 5, 15);
-    this.tumbleX = dirX * out;
-    this.tumbleZ = dirZ * out;
-    this.tumble = TUMBLE;
-    this.releaseVehicle();
+    if (this.mode === "drive") {
+      this.mode = "foot";
+      // Out of the side, so you are not rolling through your own wreckage.
+      this.position.set(at.x + dirZ * 1.6, at.y, at.z - dirX * 1.6);
+      this.heading = Math.atan2(dirX, dirZ);
+      this.velY = 0;
+      this.grounded = true;
+      this.skyState = 0;
+      this.footSpeed = 0;
+      const out = THREE.MathUtils.clamp(Math.abs(speed) * 0.32, 5, 15);
+      this.tumbleX = dirX * out;
+      this.tumbleZ = dirZ * out;
+      this.tumble = TUMBLE;
+      this.shake = 1;
+      this.releaseVehicle();
+    } else {
+      // Nobody was in it. It went on without you and this is where it ended.
+      this.vehSpeed = 0;
+      this.vehVelY = 0;
+      this.vehAir = false;
+      this.vehSlip = 0;
+    }
+    this.coasting = false;
     this.vehPos.y = Math.max(this.vehPos.y, heightAt(this.vehPos.x, this.vehPos.z));
     this.wrecked = true;
-    this.shake = 1;
-    // Burnt out. The next machine is built fresh, so nothing has to undo this.
-    this.vehicle.root.traverse((o) => {
+    this.scatter(dirX, dirZ, speed);
+    this.onWreck?.(at.x, at.y, at.z, dirX, dirZ);
+  }
+
+  /**
+   * Blow it apart.
+   *
+   * Clyde: "I crashed my plane, love the explosion, but then it was just
+   * there looking normal (and unusable). it should actually blow apart and
+   * just scatter the parts."
+   *
+   * Every mesh the model is built from is cut loose where it stands and
+   * thrown — outward from the middle, and onward along the line the vehicle
+   * was travelling — to tumble, bounce once and lie where it stops. Most of
+   * it is burnt black; some keeps its paint, which is what makes a field of
+   * wreckage read as THIS vehicle and not as generic debris. The model
+   * itself is hidden, so there is nothing left standing that looks drivable.
+   */
+  private scatter(dirX: number, dirZ: number, speed: number) {
+    const root = this.vehicle.root;
+    root.updateMatrixWorld(true);
+    const centre = new THREE.Vector3().setFromMatrixPosition(root.matrixWorld);
+    centre.y += 0.8;
+    const meshes: THREE.Mesh[] = [];
+    root.traverse((o) => {
       const m = o as THREE.Mesh;
-      if (m.isMesh) m.material = CHARRED;
+      if (m.isMesh && m.visible) meshes.push(m);
     });
-    this.onWreck?.(at.x, at.y, at.z);
+    const carry = Math.min(Math.abs(speed) * 0.4, 26);
+    const from = new THREE.Vector3();
+    for (let i = 0; i < meshes.length; i++) {
+      const m = meshes[i];
+      this.debrisGroup.attach(m);
+      if (i % 3 !== 0) m.material = CHARRED;
+      m.castShadow = true;
+      from.copy(m.position).sub(centre);
+      const flat = Math.hypot(from.x, from.z) || 1;
+      const out = 4 + Math.random() * 11;
+      this.debris.push({
+        obj: m,
+        vx: (from.x / flat) * out + dirX * carry * (0.5 + Math.random() * 0.7) + (Math.random() - 0.5) * 5,
+        vz: (from.z / flat) * out + dirZ * carry * (0.5 + Math.random() * 0.7) + (Math.random() - 0.5) * 5,
+        vy: 7 + Math.random() * 13,
+        sx: (Math.random() - 0.5) * 12,
+        sy: (Math.random() - 0.5) * 8,
+        sz: (Math.random() - 0.5) * 12,
+        rest: false,
+      });
+    }
+    root.visible = false;
+  }
+
+  private stepDebris(dt: number) {
+    for (const d of this.debris) {
+      if (d.rest) continue;
+      d.vy -= 24 * dt;
+      const o = d.obj;
+      o.position.x += d.vx * dt;
+      o.position.y += d.vy * dt;
+      o.position.z += d.vz * dt;
+      o.rotation.x += d.sx * dt;
+      o.rotation.y += d.sy * dt;
+      o.rotation.z += d.sz * dt;
+      const g = Math.max(heightAt(o.position.x, o.position.z), SEA_LEVEL) + 0.12;
+      // Only on the way down: half of these start at wheel height, and a
+      // part that is still rising has not landed.
+      if (d.vy <= 0 && o.position.y <= g) {
+        o.position.y = g;
+        if (d.vy < -7) {
+          // One bounce, losing most of it, then it slides to a stop.
+          d.vy *= -0.28;
+          d.vx *= 0.55;
+          d.vz *= 0.55;
+          d.sx *= 0.5;
+          d.sy *= 0.5;
+          d.sz *= 0.5;
+        } else {
+          d.rest = true;
+        }
+      }
+    }
+  }
+
+  private clearDebris() {
+    for (const d of this.debris) this.debrisGroup.remove(d.obj);
+    this.debris.length = 0;
   }
 
   /** Binoculars up. Slows the look, narrows the lens, moves to the eye. */
@@ -604,6 +738,7 @@ export class Player {
     } else if (input.interact && !this.suppressInteract) {
       if (this.mode === "foot" && this.nearVehicle) {
         this.mode = "drive";
+        this.coasting = false;
         this.onMount?.();
       } else if (this.mode === "drive") {
         // Airborne in something that flies, the door is a door. bailOut()
@@ -620,6 +755,8 @@ export class Player {
     if (this.mode === "foot") this.updateOnFoot(dt, input);
     else this.updateDriving(dt, input);
 
+    if (this.debris.length) this.stepDebris(dt);
+    this.vehShadow.mesh.visible = !this.wrecked;
     this.character.root.visible = this.mode === "foot";
     this.footShadow.mesh.visible = this.mode === "foot";
     if (this.mode === "foot") {
@@ -656,21 +793,18 @@ export class Player {
     this.fallZ = Math.cos(this.vehHeading) * this.vehSpeed * 0.45;
 
     /**
-     * And the aeroplane comes down.
+     * And the aeroplane carries on without you.
      *
-     * This used to say the aircraft keeps flying — "not destroyed and not
-     * waiting for you, simply gone, which is both simpler and a better story".
-     * It is a nice story and it was not true: with the climb control stuck on
-     * it did not fly away, it went straight up forever, and Clyde could not
-     * call it back.
-     *
-     * It is set down where you left it. Nobody is watching — you are falling —
-     * and what you get back is an ordinary parked machine at a real place,
-     * which is both callable and findable. Nothing in this game is ever lost.
+     * This has been three things. First it "kept flying", which with the
+     * climb control stuck on meant straight up forever. Then it was set down
+     * on the ground under you the instant you left, which was safe and was
+     * also a teleport. Now it does what an aircraft with nobody in it does:
+     * the controls are let go (that is what fixed the first version), the
+     * engine is off, and it glides down along the line it was on until it
+     * lands and rolls out, or meets a hillside. Either way it ends up at a
+     * real place, and if it is a wreck you call for another.
      */
-    this.vehPos.y = heightAt(this.vehPos.x, this.vehPos.z);
-    this.warmedUp = false;
-    this.releaseVehicle();
+    this.releaseVehicle(true);
 
     this.skyState = 1;
     this.fallTime = 0;
@@ -698,7 +832,7 @@ export class Player {
       this.footSpeed = 0;
       this.character.root.rotation.x = 0;
       this.character.animate(dt, 0, false);
-      this.placeVehicle(dt, 0, true);
+      this.idleVehicle(dt);
       return;
     }
 
@@ -736,7 +870,7 @@ export class Player {
       this.character.setSky(0);
       this.character.animate(dt, 0, !done);
       if (done) this.onLand?.();
-      this.placeVehicle(dt, 0, true);
+      this.idleVehicle(dt);
       return;
     }
 
@@ -867,10 +1001,21 @@ export class Player {
      * there is no entering or leaving to manage and nothing to press.
      */
     const depth = SEA_LEVEL - ground;
-    this.wading = depth > 0.25 && depth <= SWIM_DEPTH;
-    this.swimming = depth > SWIM_DEPTH;
+    const deep = depth > SWIM_DEPTH;
+    if (deep) ground = SEA_LEVEL - FLOAT;
+    /**
+     * Only if you are actually IN it.
+     *
+     * This asked "is there deep water under this point" and nothing else, so
+     * a thousand metres above the sea you were swimming: grounded, vertical
+     * speed zeroed, every frame. Stepping out of an aeroplane over water, the
+     * jump button therefore did an ordinary standing jump in mid-air and the
+     * wing never opened — Clyde: "I jumped from my plane and got no glider."
+     */
+    const atSurface = this.position.y <= ground + 0.4;
+    this.wading = depth > 0.25 && !deep && atSurface;
+    this.swimming = deep && atSurface;
     if (this.swimming) {
-      ground = SEA_LEVEL - FLOAT;
       this.velY = 0;
       this.grounded = true;
     }
@@ -1059,7 +1204,7 @@ export class Player {
     this.character.setSky(this.skyState);
     this.character.animate(dt, moveSpeed, !this.grounded);
 
-    this.placeVehicle(dt, 0, true);
+    this.idleVehicle(dt);
   }
 
   /**
@@ -1106,9 +1251,14 @@ export class Player {
     const wheeled = !this.spec.flies && !this.spec.floats;
     if (this.boost > 0) this.boost = Math.max(0, this.boost - dt);
     // A boost is a shove whether or not your thumb is on the throttle.
-    const push = this.boost > 0 ? 1.5 : 1;
-    if (this.boost > 0 && throttle > -0.02) {
-      this.vehSpeed += this.spec.accel * Math.max(throttle, 0.6) * push * dt;
+    const boosting = this.boost > 0 && throttle > 0.05;
+    // In real air on wheels the stick tips the vehicle; there is nothing
+    // under the tyres for the throttle to act on.
+    const hanging = wheeled && this.vehAir && (this.airTime > 0.28 || this.vehLeapt);
+    if (hanging) {
+      // (attitude is handled below)
+    } else if (boosting) {
+      this.vehSpeed += this.spec.accel * throttle * 1.5 * dt;
     } else if (throttle > 0.02) {
       this.vehSpeed += this.spec.accel * throttle * dt;
     } else if (throttle < -0.02) {
@@ -1142,7 +1292,9 @@ export class Player {
     // slope under you to help or hinder.
     const grade = this.vehAir ? 0 : -(n.x * fwdX + n.z * fwdZ) / Math.max(n.y, 0.2);
     if (!this.vehAir) this.vehSpeed -= grade * this.spec.gradePull * dt;
-    this.vehSpeed -= this.vehSpeed * this.spec.drag * dt;
+    // Off the ground on wheels there is nothing scrubbing speed away: what
+    // you left with is what you land with.
+    if (!hanging) this.vehSpeed -= this.vehSpeed * this.spec.drag * dt;
 
     /**
      * Top speed is a FLATLAND cap, not an absolute one.
@@ -1159,7 +1311,7 @@ export class Player {
      * own business and it has no wheels on the hill.
      */
     const descent = this.spec.flies ? 0 : Math.max(0, -grade);
-    const ceiling = this.spec.top * (1 + Math.min(descent, 1.1) * OVERSPEED) * (this.boost > 0 ? 1.32 : 1);
+    const ceiling = this.spec.top * (1 + Math.min(descent, 1.1) * OVERSPEED) * (boosting ? 1.32 : 1);
     if (this.vehSpeed > ceiling) {
       // Bled off rather than snapped. Cresting out of a descent should coast
       // back to normal, and a hard clamp there reads as the brakes coming on
@@ -1216,11 +1368,46 @@ export class Player {
          * when it lands is where it goes — land a half turn and you drive off
          * the other way, with everything you had.
          */
-        const turn = steerInput * AIR_SPIN * dt;
+        /**
+         * And the other stick axis tips it end over end.
+         *
+         * Clyde: "let the truck be rotatable in all directions, right now it
+         * self orients the wheels down so you always land right. I think that
+         * should be on the user (and relatively easy)."
+         *
+         * So nothing levels it for you any more. Across spins it, forward
+         * tips the nose down, back tips it up, and it stops turning almost as
+         * soon as you let go — which is the "relatively easy": there is no
+         * momentum to fight, only an attitude to choose. Where the wheels are
+         * when the ground arrives is now your business.
+         */
+        this.airYaw += (steerInput * AIR_SPIN - this.airYaw) * Math.min(1, dt * 10);
+        /**
+         * Measured from where the stick WAS when you left the ground.
+         *
+         * Nearly every jump is taken with the stick held forward, because
+         * that is the throttle. Read as an absolute, that would front-flip
+         * the truck off every crest for anybody who simply kept driving —
+         * the opposite of "relatively easy". So holding what you were holding
+         * does nothing, and the flip comes from MOVING it: ease back and the
+         * nose comes up, push further and it goes down.
+         */
+        if (!this.freeAir) this.airStickRef = input.move.y;
+        const moved = THREE.MathUtils.clamp(input.move.y - this.airStickRef, -1, 1);
+        const tip = Math.abs(moved) < 0.3 ? 0 : (moved - Math.sign(moved) * 0.3) / 0.7;
+        this.airPitch += (tip * AIR_FLIP - this.airPitch) * Math.min(1, dt * 10);
+        const turn = this.airYaw * dt;
         this.vehHeading -= turn;
         this.vehSlip += turn;
         this.airSpin += Math.abs(turn);
+        this.airYawStep = -turn;
+        this.airPitchStep = this.airPitch * dt;
+        this.airFlip += Math.abs(this.airPitchStep);
+        this.freeAir = true;
       } else {
+        this.airYaw = 0;
+        this.airPitch = 0;
+        this.freeAir = false;
         const want = steerInput * DRIFT_ANGLE * pace * hard * Math.sign(this.vehSpeed || 1);
         // Past what a drift ever reaches, this is a landing coming back into
         // line: the tyres are scrubbing sideways, which costs speed, and the
@@ -1502,6 +1689,8 @@ export class Player {
       this.switchTo(cls, this.paint);
     }
     this.vehHeading = this.heading + Math.PI * 0.5;
+    this.coasting = false;
+    this.vehSlip = 0;
     this.vehSpeed = 0;
     this.vehVelY = 0;
     this.vehAir = true;
@@ -1510,7 +1699,60 @@ export class Player {
   }
 
   /** Sit the truck on the ground, averaging the four contact patches. */
+  /**
+   * The vehicle while you are not in it.
+   *
+   * Parked, it just sits on the ground. But if you left it moving — stepped
+   * out at speed, or out of an aircraft in flight — it carries on with what
+   * it had: no throttle and no hand on the wheel, slowing under its own drag,
+   * following the ground or falling out of the sky, until it rolls to a stop
+   * or meets something. It can wreck itself exactly as it could with you in
+   * it. You are simply not there for it.
+   */
+  private idleVehicle(dt: number) {
+    if (this.wrecked) return;
+    if (!this.coasting) {
+      this.placeVehicle(dt, 0, true);
+      return;
+    }
+    const wheeled = !this.spec.flies && !this.spec.floats;
+    const fwdX = Math.sin(this.vehHeading);
+    const fwdZ = Math.cos(this.vehHeading);
+    if (!this.vehAir) {
+      const n = normalAt(this.vehPos.x, this.vehPos.z, 2.5);
+      const grade = -(n.x * fwdX + n.z * fwdZ) / Math.max(n.y, 0.2);
+      this.vehSpeed -= grade * this.spec.gradePull * dt;
+    }
+    // Engine off: its own drag, plus tyres on the ground or a dead propeller.
+    // Out of gear rather than braking, so a truck left at speed runs on a
+    // good way before it gives up.
+    const k = this.spec.flies ? this.spec.drag + 0.16 : this.vehAir ? 0 : this.spec.drag * 0.45 + 0.04;
+    this.vehSpeed -= this.vehSpeed * k * dt;
+    if (wheeled && this.vehAir) this.airTime += dt;
+    this.vehSlip -= this.vehSlip * Math.min(1, dt * 1.8);
+
+    const going = this.vehHeading + this.vehSlip;
+    const nx = this.vehPos.x + Math.sin(going) * this.vehSpeed * dt;
+    const nz = this.vehPos.z + Math.cos(going) * this.vehSpeed * dt;
+    const depth = SEA_LEVEL - heightAt(nx, nz);
+    if (this.spec.floats ? depth < BOAT_DRAFT : wheeled && depth > VEH_WADE) {
+      this.vehSpeed *= 1 - Math.min(1, dt * 7);
+    } else {
+      this.vehPos.x = nx;
+      this.vehPos.z = nz;
+    }
+    this.collideVehicle(fwdX, fwdZ);
+    if (this.wrecked) return;
+    this.placeVehicle(dt, this.vehSpeed, true);
+    if (this.wrecked) return;
+    if (!this.vehAir && Math.abs(this.vehSpeed) < 0.8) {
+      this.vehSpeed = 0;
+      this.coasting = false;
+    }
+  }
+
   private placeVehicle(dt: number, speed: number, airborne: boolean) {
+    if (this.wrecked) return;
     const hx = Math.sin(this.vehHeading);
     const hz = Math.cos(this.vehHeading);
     const sx = hz;
@@ -1703,6 +1945,28 @@ export class Player {
          * the same travel, read as reverse — until the wheels pull you up and
          * away again. Nothing is taken off you that friction would not take.
          */
+        /**
+         * Wheels down, or not.
+         *
+         * Clyde: "if you land wheels down, you are mostly good... if you land
+         * on the side of the truck or roof or something BOOM." This replaces
+         * the rule that blew the truck up for landing from a great height,
+         * which he did not want: "I don't want the truck to explode when
+         * landing sweet jumps." Height is free now. Attitude is what counts.
+         */
+        if (this.freeAir || this.airTime > 0.28) {
+          const up = new THREE.Vector3(0, 1, 0).applyQuaternion(this.vehQuat);
+          const gn = normalAt(this.vehPos.x, this.vehPos.z, 2.5);
+          if (up.x * gn.x + up.y * gn.y + up.z * gn.z < LAND_UPRIGHT) {
+            const going = this.vehHeading + this.vehSlip;
+            const dir = Math.sign(this.vehSpeed || 1);
+            this.freeAir = false;
+            this.onCrash?.(1);
+            this.wreck(Math.sin(going) * dir, Math.cos(going) * dir, Math.abs(this.vehSpeed));
+            return;
+          }
+        }
+        this.freeAir = false;
         let slip = ((this.vehSlip + Math.PI) % (Math.PI * 2) + Math.PI * 2) % (Math.PI * 2) - Math.PI;
         if (Math.abs(slip) > Math.PI / 2) {
           this.vehSpeed = -this.vehSpeed;
@@ -1710,18 +1974,14 @@ export class Player {
         }
         this.vehSlip = slip;
         this.vehLeapt = false;
+        const flips = Math.floor(this.airFlip / (Math.PI * 2) + 0.12);
         if (this.airTime > 1.1) {
-          this.boost = Math.max(this.boost, Math.min(2.4, 0.5 + this.airTime * 0.45 + turns * 0.5));
-          this.onStunt?.(this.airTime, turns);
+          this.boost = Math.max(this.boost, Math.min(2.8, 0.5 + this.airTime * 0.45 + turns * 0.5 + flips * 0.8));
+          this.onStunt?.(this.airTime, turns, flips);
         }
         this.airTime = 0;
         this.airSpin = 0;
-        // Off the roof of a tower, say. Nothing with wheels lands that.
-        if (impact > 40 && this.mode === "drive") {
-          this.onCrash?.(1);
-          this.wreck(hx, hz, Math.abs(this.vehSpeed) * 0.5);
-          return;
-        }
+        this.airFlip = 0;
         if (impact > 4) {
           const force = Math.min(impact / 18, 1);
           this.shake = Math.max(this.shake, force * 0.5);
@@ -1817,7 +2077,18 @@ export class Player {
      * jump, which is what that number was for.
      */
     const settle = this.spec.flies ? 6.5 : this.vehAir ? 1.4 : 7;
-    this.vehQuat.slerp(target, this.warmedUp ? Math.min(1, dt * settle) : 1);
+    if (this.freeAir && this.vehAir && this.warmedUp) {
+      // Yours. Spin about the world's up, flip about the vehicle's own axle,
+      // and nothing eases it back toward level.
+      ROT.setFromAxisAngle(AXIS_Y, this.airYawStep);
+      this.vehQuat.premultiply(ROT);
+      ROT.setFromAxisAngle(AXIS_X, this.airPitchStep);
+      this.vehQuat.multiply(ROT).normalize();
+      this.airYawStep = 0;
+      this.airPitchStep = 0;
+    } else {
+      this.vehQuat.slerp(target, this.warmedUp ? Math.min(1, dt * settle) : 1);
+    }
     this.warmedUp = true;
 
     this.vehicle.root.position.copy(this.vehPos);
@@ -1850,17 +2121,24 @@ export class Player {
    * So there is now ONE release, and both ways out of a vehicle go through it.
    * A second copy of this list is how the two drifted apart in the first place.
    */
-  private releaseVehicle() {
-    this.vehSpeed = 0;
+  private releaseVehicle(keepMoving = false) {
+    if (!keepMoving) {
+      this.vehSpeed = 0;
+      this.vehVelY = 0;
+      this.vehAir = false;
+    }
+    this.coasting = keepMoving;
     this.throttle = 0;
-    this.vehVelY = 0;
-    this.vehAir = false;
+    this.freeAir = false;
+    this.airYaw = 0;
+    this.airPitch = 0;
+    this.airFlip = 0;
     // The flight controls especially: these are HELD, so whatever was being
     // held at the moment you left is what the machine would keep doing.
     this.vehClimb = false;
     this.vehDescend = false;
     this.vehSteer = 0;
-    this.vehSlip = 0;
+    if (!keepMoving) this.vehSlip = 0;
     this.driftCharge = 0;
     this.drifting = 0;
     this.boost = 0;
@@ -1875,11 +2153,39 @@ export class Player {
     const sz = -Math.sin(this.vehHeading);
     const x = this.vehPos.x + sx * 2.4;
     const z = this.vehPos.z + sz * 2.4;
-    this.position.set(x, heightAt(x, z), z);
+    const moving = Math.abs(this.vehSpeed) > 5 || this.vehAir;
+    this.position.set(x, moving ? this.vehPos.y : heightAt(x, z), z);
     this.mode = "foot";
     this.velY = 0;
     this.grounded = true;
-    this.releaseVehicle();
+    const high = this.vehPos.y - Math.max(heightAt(x, z), SEA_LEVEL);
+    if (moving && this.vehAir && high > 3) {
+      // Out of something that is itself in the air: you fall, with what it
+      // had, and from high enough that is a skydive like any other.
+      const going = this.vehHeading + this.vehSlip;
+      this.grounded = false;
+      this.velY = Math.min(this.vehVelY, 0);
+      this.fallX = Math.sin(going) * this.vehSpeed * 0.5;
+      this.fallZ = Math.cos(going) * this.vehSpeed * 0.5;
+      this.heading = this.vehHeading;
+      if (high > DROP_SKYDIVE) {
+        this.skyState = 1;
+        this.fallTime = 0;
+        this.onSkydive?.("jump");
+      }
+    } else if (moving) {
+      // Out of a moving vehicle: you roll, on the line it was travelling,
+      // and it goes on down the road by itself.
+      const going = this.vehHeading + this.vehSlip;
+      const dir = Math.sign(this.vehSpeed || 1);
+      const out = THREE.MathUtils.clamp(Math.abs(this.vehSpeed) * 0.32, 4, 15);
+      this.heading = Math.atan2(Math.sin(going) * dir, Math.cos(going) * dir);
+      this.tumbleX = Math.sin(going) * dir * out;
+      this.tumbleZ = Math.cos(going) * dir * out;
+      this.tumble = TUMBLE;
+      this.footSpeed = 0;
+    }
+    this.releaseVehicle(moving);
   }
 
   // --- camera ----------------------------------------------------------------
@@ -1915,7 +2221,7 @@ export class Player {
      * difference between watching a truck go quickly and going quickly.
      */
     const rush = this.mode === "drive" || this.skyState === 3
-      ? Math.min(1, this.speed / 62) * 13 + (this.boost > 0 ? 7 : 0)
+      ? Math.min(1, this.speed / 62) * 13 + (this.boosting ? 7 : 0)
       : 0;
     this.camera.fov += (this.baseFov + rush - this.camera.fov) * Math.min(1, dt * (rush > 0 ? 3.5 : 9));
     this.camera.updateProjectionMatrix();

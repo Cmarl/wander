@@ -131,6 +131,40 @@ for (let x = -60000; x <= 60000 && !found; x += 1500) for (let z = -60000; z <= 
   check(p.mode === "drive", "that you can get straight into", p.mode);
 }
 
+// Step out of it in flight: the wing must open, over land and over water, and
+// the aeroplane must go on and come down somewhere by itself.
+let sea = { x: 0, z: 0 };
+search: for (let x = -60000; x <= 60000; x += 3000) for (let z = -60000; z <= 60000; z += 3000) {
+  let wet = true;
+  for (let d = -3000; d <= 9000 && wet; d += 1000) wet = heightAt(x, z + d) < -8;
+  if (wet) { sea = { x, z }; break search; }
+}
+for (const [label, x, z] of [["over land", fx, fz - 1000], ["over the sea", sea.x, sea.z]] as [string, number, number][]) {
+  const p = new Player(new THREE.PerspectiveCamera(), new THREE.Vector2(fx, fz - 1000));
+  const c = controls();
+  p.adopt("plane", 0x9a7f4e, p.position.x + 2, p.position.z + 1, 0);
+  tap(p, c, "interact");
+  c.move.y = 1; c.jumpHeld = true;
+  for (let k = 0; k < 60 * 12; k++) p.update(DT, c);
+  // Carry the whole flight to where the test wants it, at the height it has.
+  const lift = p.vehicle.root.position.y - Math.max(heightAt(p.vehicle.root.position.x, p.vehicle.root.position.z), 0);
+  (p as any).vehPos.set(x, Math.max(heightAt(x, z), 0) + lift, z);
+  p.update(DT, c);
+  c.jumpHeld = false; c.move.y = 0;
+  const left = p.vehicle.root.position.clone();
+  tap(p, c, "interact");
+  check(p.skyState === 1, `${label}: stepped out, falling`, `skyState ${p.skyState}`);
+  for (let k = 0; k < 40; k++) p.update(DT, c);
+  tap(p, c, "jump");
+  check(p.skyState === 3, `${label}: jump opens the wing`, `skyState ${p.skyState}, swimming ${p.swimming}`);
+  let secs = 0;
+  while ((p.coasting || p.skyState !== 0) && secs < 400) { p.update(DT, c); secs += DT; }
+  const went = p.vehicle.root.position.distanceTo(left);
+  console.log(`${label}: left the aeroplane ${lift.toFixed(0)} m up; it went on ${(went / 1000).toFixed(1)} km and ${p.wrecked ? "crashed" : "came down and stopped"}`);
+  check(went > 300, `${label}: the aeroplane flies on without you`, `${went.toFixed(0)} m`);
+  check(!p.coasting, `${label}: and ends up somewhere`, p.wrecked ? "wrecked" : "at rest");
+}
+
 // And on wheels: fast into something solid, and slowly into the same thing.
 for (const [label, secs, expect] of [["flat out", 9, true], ["at a crawl", 0.45, false]] as [string, number, boolean][]) {
   const { p, c } = board("truck", fx, fz - 1000);

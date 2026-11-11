@@ -321,3 +321,72 @@ export class Explosion {
     }
   }
 }
+
+/**
+ * Fire off the back wheels.
+ *
+ * Clyde: "when you get a boost from whatever (skids, big jumps) make fire
+ * come from the wheels." A boost you cannot see is a number going up. This
+ * is a short hot streak out of each rear tyre for as long as it is pushing:
+ * additive, so it glows through the lens, and cooling from yellow to red to
+ * nothing in a third of a second so it reads as a jet and not as smoke.
+ */
+const FLAME_MAX = 90;
+
+export class Flames {
+  readonly mesh: THREE.InstancedMesh;
+  private pool: { x: number; y: number; z: number; vx: number; vy: number; vz: number; life: number; size: number }[] = [];
+  private m = new THREE.Matrix4();
+  private c = new THREE.Color();
+  private q = new THREE.Quaternion();
+  private s = new THREE.Vector3();
+  private p = new THREE.Vector3();
+
+  constructor() {
+    this.mesh = new THREE.InstancedMesh(
+      new THREE.IcosahedronGeometry(1, 0),
+      new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, fog: false }),
+      FLAME_MAX
+    );
+    this.mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+    this.mesh.frustumCulled = false;
+    this.mesh.count = 0;
+    this.mesh.renderOrder = 10;
+    // Allocate the colour buffer up front; three only makes it on first use.
+    this.mesh.setColorAt(0, this.c.setRGB(0, 0, 0));
+  }
+
+  emit(x: number, y: number, z: number, vx: number, vy: number, vz: number) {
+    if (this.pool.length >= FLAME_MAX) return;
+    this.pool.push({ x, y, z, vx, vy, vz, life: 0, size: 0.22 + Math.random() * 0.2 });
+  }
+
+  update(dt: number) {
+    const LIFE = 0.34;
+    let n = 0;
+    for (let i = this.pool.length - 1; i >= 0; i--) {
+      const f = this.pool[i];
+      f.life += dt;
+      if (f.life >= LIFE) {
+        this.pool.splice(i, 1);
+        continue;
+      }
+      f.x += f.vx * dt;
+      f.y += f.vy * dt;
+      f.z += f.vz * dt;
+    }
+    for (const f of this.pool) {
+      const k = f.life / LIFE;
+      this.s.setScalar(f.size * (1 + k * 1.6));
+      this.m.compose(this.p.set(f.x, f.y, f.z), this.q, this.s);
+      this.mesh.setMatrixAt(n, this.m);
+      // Additive, so fading the colour to black IS fading it out.
+      const a = (1 - k) * (1 - k);
+      this.mesh.setColorAt(n, this.c.setRGB(1.0 * a, (0.85 - 0.75 * k) * a, (0.35 - 0.6 * k > 0 ? 0.35 - 0.6 * k : 0) * a));
+      n++;
+    }
+    this.mesh.count = n;
+    this.mesh.instanceMatrix.needsUpdate = true;
+    if (this.mesh.instanceColor) this.mesh.instanceColor.needsUpdate = true;
+  }
+}
