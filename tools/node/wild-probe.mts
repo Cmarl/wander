@@ -186,29 +186,39 @@ for (const [label, spinFor] of [["tail-first", 0.92], ["sideways", 0.46]] as [st
   check(p.drifting < 0.2, `${label}: then it straightens out on its own`, `drifting ${p.drifting.toFixed(2)}`);
 }
 
-// Flips. The stick is read from where it was at take-off, so simply keeping
-// your foot down must never tip the truck over.
-for (const [label, back, expect] of [
-  ["throttle held, stick untouched", 0, "lands"],
-  ["eased back for one whole flip", 1.5, "lands"],
-  ["eased back for half a flip", 0.72, "wrecks"],
-] as [string, number, string][]) {
+// Flips, and who is flying the truck. A jump you do nothing about must level
+// itself, exactly as it did before there were flips at all — and that has to
+// include letting go of the throttle, which is not a command. It becomes
+// yours at the first deliberate push, and from then on nothing rights it.
+//   y(t) is what the stick does once the truck is in real air.
+for (const [label, y, expect] of [
+  ["throttle held the whole way", () => 1, "lands"],
+  ["throttle let go, nothing else", () => 0, "lands"],
+  ["let go, then held back for one whole flip", (t: number) => (t < 0.1 ? 0 : t < 0.1 + 1.43 ? -1 : 0), "lands"],
+  ["let go, then held back for half a flip", (t: number) => (t < 0.1 ? 0 : t < 0.1 + 0.72 ? -1 : 0), "wrecks"],
+  ["let go, then pushed forward for half a flip", (t: number) => (t < 0.1 ? 0 : t < 0.1 + 0.72 ? 1 : 0), "wrecks"],
+] as [string, (t: number) => number, string][]) {
   const { p, c } = drive();
   c.move.y = 1;
   for (let k = 0; k < 60 * 9; k++) p.update(DT, c);
-  let landed = false, flips = 0;
+  let landed = false, flips = 0, tilt = 0;
   p.onStunt = (_a, _t, f) => { landed = true; flips = f; };
   tap(p, c, "jump");
   let t = 0;
+  const up = new THREE.Vector3();
   for (let k = 0; k < 60 * 6 && !landed && !p.wrecked; k++) {
-    // Rotation only starts once it is real air, a little after the wheels leave.
-    c.move.y = t > 0.3 && t < 0.3 + back ? 0 : 1;
+    c.move.y = t > 0.3 ? y(t - 0.3) : 1;
     p.update(DT, c);
     t += DT;
+    up.set(0, 1, 0).applyQuaternion(p.vehicle.root.quaternion);
+    tilt = Math.max(tilt, (Math.acos(THREE.MathUtils.clamp(up.y, -1, 1)) * 180) / Math.PI);
   }
   console.log(`a jump with ${label}: ${p.wrecked ? "wrecked" : `landed${flips ? ` with ${flips} flip${flips > 1 ? "s" : ""}` : ""}`}`);
   check((expect === "wrecks") === p.wrecked, `${label}: ${expect}`, p.wrecked ? "wrecked" : "on its wheels");
-  if (expect === "wrecks") {
+  if (label.endsWith("nothing else") || label.endsWith("whole way")) {
+    check(tilt < 25 && flips === 0, `${label}: and it never tips over on the way`, `worst ${tilt.toFixed(0)}° off level`);
+  }
+  if (label.endsWith("held back for half a flip")) {
     check(p.mode === "foot" && p.tumble > 0, "and you are thrown clear of it", `${p.mode}, tumbling ${p.tumble.toFixed(2)} s`);
     // The pieces: the model is gone and its parts are where the blast put them.
     const parts = (p as any).debris.length;

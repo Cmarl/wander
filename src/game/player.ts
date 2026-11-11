@@ -279,7 +279,10 @@ export class Player {
   private airYawStep = 0;
   private airPitchStep = 0;
   private airFlip = 0;
-  private airStickRef = 0;
+  /** This jump has begun; you have taken its attitude over; the throttle axis has been to centre. */
+  private airStarted = false;
+  private airMine = false;
+  private airArmed = false;
   private jumpWasDown = false;
   private jumpEdge = false;
   /** In real air on wheels, where the attitude is yours. */
@@ -1394,32 +1397,38 @@ export class Player {
          * the other way, with everything you had.
          */
         /**
-         * And the other stick axis tips it end over end.
+         * It levels itself until you take it over.
          *
-         * Clyde: "let the truck be rotatable in all directions, right now it
-         * self orients the wheels down so you always land right. I think that
-         * should be on the user (and relatively easy)."
+         * Clyde: "if I let go of the throttle in the air, it just starts
+         * tumbling lol. thinking we keep the behavior as it was before until
+         * that first control change. so, I jump at full throttle, and decide
+         * to let go of the gas - it should just be levelling like before -
+         * but the first thing I do after that, left, right, forward,
+         * backwards, whatever, starts to roll it - then it's on me to land
+         * correct."
          *
-         * So nothing levels it for you any more. Across spins it, forward
-         * tips the nose down, back tips it up, and it stops turning almost as
-         * soon as you let go — which is the "relatively easy": there is no
-         * momentum to fight, only an attitude to choose. Where the wheels are
-         * when the ground arrives is now your business.
+         * The last version read the flip from how far the stick had MOVED
+         * since take-off, so easing off the gas was a backflip. Now a jump
+         * you do nothing about is the old jump: the truck settles toward
+         * level by itself and lands on its wheels. It becomes yours at the
+         * first deliberate push — and from then on nothing rights it.
+         *
+         * "Deliberate" is the one subtlety. The throttle is nearly always
+         * held forward at take-off, so that axis does not count until it has
+         * been back to the middle once: letting go is not a command, and the
+         * NEXT push, either way, is. Steering has no such history — holding
+         * the stick over into a jump has always spun the truck.
          */
-        this.airYaw += (steerInput * AIR_SPIN - this.airYaw) * Math.min(1, dt * 10);
-        /**
-         * Measured from where the stick WAS when you left the ground.
-         *
-         * Nearly every jump is taken with the stick held forward, because
-         * that is the throttle. Read as an absolute, that would front-flip
-         * the truck off every crest for anybody who simply kept driving —
-         * the opposite of "relatively easy". So holding what you were holding
-         * does nothing, and the flip comes from MOVING it: ease back and the
-         * nose comes up, push further and it goes down.
-         */
-        if (!this.freeAir) this.airStickRef = input.move.y;
-        const moved = THREE.MathUtils.clamp(input.move.y - this.airStickRef, -1, 1);
-        const tip = Math.abs(moved) < 0.3 ? 0 : (moved - Math.sign(moved) * 0.3) / 0.7;
+        if (!this.airStarted) {
+          this.airStarted = true;
+          this.airMine = false;
+          this.airArmed = Math.abs(input.move.y) < 0.25;
+        }
+        if (Math.abs(input.move.y) < 0.25) this.airArmed = true;
+        const spin = Math.abs(steerInput) > 0.35 ? steerInput : 0;
+        const tip = this.airArmed && Math.abs(input.move.y) > 0.35 ? input.move.y : 0;
+        if (spin !== 0 || tip !== 0) this.airMine = true;
+        this.airYaw += (spin * AIR_SPIN - this.airYaw) * Math.min(1, dt * 10);
         this.airPitch += (tip * AIR_FLIP - this.airPitch) * Math.min(1, dt * 10);
         const turn = this.airYaw * dt;
         this.vehHeading -= turn;
@@ -1428,8 +1437,10 @@ export class Player {
         this.airYawStep = -turn;
         this.airPitchStep = this.airPitch * dt;
         this.airFlip += Math.abs(this.airPitchStep);
-        this.freeAir = true;
+        // Free of the self-levelling only once you have taken it.
+        this.freeAir = this.airMine;
       } else {
+        this.airStarted = false;
         this.airYaw = 0;
         this.airPitch = 0;
         this.freeAir = false;
