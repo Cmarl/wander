@@ -155,8 +155,14 @@ for (const [label, x, z] of [["over land", fx, fz - 1000], ["over the sea", sea.
   tap(p, c, "interact");
   check(p.skyState === 1, `${label}: stepped out, falling`, `skyState ${p.skyState}`);
   for (let k = 0; k < 40; k++) p.update(DT, c);
-  tap(p, c, "jump");
-  check(p.skyState === 3, `${label}: jump opens the wing`, `skyState ${p.skyState}, swimming ${p.swimming}`);
+  // Pressed the way a controller reports it: true on every frame it is down.
+  // A press held for an EVEN number of frames is the case that used to end
+  // with the wing folded again.
+  c.jump = true; c.jumpHeld = true;
+  for (let k = 0; k < 6; k++) p.update(DT, c);
+  c.jump = false; c.jumpHeld = false;
+  p.update(DT, c);
+  check(p.skyState === 3, `${label}: a held press opens the wing and leaves it open`, `skyState ${p.skyState}, swimming ${p.swimming}`);
   let secs = 0;
   while ((p.coasting || p.skyState !== 0) && secs < 400) { p.update(DT, c); secs += DT; }
   const went = p.vehicle.root.position.distanceTo(left);

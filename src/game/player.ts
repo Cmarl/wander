@@ -280,6 +280,7 @@ export class Player {
   private airPitchStep = 0;
   private airFlip = 0;
   private airStickRef = 0;
+  private jumpWasDown = false;
   /** In real air on wheels, where the attitude is yours. */
   private freeAir = false;
   onSummon?: () => void;
@@ -1026,11 +1027,29 @@ export class Player {
       this.position.z = THREE.MathUtils.clamp(this.position.z, p.z - p.half, p.z + p.half);
       ground = p.y;
     }
+    /**
+     * The PRESS, not the state.
+     *
+     * Clyde, twice: "I jumped from my plane and got no glider." A controller
+     * reports jump as true on every frame the button is down — which is what
+     * holding it to climb an aircraft needs — so one press of a tenth of a
+     * second was six frames of "jump", and the wing opened, folded, opened,
+     * folded, opened and folded. Whether you ended up flying was a coin toss
+     * on the frame count. Keyboard and touch send a single pulse, which is
+     * why every test I ran passed.
+     *
+     * So the wing listens for the button going down. That also means a jump
+     * button still held from climbing the aeroplane does nothing when you
+     * step out: you let go and press, which is a decision.
+     */
+    const jumpDown = input.jump || input.jumpHeld;
+    const jumpPressed = jumpDown && !this.jumpWasDown;
+    this.jumpWasDown = jumpDown;
     if (this.grounded && input.jump) {
       this.onJump?.(false);
       this.velY = JUMP;
       this.grounded = false;
-    } else if (input.jump && !this.grounded && !this.swimming && !this.platform) {
+    } else if (jumpPressed && !this.grounded && !this.swimming && !this.platform) {
       /**
        * The same button, in the air.
        *
