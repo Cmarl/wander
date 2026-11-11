@@ -117,7 +117,7 @@ export const SPECS: Record<VehicleClass, VehicleSpec> = {
   chopper: {
     cls: "chopper", label: "Helicopter",
     // Unhurried, and it can stop in mid-air, which nothing else can.
-    top: 42, accel: 16, brake: 18, drag: 0.42, reverse: 9,
+    top: 42, accel: 19.5, brake: 18, drag: 0.42, reverse: 9,
     jump: 0, gradePull: 0, turn: 2.0,
     bodyR: 1.1, bodyOffset: 1.3,
     seat: [-0.44, 1.46, 0.3], dogSeat: [0.58, 1.3, 0.0],
@@ -155,7 +155,7 @@ export const SPECS: Record<VehicleClass, VehicleSpec> = {
   van: {
     cls: "van", label: "Van",
     // Heavy and unhurried. Poor on a climb, steady everywhere else.
-    top: 40, accel: 20, brake: 26, drag: 0.5, reverse: 11,
+    top: 40, accel: 22.5, brake: 26, drag: 0.5, reverse: 11,
     jump: 8, gradePull: 10.5, turn: 1.35,
     bodyR: 1.3, bodyOffset: 1.6,
     seat: [-0.44, 1.72, 0.9], dogSeat: [0.6, 1.0, 0.2],

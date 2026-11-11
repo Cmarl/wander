@@ -1,4 +1,5 @@
 import { landmarksNear, STRIP_HALF_L, STRIP_HALF_W, type Landmark } from "./landmarks";
+import { FOOTPRINT, MONUMENT_CELL, monumentInCell } from "./monuments";
 
 /**
  * Ground that somebody cleared.
@@ -42,6 +43,10 @@ function clearingsFor(lm: Landmark): Clearing[] {
     // The landing's approach, so you are not pushing through scrub to reach it.
     return [{ x: lm.x, z: lm.z, rot: lm.rot, halfW: 5, halfL: 8 }];
   }
+  // Nothing grows in scalding mineral water, or in the middle of a ring
+  // people have been walking round for four thousand years.
+  if (lm.kind === "spring") return [{ x: lm.x, z: lm.z, rot: 0, halfW: 15 * lm.scale, halfL: 15 * lm.scale }];
+  if (lm.kind === "stones" && lm.variant !== 1) return [{ x: lm.x, z: lm.z, rot: 0, halfW: 11 * lm.scale, halfL: 11 * lm.scale }];
   return [];
 }
 
@@ -55,6 +60,13 @@ function clearingsFor(lm: Landmark): Clearing[] {
 export function clearingsNear(x: number, z: number, cells = 2): Clearing[] {
   const out: Clearing[] = [];
   for (const lm of landmarksNear(x, z, cells)) out.push(...clearingsFor(lm));
+  // A castle with a pine growing through the keep is the same mistake as a
+  // runway with one. Monuments are sparse and their cell lookup is cached, so
+  // asking costs a map read.
+  const m = monumentInCell(Math.round(x / MONUMENT_CELL), Math.round(z / MONUMENT_CELL));
+  if (m && FOOTPRINT[m.kind] > 0 && Math.abs(m.x - x) < 400 && Math.abs(m.z - z) < 400) {
+    out.push({ x: m.x, z: m.z, rot: m.rot, halfW: FOOTPRINT[m.kind], halfL: FOOTPRINT[m.kind] });
+  }
   out.sort(
     (a, b) => (a.x - x) ** 2 + (a.z - z) ** 2 - ((b.x - x) ** 2 + (b.z - z) ** 2)
   );

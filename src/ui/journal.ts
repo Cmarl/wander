@@ -33,6 +33,8 @@ const KIND_LABEL: Record<string, string> = {
   sighting: "wildlife",
   // A hamlet is the only find that is somewhere rather than something.
   place: "settlement",
+  // The big ones. Listed apart, because they are not the same kind of find.
+  monument: "monument",
   rumour: "heard about",
   camp: "camp",
   biome: "country",
@@ -578,9 +580,9 @@ export class Journal {
     // Everything you have found.
     for (const f of all) {
       const [px, py] = toPx(f.x, f.z);
-      ctx.fillStyle = f.kind === "place" ? "#ffd27f" : f.kind === "sighting" ? "#9fe0a8" : "#e2c069";
+      ctx.fillStyle = f.kind === "monument" ? "#ffffff" : f.kind === "place" ? "#ffd27f" : f.kind === "sighting" ? "#9fe0a8" : "#e2c069";
       ctx.beginPath();
-      ctx.arc(px, py, f.kind === "place" ? 4 : 2.6, 0, Math.PI * 2);
+      ctx.arc(px, py, f.kind === "monument" ? 5.5 : f.kind === "place" ? 4 : 2.6, 0, Math.PI * 2);
       ctx.fill();
     }
 

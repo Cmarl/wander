@@ -34,7 +34,11 @@ import { findSpawn } from "./world/spawn";
 import { lastPlace, rememberPlace } from "./game/save";
 import { heightAt, biomeNameAt } from "./world/field";
 import { regionAt } from "./world/regions";
-import { rumourAt } from "./world/rumours";
+import { rumourAt, monumentRumour, survey, type Rumour } from "./world/rumours";
+import { MonumentField } from "./world/monumentRender";
+import {
+  FOUND_RANGE, MONUMENT_NOUN, monumentDecks, monumentSolids, onSummit, turbinesOf, type Monument,
+} from "./world/monuments";
 import { Environment } from "./game/environment";
 import { Player } from "./game/player";
 import { Controls } from "./input/controls";
@@ -111,6 +115,8 @@ const landmarks = new LandmarkField();
 scene.add(landmarks.group);
 const settlements = new SettlementField();
 scene.add(settlements.group);
+const monuments = new MonumentField();
+scene.add(monuments.group);
 const found = new Discoveries();
 const features = new Features();
 const camp = new Camp();
@@ -177,6 +183,12 @@ player.onSkydive = (what) => {
   if (what === "jump") {
     sound.jump(false);
     hud.found("you step out", "into the air", "press to open the chute");
+    haptics.discover();
+  } else if (what === "leap") {
+    // Off the edge of something tall, which is the same fall with a
+    // different beginning.
+    sound.jump(false);
+    hud.found("you step off", "the edge", "press to open the chute");
     haptics.discover();
   } else if (what === "chute") {
     sound.action("orchard"); // canopy snapping open: cloth and a crack
@@ -534,7 +546,7 @@ if (localStorage.getItem("wander.solo") !== "1") {
 
 // Live handle for tuning from the console: __wander.env.timeOfDay = 0.5, etc.
 (window as Window & { __wander?: unknown }).__wander = {
-  env, controls, terrain, sunShadows, post, water, sky, grass, landmarks, wildlife, found, camp, features, dust, birds, postcard, journal, garage, player, camera, renderer, scene, sound, net, peers,
+  env, controls, terrain, sunShadows, post, monuments, water, sky, grass, landmarks, wildlife, found, camp, features, dust, birds, postcard, journal, garage, player, camera, renderer, scene, sound, net, peers,
 };
 
 function resize() {
@@ -694,7 +706,10 @@ function togglePin(id: string) {
     dropPin(id);
     return;
   }
-  const lm = landmarks.loaded.find((l) => l.id === id);
+  const mon = monuments.loaded.find((l) => l.m.id === id)?.m;
+  const lm = mon
+    ? { name: found.has(mon.id) ? mon.name : `a ${MONUMENT_NOUN[mon.kind].toLowerCase()}`, x: mon.x, z: mon.z }
+    : landmarks.loaded.find((l) => l.id === id);
   if (!lm) return;
   pins.push({ id, name: lm.name, x: lm.x, z: lm.z });
   // Three is the cap. Saying what fell off is the difference between knowing
@@ -767,6 +782,164 @@ function arriving() {
     }
   }
   inSettlement = name;
+}
+
+/**
+ * Monuments: reaching one, standing on top of one, and hearing about one.
+ *
+ * A landmark is found by being near it. A monument is found the same way, but
+ * the event is bigger, because you did not stumble on this — you saw it from
+ * somewhere and came. And the summit is its own thing: getting to the top is
+ * what the stairs are for, and the view from there is the reward that feeds
+ * the next hour, because it tells you what else is out there.
+ */
+let radioDrive = 0;
+let radioNext = 40;
+
+function tellRumour(r: Rumour, from: string) {
+  const fresh = found.add({
+    id: r.id,
+    kind: "rumour",
+    name: r.text,
+    x: r.x,
+    z: r.z,
+    at: Date.now(),
+    tod: env.timeOfDay,
+    region: r.region,
+    about: r.short,
+  });
+  hud.announce(r.text, fresh ? from : `${from}, again`, {
+    big: true,
+    hint: controls.isTouch
+      ? "open the journal, then REGISTER — tap “pin it” to put it on your compass"
+      : "press J for the journal — “pin it” puts it on your compass",
+  });
+  return fresh;
+}
+
+/** A monument you have neither reached nor already been told about. */
+const untold = (m: Monument) => !found.has(m.id) && !found.has(`rumour:${m.id}`);
+
+function monumentsTick(dt: number) {
+  const px = player.position.x;
+  const pz = player.position.z;
+  for (const m of monuments.near(px, pz, 900)) {
+    let d = Math.hypot(m.x - px, m.z - pz);
+    // A wind farm has no middle. You have reached it when you are under one.
+    if (m.kind === "windfarm") {
+      d = Infinity;
+      for (const t of turbinesOf(m)) d = Math.min(d, Math.hypot(t.x - px, t.z - pz) * 2.4);
+    }
+    if (d < FOUND_RANGE[m.kind] && !found.has(m.id)) {
+      const region = regionAt(m.x, m.z).name;
+      found.add({
+        id: m.id,
+        kind: "monument",
+        name: m.name,
+        x: Math.round(m.x),
+        z: Math.round(m.z),
+        at: Date.now(),
+        tod: env.timeOfDay,
+        region,
+      });
+      hud.found("you have reached", m.name, `${MONUMENT_NOUN[m.kind]} · ${region}`);
+      sound.discovery("monument");
+      haptics.discover();
+      dropPinQuietly(m.id);
+      dropPinQuietly(`rumour:${m.id}`);
+    }
+    if (player.mode === "foot" && onSummit(m, px, player.position.y, pz)) {
+      const fresh = found.add({
+        id: `summit:${m.id}`,
+        kind: "badge",
+        name: `Stood on top of ${m.name}`,
+        x: Math.round(m.x),
+        z: Math.round(m.z),
+        at: Date.now(),
+        tod: env.timeOfDay,
+        region: regionAt(m.x, m.z).name,
+      });
+      if (fresh) {
+        /**
+         * The view pays you in places.
+         *
+         * From up here you can make out the nearest things you have not been
+         * to. They go in the journal as words and a bearing, exactly like
+         * something heard on the radio — nothing is marked unless you pin it.
+         */
+        const seen = survey(px, pz, (id) => !found.has(id) && !found.has(`rumour:${id}`), 3);
+        for (const r of seen) {
+          found.add({
+            id: r.id, kind: "rumour", name: r.text, x: r.x, z: r.z,
+            at: Date.now(), tod: env.timeOfDay, region: r.region, about: r.short,
+          });
+        }
+        const far = monumentRumour(px, pz, (o) => o.id !== m.id && untold(o));
+        if (far) {
+          found.add({
+            id: far.id, kind: "rumour", name: far.text, x: far.x, z: far.z,
+            at: Date.now(), tod: env.timeOfDay, region: far.region, about: far.short,
+          });
+        }
+        const n = seen.length + (far ? 1 : 0);
+        hud.found(
+          "the top of",
+          m.name,
+          n ? `from up here you can make out ${n === 1 ? "one place" : `${n} places`} you have not been — they are in your journal` : "the whole country, laid out"
+        );
+        sound.discovery("monument");
+        haptics.discover();
+      }
+    }
+  }
+
+  /**
+   * The truck has a radio.
+   *
+   * Rumours were the mechanic Clyde singled out — "I LOVE THAT, it drives
+   * discovery" — and they could only be heard at a mast or a hamlet, which
+   * are two of the things you needed a rumour to find. So the loop could not
+   * start until you had already solved it some other way.
+   *
+   * Now it starts in the first minute of driving. The radio picks something
+   * up early, and again every several minutes on the road — the big thing on
+   * the horizon first if you have not been told about it, and ordinary places
+   * after. Counted in time spent DRIVING, so it never talks at you while you
+   * are standing in a field looking at something.
+   */
+  if (player.mode === "drive" && Math.abs(player.vehicleState.speed) > 4) {
+    radioDrive += dt;
+    if (radioDrive > radioNext) {
+      radioNext = radioDrive + 330;
+      const big = monumentRumour(px, pz, untold);
+      const cx = Math.round(px / 2200);
+      const cz = Math.round(pz / 2200);
+      let told = false;
+      if (big && Math.hypot(big.x - px, big.z - pz) < 34000) {
+        told = tellRumour(big, "the radio, through the static");
+      }
+      if (!told) {
+        // A few bearings from here until one is news.
+        for (let k = 0; k < 6 && !told; k++) {
+          const r = rumourAt(cx, cz, 1700 + k * 11 + Math.floor(radioDrive / 330) * 97, px, pz);
+          if (r && !found.has(r.id) && !found.has(r.id.replace("rumour:", ""))) {
+            told = tellRumour(r, "the radio, through the static");
+          }
+        }
+      }
+      if (told) sound.moment();
+      // Nothing out there worth saying: try again sooner.
+      else radioNext = radioDrive + 90;
+    }
+  }
+}
+
+/** Retire a pin without announcing it, when arriving has made it moot. */
+function dropPinQuietly(id: string) {
+  const at = pins.findIndex((p) => p.id === id);
+  if (at < 0) return;
+  pins.splice(at, 1);
+  savePins();
 }
 
 /**
@@ -1165,6 +1338,31 @@ function glassing() {
       centreId = lm.id;
     }
   }
+  /**
+   * And the big ones, from as far as they can be seen.
+   *
+   * A landmark is glassable inside nine kilometres because past that it is a
+   * pixel. A monument is the thing you raise the binoculars FOR — it is on
+   * the horizon precisely so you can ask what it is and decide to go.
+   */
+  for (const l of monuments.loaded) {
+    const m = l.m;
+    const d = Math.hypot(m.x - camera.position.x, m.z - camera.position.z);
+    if (d > 36000 || d < 120) continue;
+    projected.set(m.x, m.y + 40, m.z).project(camera);
+    if (projected.z > 1) continue;
+    const sx = (projected.x * 0.5 + 0.5) * innerWidth;
+    const sy = (-projected.y * 0.5 + 0.5) * innerHeight;
+    if (sx < 0 || sx > innerWidth || sy < 0 || sy > innerHeight) continue;
+    // Until you have been there it is only what it looks like.
+    const name = found.has(m.id) ? m.name : `a ${MONUMENT_NOUN[m.kind].toLowerCase()}?`;
+    marks.push({ id: m.id, name, sx, sy, km: d / 1000, pinned: pins.some((p) => p.id === m.id) });
+    const off = Math.hypot(sx - innerWidth / 2, sy - innerHeight / 2);
+    if (off < centreBest) {
+      centreBest = off;
+      centreId = m.id;
+    }
+  }
   hud.setMarks(marks);
   if (controls.pin && centreId && centreBest < innerWidth * 0.25) togglePin(centreId);
 }
@@ -1338,12 +1536,13 @@ function frame(now: number) {
   scatter.update(player.position.x, player.position.z);
   landmarks.update(player.position.x, player.position.z, env.elapsed, camera);
   settlements.update(player.position.x, player.position.z);
+  monuments.update(dt, player.position.x, player.position.z, env.elapsed, env.sunDir.y);
   arriving();
   wildlife.update(dt, player.position.x, player.position.z, env.sunDir.y, player.glassing);
 
   // Only landmarks you could actually touch take part in collision, and only
   // the nearest is a candidate for discovery.
-  const solids: { x: number; z: number; radius: number }[] = [];
+  const solids: { x: number; z: number; radius: number; bottom?: number; top?: number }[] = [];
   const decks: Deck[] = [];
   let nearest: { name: string; id: string; kind: string; x: number; z: number; d2: number } | null = null;
   for (const lm of landmarks.loaded) {
@@ -1363,8 +1562,17 @@ function frame(now: number) {
   // Settlement buildings are solid too, and they come pre-resolved to world
   // space because a hamlet doesn't move.
   for (const c of settlements.solids) solids.push(c);
+  // Monuments are walked on and into from much further out than a landmark:
+  // a wind farm is a kilometre across and a castle's bank starts fifty metres
+  // from its gate.
+  for (const m of monuments.near(player.position.x, player.position.z, 900)) {
+    if (m.kind !== "windfarm" && Math.hypot(m.x - player.position.x, m.z - player.position.z) > 260) continue;
+    decks.push(...monumentDecks(m));
+    for (const c of monumentSolids(m)) solids.push(c);
+  }
   player.landmarkSolids = solids;
   player.decks = decks;
+  monumentsTick(dt);
   if (nearest && !found.has(nearest.id)) {
     found.add({
       id: nearest.id,

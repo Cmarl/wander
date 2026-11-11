@@ -107,6 +107,10 @@ export const WORLD_UNIFORMS = {
    * does anything, and doubles as the knob for tuning it.
    */
   uRim: { value: 0.19 },
+  /** Ground bounce onto shaded faces. A uniform for the same reason uRim is. */
+  uBounce: { value: 1 },
+  /** How much brighter solids are lit than three's Lambert alone would. */
+  uSolidGain: { value: 1.55 },
   /** The sun's own colour, for anything that reflects it rather than scatters it. */
   uSunColor: { value: new THREE.Color(1, 1, 1) },
   /**
@@ -125,14 +129,22 @@ export const WORLD_UNIFORMS = {
  * Idempotent: patching twice would chain two onBeforeCompile hooks and inject
  * the helpers twice, which is a compile error, so it marks what it has done.
  */
-export function worldLit<T extends THREE.Material>(mat: T, gloss = 0): T {
+/**
+ * `haze` thins the air for this one material. 1 is the world's air; a
+ * monument uses about half, so it hangs on the horizon like a far mountain
+ * instead of dissolving at fifteen kilometres with the hills round it. It is
+ * a uniform, not a variant, so it costs no extra program.
+ */
+export function worldLit<T extends THREE.Material>(mat: T, gloss = 0, haze = 1): T {
   if ((mat as unknown as { __worldLit?: boolean }).__worldLit) return mat;
   (mat as unknown as { __worldLit?: boolean }).__worldLit = true;
   const uGloss = { value: gloss };
+  const uHaze = { value: haze };
 
   mat.onBeforeCompile = (shader) => {
     Object.assign(shader.uniforms, WORLD_UNIFORMS, SHADOW_UNIFORMS);
     shader.uniforms.uGloss = uGloss;
+    shader.uniforms.uHaze = uHaze;
 
     // The world position, which three only varies when something asks for it.
     shader.vertexShader = shader.vertexShader
@@ -180,7 +192,10 @@ export function worldLit<T extends THREE.Material>(mat: T, gloss = 0): T {
         uniform float uTime;
         uniform float uCloudCover;
         uniform float uRim;
+        uniform float uBounce;
+        uniform float uSolidGain;
         uniform float uGloss;
+        uniform float uHaze;
         uniform float uGlossScale;
         uniform vec3 uSunColor;
         ${NOISE_GLSL}
@@ -219,6 +234,26 @@ export function worldLit<T extends THREE.Material>(mat: T, gloss = 0): T {
             reflectedLight.directDiffuse = max(reflectedLight.directDiffuse - sunTerm * (1.0 - sunSh), vec3(0.0));
           }
         }
+        /**
+         * Light off the ground.
+         *
+         * The shaded side of everything was close to black. Sun and a dim
+         * blue sky were the only two lights, and a wall facing away from the
+         * sun saw neither — but it does see a field of sunlit grass, which is
+         * the second brightest thing outdoors. That bounce is why the shadow
+         * side of a real barn is a colour and not a hole.
+         *
+         * Strongest on faces that look down or sideways, nothing on a roof,
+         * warm because the ground is, and it goes out under a cloud and after
+         * dark with the sun that feeds it.
+         */
+        {
+          vec3 nW = inverseTransformDirection(normalize(normal), viewMatrix);
+          float facing = 0.62 - 0.38 * nW.y;
+          vec3 bounce = uSunColor * max(uSunDir.y, 0.0) * vec3(0.36, 0.33, 0.24) * facing
+                      * cloudShade(vWorldPos, uSunDir, uTime, uCloudCover);
+          reflectedLight.indirectDiffuse += bounce * diffuseColor.rgb * RECIPROCAL_PI * uBounce;
+        }
         // This dims every direct light, the headlamp included — which costs
         // nothing, because cloudShade returns 1.0 whenever the sun is below
         // the horizon, and the headlamp is only ever on after dark.
@@ -245,7 +280,20 @@ export function worldLit<T extends THREE.Material>(mat: T, gloss = 0): T {
           float rim = pow(1.0 - clamp(dot(nrm, vDir), 0.0, 1.0), 4.0);
           reflectedLight.indirectDiffuse += skyBase(vec3(0.0, 1.0, 0.0), uSunDir) * rim * uRim;
 ${gloss > 0 ? GLOSS_GLSL : ""}
-        }`
+        }
+        /**
+         * Solids were lit a third as brightly as the ground they stand on.
+         *
+         * three's Lambert divides by pi, as physically it should, and the
+         * hand-written terrain shader does not — so a stone wall and a stone
+         * hillside of the same colour came out three times apart, and every
+         * building read as a dark shape on a bright field however the sun
+         * fell on it. This closes most of the gap rather than all of it:
+         * the palette was chosen by eye against the old lighting, and at the
+         * full factor of pi the pale colours clip.
+         */
+        reflectedLight.directDiffuse *= uSolidGain;
+        reflectedLight.indirectDiffuse *= uSolidGain;`
       )
       /**
        * And the world's own haze instead of three's fog.
@@ -257,7 +305,7 @@ ${gloss > 0 ? GLOSS_GLSL : ""}
         "#include <fog_fragment>",
         `{
           float d = length(vWorldRel);
-          float f = 1.0 - exp(-pow(d * uFogDensity, 1.35));
+          float f = 1.0 - exp(-pow(d * uFogDensity * uHaze, 1.35));
           gl_FragColor.rgb = mix(
             gl_FragColor.rgb,
             skyBase(normalize(vWorldRel), uSunDir),

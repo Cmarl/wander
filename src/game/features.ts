@@ -1,6 +1,7 @@
 import * as THREE from "three";
 import { heightAt } from "../world/field";
 import type { Landmark, LandmarkKind } from "../world/landmarks";
+import { SPRING_POOL } from "../world/landmarkRebuilt";
 
 /**
  * What you actually DO at a place.
@@ -44,7 +45,9 @@ export interface ActionSpec {
 export const ACTIONS: Record<LandmarkKind, ActionSpec> = {
   spring: {
     verb: "soak", badge: "Soaked", range: 14, camera: "orbit",
-    lift: -0.95, inset: 0.0, instant: false,
+    // The pool sits on a mound of its own making now (SPRING_POOL above the
+    // base), and you sit in it to the shoulders.
+    lift: SPRING_POOL - 0.95, inset: 0.0, instant: false,
     note: "warm to the shoulders",
   },
   lookout: {

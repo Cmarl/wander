@@ -60,6 +60,10 @@ const SWIM_DEPTH = 1.25;
 /** How much of you is under when swimming. */
 const FLOAT = 0.42;
 const GRAVITY = 24;
+/** Further than this below your feet and the ground is a drop, not a step. */
+const DROP_FALL = 2.6;
+/** And from this high it is a skydive, canopy and all. */
+const DROP_SKYDIVE = 26;
 const JUMP = 7.2;
 const EYE = 1.55;
 
@@ -197,7 +201,7 @@ export class Player {
    * prop query because landmarks are placed on a far coarser grid — and because
    * an arch has to be two legs you can drive between, not one blocking disc.
    */
-  landmarkSolids: { x: number; z: number; radius: number }[] = [];
+  landmarkSolids: { x: number; z: number; radius: number; bottom?: number; top?: number }[] = [];
   /**
    * Surfaces that are not the terrain — a runway, a jetty deck.
    *
@@ -402,7 +406,7 @@ export class Player {
    */
   private fallTime = 0;
   /** Fires on leaving, on the chute opening, and on landing. */
-  onSkydive?: (what: "jump" | "chute" | "land") => void;
+  onSkydive?: (what: "jump" | "leap" | "chute" | "land") => void;
   /** In water past your chest, floating. */
   swimming = false;
   /** In water, but still on the bottom. */
@@ -483,10 +487,10 @@ export class Player {
     this.character.root.visible = this.mode === "foot";
     this.footShadow.mesh.visible = this.mode === "foot";
     if (this.mode === "foot") {
-      const g = standingOn(this.position.x, this.position.z, heightAt(this.position.x, this.position.z), this.decks);
+      const g = standingOn(this.position.x, this.position.z, heightAt(this.position.x, this.position.z), this.decks, this.position.y);
       this.footShadow.update(this.position.x, this.position.z, g, this.heading, this.position.y - g);
     }
-    const vg = standingOn(this.vehPos.x, this.vehPos.z, heightAt(this.vehPos.x, this.vehPos.z), this.decks);
+    const vg = standingOn(this.vehPos.x, this.vehPos.z, heightAt(this.vehPos.x, this.vehPos.z), this.decks, this.vehPos.y);
     this.vehShadow.update(this.vehPos.x, this.vehPos.z, vg, this.vehHeading, this.vehPos.y - vg);
 
     this.updateCamera(dt);
@@ -590,7 +594,17 @@ export class Player {
       const n = normalAt(this.position.x, this.position.z, 1.5);
       // Climbing costs you; a 45° face is barely walkable.
       const grade = -(n.x * dx + n.z * dz) / Math.max(n.y, 0.2);
-      const effort = THREE.MathUtils.clamp(1 - Math.max(0, grade) * 0.85, 0.22, 1.12);
+      /**
+       * A hillside is a cost, not a wall.
+       *
+       * The audit measured this curve dropping a runner to a quarter speed
+       * on ordinary steep ground — 0.85 per unit of grade bottoms out by
+       * forty degrees, which is most of any mountain. It read as the controls
+       * failing rather than as effort. Gentler now, with a higher floor: a
+       * thirty-degree slope costs you a third, and the worst ground there is
+       * still lets you make way.
+       */
+      const effort = THREE.MathUtils.clamp(1 - Math.max(0, grade) * 0.55, 0.36, 1.12);
 
       const held = this.campTether(dx, dz);
       dx = held.x;
@@ -660,10 +674,13 @@ export class Player {
      */
     // Built surfaces come first, and specifically BEFORE the water test
     // below: standing on a jetty must not be read as standing in the sea.
+    // From where your feet are NOW: in a building with floors, the surface
+    // you are on is the highest one you could step onto, not the highest one.
     let ground = standingOn(
       this.position.x, this.position.z,
       heightAt(this.position.x, this.position.z),
-      this.decks
+      this.decks,
+      this.position.y
     );
 
     /**
@@ -745,6 +762,26 @@ export class Player {
         this.velY = 0;
         this.grounded = true;
         this.onLand?.();
+      }
+    } else if (this.position.y - ground > DROP_FALL && !this.swimming && !this.platform) {
+      /**
+       * Walked off the edge of something.
+       *
+       * The glide below is for steps and kerbs. Applied to the roof of a
+       * tower it would lower you a hundred and seventy metres in a quarter of
+       * a second, which is neither a fall nor a way down. So a real drop is a
+       * real fall — and from high enough it is the same fall as leaving an
+       * aeroplane, with the same canopy on your back. Nothing here can hurt
+       * you; the game has no fail states. It is simply the fast way down.
+       */
+      this.grounded = false;
+      this.velY = 0;
+      if (this.position.y - ground > DROP_SKYDIVE) {
+        this.fallX = moveDirX * this.footSpeed;
+        this.fallZ = moveDirZ * this.footSpeed;
+        this.skyState = 1;
+        this.fallTime = 0;
+        this.onSkydive?.("leap");
       }
     } else {
       // Glide onto the surface rather than snapping, so steps don't jolt the camera.
@@ -959,6 +996,9 @@ export class Player {
       const cx = this.vehPos.x + fwdX * off;
       const cz = this.vehPos.z + fwdZ * off;
       for (const p of solids) {
+        const band = p as { bottom?: number; top?: number };
+        if (band.top !== undefined && this.vehPos.y >= band.top - 0.4) continue;
+        if (band.bottom !== undefined && this.vehPos.y < band.bottom - 2.2) continue;
         const dx = cx - p.x;
         const dz = cz - p.z;
         const min = this.spec.bodyR + p.radius;
@@ -1031,6 +1071,11 @@ export class Player {
   private pushOutOfProps(pos: THREE.Vector3, radius: number) {
     const near = this.props.solidNear(pos.x, pos.z);
     for (const p of this.landmarkSolids.length ? [...near, ...this.landmarkSolids] : near) {
+      // A wall you are standing on top of, or a turret that starts above
+      // your head, is not in your way.
+      const band = p as { bottom?: number; top?: number };
+      if (band.top !== undefined && pos.y >= band.top - 0.4) continue;
+      if (band.bottom !== undefined && pos.y < band.bottom - 1.9) continue;
       const dx = pos.x - p.x;
       const dz = pos.z - p.z;
       const min = radius + p.radius;
@@ -1113,7 +1158,7 @@ export class Player {
       // truck the way the slope does rather than teleporting it level.
       const wx = this.vehPos.x + hx * f + sx * s;
       const wz = this.vehPos.z + hz * f + sz * s;
-      sum += standingOn(wx, wz, heightAt(wx, wz), this.decks);
+      sum += standingOn(wx, wz, heightAt(wx, wz), this.decks, this.vehPos.y);
     }
     const groundY = sum / 4;
 

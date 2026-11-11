@@ -29,10 +29,39 @@ window.requestAnimationFrame = (cb) => realRaf((t) => {
     grab = false;
     const png = document.getElementById("view").toDataURL("image/png");
     const fps = frames / ((performance.now() - t0) / 1000);
+    try {
+      const w = window.__wander;
+      errs.push("at " + [w.player.position.x, w.player.position.y, w.player.position.z].map((v) => v.toFixed(1)).join(", "));
+      errs.push("monuments " + w.monuments.loaded.map((l) => l.m.kind + "@" + Math.round(l.m.x) + "," + Math.round(l.m.z)).join(" "));
+    } catch (e) { errs.push("dbg failed " + e.message); }
     fetch("http://127.0.0.1:8917/?name=" + (q.get("name") || "shot") + "&fps=" + fps.toFixed(1), { method: "POST", body: png + "\n" + errs.join("\n") }).catch(() => {});
   }
 });
 const wait = Number(q.get("wait") || 9000);
+/**
+ * cam=dx,dy,dz,tx,ty,tz — a free camera, as offsets from the player.
+ *
+ * The chase camera can only ever show what is in front of the truck. Hooked
+ * in just before the draw, so the game has already placed its own camera and
+ * this replaces it for the picture only.
+ */
+const cam = (q.get("cam") || "").split(",").map(Number);
+let hooked = false;
+const hook = () => {
+  const w = window.__wander;
+  if (hooked || !w || cam.length !== 6) return;
+  hooked = true;
+  const real = w.post.render.bind(w.post);
+  w.post.render = (scene, camera) => {
+    const p = w.player.position;
+    camera.position.set(p.x + cam[0], p.y + cam[1], p.z + cam[2]);
+    camera.lookAt(p.x + cam[3], p.y + cam[4], p.z + cam[5]);
+    camera.updateMatrixWorld(true);
+    w.sunShadows.update(camera, w.env.sunDir);
+    real(scene, camera);
+  };
+};
+setInterval(hook, 200);
 const set = () => {
   const w = window.__wander;
   if (!w) return;

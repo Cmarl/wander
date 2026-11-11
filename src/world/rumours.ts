@@ -1,6 +1,7 @@
 import { heightAt, moistureAt, slopeAt, slotRandom } from "./field";
 import { landmarksNear, type Landmark, type LandmarkKind } from "./landmarks";
 import { regionAt } from "./regions";
+import { monumentsNear, type Monument, type MonumentKind } from "./monuments";
 
 /**
  * Rumours — a description and a direction, never a marker.
@@ -103,6 +104,7 @@ const BEARINGS = ["north", "north-east", "east", "south-east", "south", "south-w
  * a rumour.
  */
 function howFar(m: number): string {
+  if (m < 1500) return "close by,";
   if (m < 6000) return "not far";
   if (m < 12000) return "a morning's drive";
   if (m < 20000) return "most of a day";
@@ -139,12 +141,23 @@ export function rumourAt(gx: number, gz: number, salt: number, fromX: number, fr
     }
   }
   if (!best) return null;
+  return describe(best, fromX, fromZ, gx, gz, salt);
+}
 
-  const looks = LOOKS[best.kind];
+/**
+ * A rumour about one particular landmark, as told from one particular spot.
+ *
+ * Split out of rumourAt so that anything which already knows WHICH place it
+ * wants to talk about — the view from the top of a tower, say — tells it in
+ * the same words a radio would.
+ */
+export function describe(lm: Landmark, fromX: number, fromZ: number, gx = lm.gx, gz = lm.gz, salt = 1601): Rumour {
+  const looks = LOOKS[lm.kind];
   const look = looks[Math.floor(slotRandom(gx, gz, salt + 2) * looks.length) % looks.length];
-  const setting = settingOf(best.x, best.z);
-  const region = regionAt(best.x, best.z).name;
-  const away = Math.hypot(best.x - fromX, best.z - fromZ);
+  const setting = settingOf(lm.x, lm.z);
+  const region = regionAt(lm.x, lm.z).name;
+  const away = Math.hypot(lm.x - fromX, lm.z - fromZ);
+  const bearing = bearingOf(lm.x - fromX, lm.z - fromZ);
 
   // Half name the country it is in, half just the direction. Always one or the
   // other, never a coordinate — you are being told, not shown.
@@ -154,12 +167,80 @@ export function rumourAt(gx: number, gz: number, salt: number, fromX: number, fr
       : `${howFar(away)} ${BEARINGS[bearing]} of here`;
 
   return {
-    id: `rumour:${best.id}`,
+    id: `rumour:${lm.id}`,
     text: `${look} ${setting}, ${where}`,
     short: look,
-    name: best.name,
-    x: Math.round(best.x),
-    z: Math.round(best.z),
+    name: lm.name,
+    x: Math.round(lm.x),
+    z: Math.round(lm.z),
     region,
   };
+}
+
+/** Which of the eight compass points a displacement lies along. North is -z. */
+function bearingOf(dx: number, dz: number): number {
+  return Math.round(((Math.atan2(dx, -dz) * 4) / Math.PI + 8)) % 8;
+}
+
+/**
+ * How the big things get talked about.
+ *
+ * Vaguer than a landmark's, on purpose. Nobody who has seen a forty-storey
+ * tower standing in empty country describes it accurately; they say there is
+ * something out there that should not be.
+ */
+const MONUMENT_LOOKS: Record<MonumentKind, string[]> = {
+  tower: ["a tower with no city round it", "something far too tall, standing alone", "forty floors and nobody in them"],
+  castle: ["walls on a hill, and a keep", "a castle nobody holds", "battlements against the sky"],
+  lighthouse: ["a light that turns after dark", "a striped tower above the sea", "a lamp still sweeping the coast"],
+  windfarm: ["white arms turning, a dozen of them", "a field of slow giants", "blades as long as a street"],
+  colossus: ["a stone giant up to its chest in the ground", "a fist raised over the hills", "somebody enormous, buried standing"],
+};
+
+export function describeMonument(m: Monument, fromX: number, fromZ: number): Rumour {
+  const looks = MONUMENT_LOOKS[m.kind];
+  const look = looks[Math.floor(slotRandom(m.gx, m.gz, 2081) * looks.length) % looks.length];
+  const away = Math.hypot(m.x - fromX, m.z - fromZ);
+  const bearing = bearingOf(m.x - fromX, m.z - fromZ);
+  const region = regionAt(m.x, m.z).name;
+  return {
+    id: `rumour:${m.id}`,
+    text: `${look}, ${howFar(away)} ${BEARINGS[bearing]} of here`,
+    short: look,
+    name: m.name,
+    x: Math.round(m.x),
+    z: Math.round(m.z),
+    region,
+  };
+}
+
+/**
+ * The nearest monument that passes a test — in practice, "one you have not
+ * been to and have not already been told about".
+ */
+export function monumentRumour(fromX: number, fromZ: number, want: (m: Monument) => boolean): Rumour | null {
+  let best: Monument | null = null;
+  let bestD = Infinity;
+  for (const m of monumentsNear(fromX, fromZ, 2)) {
+    const d = Math.hypot(m.x - fromX, m.z - fromZ);
+    if (d < bestD && d > 600 && want(m)) {
+      bestD = d;
+      best = m;
+    }
+  }
+  return best ? describeMonument(best, fromX, fromZ) : null;
+}
+
+/**
+ * What you can make out from somewhere high: the nearest places you have not
+ * been, nearest first.
+ */
+export function survey(fromX: number, fromZ: number, want: (id: string) => boolean, count = 3): Rumour[] {
+  const near = landmarksNear(fromX, fromZ, 4)
+    .filter((lm) => want(lm.id))
+    .map((lm) => ({ lm, d: Math.hypot(lm.x - fromX, lm.z - fromZ) }))
+    .filter((e) => e.d > 200)
+    .sort((a, b) => a.d - b.d)
+    .slice(0, count);
+  return near.map((e) => describe(e.lm, fromX, fromZ));
 }

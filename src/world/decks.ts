@@ -119,6 +119,14 @@ export interface Deck {
   top: number;
   slopeX: number;
   slopeZ: number;
+  /**
+   * How far above your feet this surface may be and still be stepped onto.
+   *
+   * Absent means any height, which is right for one slab on the ground and is
+   * how the airstrip and the jetty have always worked. Set, it makes the deck
+   * one floor among several: see world/monuments.
+   */
+  step?: number;
 }
 
 /** Every deck belonging to a landmark, in world space. */
@@ -153,9 +161,12 @@ export function decksNear(x: number, z: number, cells = 1): Deck[] {
  * Caller takes the greater of this and the terrain, which is what makes a cut
  * and a fill the same piece of code.
  */
-export function deckTop(px: number, pz: number, decks: Deck[]): number {
+export function deckTop(px: number, pz: number, decks: Deck[], fromY = Infinity): number {
   let top = -Infinity;
   for (const d of decks) {
+    // Cheap reject first: a tower is three hundred of these.
+    const reach = d.halfW + d.halfL;
+    if (Math.abs(px - d.x) > reach || Math.abs(pz - d.z) > reach) continue;
     const dx = (px - d.x) / d.scale;
     const dz = (pz - d.z) / d.scale;
     const c = Math.cos(d.rot);
@@ -164,6 +175,8 @@ export function deckTop(px: number, pz: number, decks: Deck[]): number {
     const lz = dx * s + dz * c;
     if (Math.abs(lx) * d.scale > d.halfW || Math.abs(lz) * d.scale > d.halfL) continue;
     const h = d.top + (d.slopeX * lx + d.slopeZ * lz) * d.scale;
+    // A floor overhead is a ceiling, not somewhere you are standing.
+    if (d.step !== undefined && h > fromY + d.step) continue;
     if (h > top) top = h;
   }
   return top;
@@ -176,8 +189,8 @@ export function deckTop(px: number, pz: number, decks: Deck[]): number {
  * answers a completely different question — what you are standing ON, grass
  * or rock or sand, rather than how high it is.
  */
-export function standingOn(px: number, pz: number, ground: number, decks: Deck[]): number {
+export function standingOn(px: number, pz: number, ground: number, decks: Deck[], fromY = Infinity): number {
   if (!decks.length) return ground;
-  const built = deckTop(px, pz, decks);
+  const built = deckTop(px, pz, decks, fromY);
   return built > ground ? built : ground;
 }

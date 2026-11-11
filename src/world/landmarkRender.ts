@@ -4,7 +4,6 @@ import { blobTexture } from "./shadows";
 import { slotRandom } from "./field";
 import { box, merge, strut, type Layer } from "./geom";
 import { steadingLayers } from "./buildings";
-import { snag } from "./beacons";
 import { LANDMARK_CELL, geyserLevel, landmarksNear, type Landmark, type LandmarkKind } from "./landmarks";
 import { ACCRETION_KINDS, accretionsAt, type AccretionKind } from "./accretions";
 import {
@@ -15,11 +14,10 @@ import {
   bonefield,
   frozenLake as frozenlake,
   orchard,
-  shipwreck,
   sinkhole,
-  stones,
   windpump,
 } from "./landmarkKinds";
+import { shipwreck, stones, spring } from "./landmarkRebuilt";
 
 /**
  * Draws landmarks.
@@ -376,54 +374,6 @@ function mast(): Layer[] {
 }
 
 /** Hot spring: stepped travertine terraces round a bright pool. */
-function spring(): Layer[] {
-  const stone: THREE.BufferGeometry[] = [];
-  const rock: THREE.BufferGeometry[] = [];
-  const water: THREE.BufferGeometry[] = [];
-
-  // Concentric terraces, each stepping down toward the water.
-  for (let i = 0; i < 4; i++) {
-    const inner = 8.1 + i * 1.5;
-    const ring = new THREE.RingGeometry(inner, inner + 1.5, 22);
-    ring.rotateX(-Math.PI / 2);
-    ring.translate(0, 0.62 - i * 0.16, 0);
-    stone.push(ring);
-    const lip = new THREE.CylinderGeometry(inner + 1.5, inner + 1.5, 0.17, 22, 1, true);
-    lip.translate(0, 0.55 - i * 0.16, 0);
-    stone.push(lip);
-  }
-  const pool = new THREE.CircleGeometry(8.1, 24);
-  pool.rotateX(-Math.PI / 2);
-  pool.translate(0, 0.52, 0);
-  water.push(pool);
-
-  for (let i = 0; i < 11; i++) {
-    const a = (i / 11) * Math.PI * 2 + 0.3;
-    const r = 1.6 + (i % 4) * 1.0;
-    const b = new THREE.IcosahedronGeometry(r, 0);
-    b.scale(1, 0.66, 1);
-    b.translate(Math.cos(a) * 14.6, 0.3, Math.sin(a) * 14.6);
-    rock.push(b);
-  }
-
-  /**
-   * A dead tree standing in the mineral water.
-   *
-   * A hot spring was 2.9 m — invisible past six hundred metres. The snag
-   * belongs: hot springs really do kill what grows in them, and the bleached
-   * trunks stand for decades, which is why they are what you see first.
-   */
-  const dead = snag(13, 11);
-  dead.translate(-6.4, 0, 4.2);
-
-  return [
-    { geo: dead, colour: 0xb0a694 },
-    { geo: merge(stone), colour: 0xcfc4a8 },
-    { geo: merge(rock), colour: 0x8d8678 },
-    { geo: merge(water), colour: 0x47c0b4 },
-  ];
-}
-
 /** One enormous old tree: leaning trunk, surface roots, a broad crown. */
 function loneTree(): Layer[] {
   const bark: THREE.BufferGeometry[] = [];

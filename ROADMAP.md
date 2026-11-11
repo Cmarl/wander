@@ -43,3 +43,20 @@ the class exists.
 The fire lookout was rebuilt to human scale and measured. The other fourteen
 kinds have not been. The mast and the windpump are the likely next offenders —
 both tall things sized by eye.
+
+## More monuments
+
+Five kinds shipped: the tower, the castle, the lighthouse, the wind farm and
+the colossus. The brainstorm listed eleven. Left out on purpose:
+
+- **The dam** and **the great bridge** need the terrain to cooperate — a
+  valley to plug, a strait to span — and finding one by hashing is a search
+  problem of its own. Worth doing; not the same afternoon.
+- **Interiors.** Every monument is climbed on the outside or through an open
+  frame, because the chase camera has nowhere to go inside a closed stair.
+  A keep you walk into needs an inside camera first.
+- **Sight lines.** Measured: the nearest monument is in line of sight from
+  about one random spot in four (`tools/node/monument-sight.mts`). The country
+  is hilly and that is most of the reason. The radio and the binoculars cover
+  the rest, but if it still feels like they are hidden, the lever is siting
+  them higher or making them taller, not making them commoner.

@@ -136,6 +136,19 @@ export class Sfx {
         note(588, 0.03, 2.2, 0.3);
         note(98, 0.045, 2.6, 0, "triangle");
         break;
+      /**
+       * A monument. Low, long and singular — an open fifth that takes its
+       * time arriving and a long while to go, so reaching a tower does not
+       * sound like spotting a hot spring.
+       */
+      case "monument":
+        note(73.4, 0.06, 6.5, 0, "triangle");
+        note(110, 0.05, 6.0, 0.25, "triangle");
+        note(220, 0.04, 5.2, 0.7);
+        note(330, 0.034, 5.0, 1.2);
+        note(440, 0.026, 4.6, 1.8);
+        note(660, 0.016, 4.2, 2.5);
+        break;
       /** A settlement: warmer, three notes, a chord that actually resolves. */
       case "town":
         note(262, 0.045, 2.0);
