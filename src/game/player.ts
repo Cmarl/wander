@@ -281,6 +281,7 @@ export class Player {
   private airFlip = 0;
   private airStickRef = 0;
   private jumpWasDown = false;
+  private jumpEdge = false;
   /** In real air on wheels, where the attitude is yours. */
   private freeAir = false;
   onSummon?: () => void;
@@ -753,6 +754,13 @@ export class Player {
       }
     }
 
+    // Tracked every frame, in a vehicle or out of one. Tracked only on foot,
+    // a climb button held as you stepped out of the aeroplane looked like a
+    // fresh press on your first frame of falling and opened the wing for you.
+    const jumpDown = input.jump || input.jumpHeld;
+    this.jumpEdge = jumpDown && !this.jumpWasDown;
+    this.jumpWasDown = jumpDown;
+
     if (this.mode === "foot") this.updateOnFoot(dt, input);
     else this.updateDriving(dt, input);
 
@@ -1042,9 +1050,7 @@ export class Player {
      * button still held from climbing the aeroplane does nothing when you
      * step out: you let go and press, which is a decision.
      */
-    const jumpDown = input.jump || input.jumpHeld;
-    const jumpPressed = jumpDown && !this.jumpWasDown;
-    this.jumpWasDown = jumpDown;
+    const jumpPressed = this.jumpEdge;
     if (this.grounded && input.jump) {
       this.onJump?.(false);
       this.velY = JUMP;
