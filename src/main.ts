@@ -19,7 +19,7 @@ import { Camp } from "./game/camp";
 import { Dog } from "./game/dog";
 import { StrayField } from "./world/strayRender";
 import { Stable } from "./game/stable";
-import { UNSUMMONABLE, type VehicleClass } from "./game/vehicles";
+import { CLASSES, UNSUMMONABLE, type VehicleClass } from "./game/vehicles";
 import { Kit, PARTS, PART_KINDS, partAt, type PartKind } from "./game/parts";
 import { Wanderer } from "./game/wanderer";
 import { Figures } from "./game/figures";
@@ -27,14 +27,14 @@ import { Aurora } from "./world/aurora";
 import { SPECS } from "./game/vehicles";
 import { Features, ACTIONS } from "./game/features";
 import { PAINTS } from "./game/paint";
-import { Dust, Birds } from "./world/particles";
+import { Dust, Birds, Explosion } from "./world/particles";
 import { Wildlife } from "./world/wildlife";
 import { surfaceAt, moistureAt, treeDensityAt, slopeAt, temperatureAt, slotRandom } from "./world/field";
 import { findSpawn } from "./world/spawn";
 import { lastPlace, rememberPlace } from "./game/save";
 import { heightAt, biomeNameAt } from "./world/field";
 import { regionAt } from "./world/regions";
-import { rumourAt, monumentRumour, survey, type Rumour } from "./world/rumours";
+import { rumourAt, monumentRumour, survey, strayRumour, airstripRumour, type Rumour } from "./world/rumours";
 import { MonumentField } from "./world/monumentRender";
 import {
   FOUND_RANGE, MONUMENT_NOUN, monumentDecks, monumentSolids, monumentToLocal, onSummit, turbinesOf,
@@ -152,6 +152,8 @@ scene.add(dog.group);
 const dust = new Dust();
 const birds = new Birds();
 scene.add(dust.mesh, birds.mesh);
+const explosion = new Explosion();
+scene.add(explosion.group);
 
 const atParam = new URLSearchParams(location.search).get("at");
 const atMatch = atParam?.match(/^(-?\d+(?:\.\d+)?),(-?\d+(?:\.\d+)?)$/);
@@ -277,6 +279,35 @@ player.onCrash = (f) => {
 player.onVehicleLand = (f) => {
   sound.vehicleLand(f);
   haptics.land(f);
+};
+/**
+ * The vehicle is gone, and you are not.
+ *
+ * Fire, noise, pieces, and a column of smoke that keeps standing over the
+ * wreck for as long as it is there — which is until you call for another.
+ * Nothing is taken: the garage still has everything in it.
+ */
+let wreckSmoke = 0;
+player.onWreck = (x, y, z) => {
+  explosion.burst(x, y, z, Math.sin(player.heading), Math.cos(player.heading), heightAt);
+  sound.explode();
+  haptics.crash(1);
+  wreckSmoke = 0;
+  const first = found.add({
+    id: "wreck:first",
+    kind: "badge",
+    name: "Walked away from it",
+    x: Math.round(x),
+    z: Math.round(z),
+    at: Date.now(),
+    tod: env.timeOfDay,
+    region: regionAt(x, z).name,
+  });
+  // Said once the dust has settled and you are on your feet, not over the bang.
+  setTimeout(
+    () => hud.announce(first ? "not a scratch on you" : "walked away again", first ? "call for another whenever you like" : ""),
+    1500
+  );
 };
 /**
  * Big air gets said out loud.
@@ -729,6 +760,15 @@ function wake(dt: number) {
 
   dust.update(dt, camera);
   birds.update(dt);
+  explosion.update(dt, heightAt);
+  if (player.wrecked) {
+    wreckSmoke -= dt;
+    if (wreckSmoke <= 0) {
+      wreckSmoke = 0.8;
+      const w = player.vehicle.root.position;
+      landmarks.puff(w.x, w.y + 1.2, w.z, 5, true);
+    }
+  }
 }
 
 let driftDebt = 0;
@@ -780,9 +820,12 @@ function togglePin(id: string) {
     return;
   }
   const mon = monuments.loaded.find((l) => l.m.id === id)?.m;
+  const left = strays.loaded.find((st) => st.id === id);
   const lm = mon
     ? { name: found.has(mon.id) ? mon.name : `a ${MONUMENT_NOUN[mon.kind].toLowerCase()}`, x: mon.x, z: mon.z }
-    : landmarks.loaded.find((l) => l.id === id);
+    : left
+      ? { name: `a ${SPECS[left.cls].label.toLowerCase()}`, x: left.x, z: left.z }
+      : landmarks.loaded.find((l) => l.id === id);
   if (!lm) return;
   pins.push({ id, name: lm.name, x: lm.x, z: lm.z });
   // Three is the cap. Saying what fell off is the difference between knowing
@@ -868,6 +911,7 @@ function arriving() {
  */
 let radioDrive = 0;
 let radioNext = 40;
+let radioTurn = 0;
 
 /**
  * What you do at the heart of each one, and what it does in return.
@@ -907,6 +951,45 @@ const WAKE: Record<MonumentKind, { badge: (n: string) => string; kicker: string;
   },
 };
 for (const f of found.all()) if (f.id.startsWith("woke:")) monuments.woken.add(f.id.slice(5));
+
+/**
+ * What is waiting for you at each one.
+ *
+ * Aircraft lived only at airstrips, one every fifty kilometres — so most
+ * players never flew, and the one machine that makes monuments easy to find
+ * was itself the hardest thing in the world to find. Now the big places have
+ * machines in them: a helicopter somebody left on the tower's roof, an
+ * aeroplane in the castle's keeping. You get the first one on the list that
+ * you do not already own, and failing that, anything you do not own.
+ *
+ * It is handed to the garage rather than parked, because the top of a
+ * lighthouse is not somewhere a plane can stand — but calling it brings it to
+ * where you are, roof included.
+ */
+const GIFTS: Record<MonumentKind, VehicleClass[]> = {
+  tower: ["chopper", "plane", "glider"],
+  castle: ["plane", "chopper", "bike"],
+  lighthouse: ["glider", "plane", "chopper"],
+  windfarm: ["rover", "quad", "van", "tractor", "bike"],
+  colossus: ["bike", "quad", "rover", "van", "tractor"],
+};
+
+function giftFrom(m: Monument) {
+  if (!found.add({
+    id: `gift:${m.id}`, kind: "feat", name: `Went through what was left at ${m.name}`,
+    x: Math.round(m.x), z: Math.round(m.z), at: Date.now(), tod: env.timeOfDay, region: regionAt(m.x, m.z).name,
+  })) return;
+  const all = CLASSES.filter((c) => !UNSUMMONABLE.includes(c));
+  const cls = [...GIFTS[m.kind], ...all].find((c) => !stable.owned.includes(c));
+  if (!cls) return;
+  stable.claim(cls);
+  stable.choose(cls);
+  const an = /^[aeiou]/i.test(SPECS[cls].label) ? "an" : "a";
+  setTimeout(() => {
+    hud.announce(`${an} ${SPECS[cls].label.toLowerCase()} — yours. Call it and it comes to you, even up here`, `left at ${m.name}`, { big: true });
+    sound.moment();
+  }, 3200);
+}
 
 function wakeMonument(m: Monument): boolean {
   const w = WAKE[m.kind];
@@ -982,17 +1065,18 @@ function monumentsTick(dt: number) {
       dropPinQuietly(m.id);
       dropPinQuietly(`rumour:${m.id}`);
       // A wind farm has no top to climb to. Being under it is being there.
-      if (m.kind === "windfarm") setTimeout(() => wakeMonument(m), 5200);
+      if (m.kind === "windfarm") setTimeout(() => { wakeMonument(m); giftFrom(m); }, 5200);
     }
     // The colossus is woken from its own open hand.
     if (m.kind === "colossus" && player.mode === "foot" && !monuments.woken.has(m.id)) {
       const l = monumentToLocal(m, px, pz);
-      if (Math.abs(l.lx - 30) < 5 && Math.abs(l.lz - 14) < 5.5 && player.position.y > m.y + 2.9) wakeMonument(m);
+      if (Math.abs(l.lx - 30) < 5 && Math.abs(l.lz - 14) < 5.5 && player.position.y > m.y + 2.9) { wakeMonument(m); giftFrom(m); }
     }
     if (player.mode === "foot" && onSummit(m, px, player.position.y, pz)) {
       // The thing you came up here to do. Checked on its own rather than with
       // the summit badge, so a top reached before this existed still counts.
       if (!monuments.woken.has(m.id)) wakeMonument(m);
+      giftFrom(m);
       const fresh = found.add({
         id: `summit:${m.id}`,
         kind: "badge",
@@ -1018,6 +1102,14 @@ function monumentsTick(dt: number) {
             at: Date.now(), tod: env.timeOfDay, region: r.region, about: r.short,
           });
         }
+        const machine = strayRumour(px, pz, (st) => !stable.owned.includes(st.cls) && !found.has(`rumour:${st.id}`));
+        if (machine) {
+          seen.push(machine);
+          found.add({
+            id: machine.id, kind: "rumour", name: machine.text, x: machine.x, z: machine.z,
+            at: Date.now(), tod: env.timeOfDay, region: machine.region, about: machine.short,
+          });
+        }
         const far = monumentRumour(px, pz, (o) => o.id !== m.id && untold(o));
         if (far) {
           found.add({
@@ -1034,7 +1126,7 @@ function monumentsTick(dt: number) {
                 "they are in your journal",
                 { big: true }
               ),
-            5600
+            8200
           );
         }
       }
@@ -1058,15 +1150,37 @@ function monumentsTick(dt: number) {
   if (player.mode === "drive" && Math.abs(player.vehicleState.speed) > 4) {
     radioDrive += dt;
     if (radioDrive > radioNext) {
-      radioNext = radioDrive + 330;
-      const big = monumentRumour(px, pz, untold);
+      radioNext = radioDrive + 240;
+      /**
+       * Three things the radio talks about, in turn: the big thing on the
+       * horizon, a machine you do not have, and an ordinary place. Whichever
+       * comes up first that is actually news gets said.
+       *
+       * The machines are the answer to "it's so hard to find new vehicle
+       * types". They were out there all along, a metre and a half tall and
+       * silent. Now the radio says "a motorcycle somebody left, not far
+       * north-east" — and if you have never flown, it tells you where the
+       * nearest airstrip is.
+       */
+      const turn = radioTurn++;
       const cx = Math.round(px / 2200);
       const cz = Math.round(pz / 2200);
       let told = false;
-      if (big && Math.hypot(big.x - px, big.z - pz) < 34000) {
-        told = tellRumour(big, "the radio, through the static");
-      }
-      if (!told) {
+      const sayBig = () => {
+        const big = monumentRumour(px, pz, untold);
+        if (big && Math.hypot(big.x - px, big.z - pz) < 34000) told = tellRumour(big, "the radio, through the static");
+      };
+      const sayMachine = () => {
+        const flown = stable.owned.some((c) => SPECS[c].flies);
+        const strip = !flown ? airstripRumour(px, pz) : null;
+        if (strip && !found.has(strip.id) && !found.has(strip.id.replace("rumour:", ""))) {
+          told = tellRumour(strip, "the radio — and you have never flown");
+          return;
+        }
+        const left = strayRumour(px, pz, (st) => !stable.owned.includes(st.cls) && !found.has(`rumour:${st.id}`));
+        if (left) told = tellRumour(left, "the radio, through the static");
+      };
+      const sayPlace = () => {
         // A few bearings from here until one is news.
         for (let k = 0; k < 6 && !told; k++) {
           const r = rumourAt(cx, cz, 1700 + k * 11 + Math.floor(radioDrive / 330) * 97, px, pz);
@@ -1074,7 +1188,9 @@ function monumentsTick(dt: number) {
             told = tellRumour(r, "the radio, through the static");
           }
         }
-      }
+      };
+      const order = [[sayBig, sayMachine, sayPlace], [sayMachine, sayPlace, sayBig], [sayPlace, sayBig, sayMachine]][turn % 3];
+      for (const say of order) if (!told) say();
       if (told) sound.moment();
       // Nothing out there worth saying: try again sooner.
       else radioNext = radioDrive + 90;
@@ -1509,6 +1625,28 @@ function glassing() {
     if (off < centreBest) {
       centreBest = off;
       centreId = m.id;
+    }
+  }
+  /**
+   * And machines somebody left. Through binoculars a parked motorcycle on a
+   * far slope is exactly the kind of thing you would pick out, and until now
+   * it was a metre and a half of nothing you had to trip over.
+   */
+  for (const st of strays.loaded) {
+    if (st.id === strays.taken) continue;
+    const d = Math.hypot(st.x - camera.position.x, st.z - camera.position.z);
+    if (d > 7000 || d < 25) continue;
+    projected.set(st.x, st.y + 6, st.z).project(camera);
+    if (projected.z > 1) continue;
+    const sx = (projected.x * 0.5 + 0.5) * innerWidth;
+    const sy = (-projected.y * 0.5 + 0.5) * innerHeight;
+    if (sx < 0 || sx > innerWidth || sy < 0 || sy > innerHeight) continue;
+    const name = `a ${SPECS[st.cls].label.toLowerCase()}${stable.owned.includes(st.cls) ? "" : " — not one you have"}`;
+    marks.push({ id: st.id, name, sx, sy, km: d / 1000, pinned: pins.some((p) => p.id === st.id) });
+    const off = Math.hypot(sx - innerWidth / 2, sy - innerHeight / 2);
+    if (off < centreBest) {
+      centreBest = off;
+      centreId = st.id;
     }
   }
   hud.setMarks(marks);
@@ -2220,6 +2358,12 @@ function frame(now: number) {
     clock: env.clockString(),
     biome: biomeNameAt(player.position.x, player.position.z),
     elevation: heightAt(player.position.x, player.position.z),
+    agl:
+      player.mode === "drive" && SPECS[player.spec.cls].flies
+        ? player.position.y - 1.6 - Math.max(heightAt(player.position.x, player.position.z), 0)
+        : player.skyState > 0
+          ? player.position.y - Math.max(heightAt(player.position.x, player.position.z), 0)
+          : undefined,
     region: inSettlement ?? regionAt(player.position.x, player.position.z).name,
     x: player.position.x,
     z: player.position.z,
@@ -2244,7 +2388,7 @@ function frame(now: number) {
         : camp.active
         ? null
         : player.canSummon
-          ? `call the ${coming}`
+          ? player.wrecked ? `call another ${coming}` : `call the ${coming}`
         : player.canCamp && !player.nearVehicle
           ? "make camp"
           : player.mode === "drive"

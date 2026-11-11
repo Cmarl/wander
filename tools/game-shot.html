@@ -32,6 +32,7 @@ window.requestAnimationFrame = (cb) => realRaf((t) => {
     try {
       const w = window.__wander;
       errs.push("at " + [w.player.position.x, w.player.position.y, w.player.position.z].map((v) => v.toFixed(1)).join(", "));
+      errs.push("wrecked " + w.player.wrecked + " plumes " + (w.landmarks.plumes ? w.landmarks.plumes.filter((p) => p.smoke).length : "?"));
       errs.push("monuments " + w.monuments.loaded.map((l) => l.m.kind + "@" + Math.round(l.m.x) + "," + Math.round(l.m.z)).join(" "));
     } catch (e) { errs.push("dbg failed " + e.message); }
     fetch("http://127.0.0.1:8917/?name=" + (q.get("name") || "shot") + "&fps=" + fps.toFixed(1), { method: "POST", body: png + "\n" + errs.join("\n") }).catch(() => {});

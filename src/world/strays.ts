@@ -18,14 +18,20 @@ import { regionAt } from "./regions";
 
 export const STRAY_CELL = 3400;
 /**
- * Most cells have nothing.
+ * Most cells have nothing — but not as few as before.
  *
- * At 0.3 this put one every 3.7 km, which is landmark frequency — the world
- * started to read as a scrapyard. At 0.18 it is a thing you come across rather
- * than a thing that is everywhere, and all three are still within seven
- * kilometres of the spawn, so nothing is gated behind a long search.
+ * This has been both ways. At 0.3 with the truck included it "started to
+ * read as a scrapyard", and it was cut to 0.18. Then Clyde: "it's so hard to
+ * find new vehicle types." Both were true, because a fifth of what was out
+ * there was a truck — the one machine everybody starts with — so the world
+ * was cluttered AND a real find was one cell in seven.
+ *
+ * 0.25 with the truck taken out of the list: fewer objects standing about
+ * than the scrapyard had, and every one of them is something you might not
+ * own. They are also talked about on the radio and named through the
+ * binoculars now, which matters more than the count does.
  */
-const OCCUPANCY = 0.18;
+const OCCUPANCY = 0.25;
 
 /** Weathered colours. These have been sitting out for years. */
 const PAINTS = [0x9a7f4e, 0x6f7a6a, 0xa85c38, 0x5c6670, 0x7d6b84, 0xb9a68a];
@@ -59,7 +65,7 @@ export function strayInCell(gx: number, gz: number): Stray | null {
    * parked in a random meadow was always a bit odd, and having a place they
    * belong to is worth more than having them everywhere.
    */
-  const GROUND = CLASSES.filter((c) => !SPECS[c].flies && !SPECS[c].floats);
+  const GROUND = CLASSES.filter((c) => !SPECS[c].flies && !SPECS[c].floats && c !== "truck");
   const cls = GROUND[Math.floor(slotRandom(gx, gz, 1423) * GROUND.length) % GROUND.length];
   return {
     id: `stray:${gx},${gz}`,

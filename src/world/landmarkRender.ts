@@ -808,7 +808,11 @@ export class LandmarkField {
    * spring. It dies on its own, so nothing has to remember to clear it.
    */
   puff(x: number, y: number, z: number, seconds: number, smoke = false) {
-    this.plumes.push({
+    // At the FRONT. The list is drawn nearest-first up to a budget, and it is
+    // only sorted when landmarks reload — so a plume pushed on the end sat
+    // behind every chimney for kilometres and, past the budget, was never
+    // drawn at all. Something you just did is by definition where you are.
+    this.plumes.unshift({
       x, y, z,
       rise: smoke ? 26 : 16,
       spread: 0.8,

@@ -2,6 +2,8 @@ import { heightAt, moistureAt, slopeAt, slotRandom } from "./field";
 import { landmarksNear, type Landmark, type LandmarkKind } from "./landmarks";
 import { regionAt } from "./regions";
 import { monumentsNear, type Monument, type MonumentKind } from "./monuments";
+import { straysNear, type Stray } from "./strays";
+import { SPECS } from "../game/vehicles";
 
 /**
  * Rumours — a description and a direction, never a marker.
@@ -243,4 +245,55 @@ export function survey(fromX: number, fromZ: number, want: (id: string) => boole
     .sort((a, b) => a.d - b.d)
     .slice(0, count);
   return near.map((e) => describe(e.lm, fromX, fromZ));
+}
+
+/**
+ * A machine somebody left, as the radio would mention it.
+ *
+ * Named for what it is. A rumour about a place can afford to be coy; one
+ * about a motorcycle is only worth hearing if it says motorcycle.
+ */
+export function describeStray(st: Stray, fromX: number, fromZ: number): Rumour {
+  const label = SPECS[st.cls].label.toLowerCase();
+  const away = Math.hypot(st.x - fromX, st.z - fromZ);
+  const bearing = bearingOf(st.x - fromX, st.z - fromZ);
+  const look = `a ${label} somebody left`;
+  return {
+    id: `rumour:${st.id}`,
+    text: `${look} ${settingOf(st.x, st.z)}, ${howFar(away)} ${BEARINGS[bearing]} of here`,
+    short: look,
+    name: st.name,
+    x: Math.round(st.x),
+    z: Math.round(st.z),
+    region: regionAt(st.x, st.z).name,
+  };
+}
+
+/** The nearest left machine that passes a test — "of a kind you do not have". */
+export function strayRumour(fromX: number, fromZ: number, want: (st: Stray) => boolean): Rumour | null {
+  let best: Stray | null = null;
+  let bestD = Infinity;
+  for (const st of straysNear(fromX, fromZ, 5)) {
+    const d = Math.hypot(st.x - fromX, st.z - fromZ);
+    if (d < bestD && d > 150 && want(st)) {
+      bestD = d;
+      best = st;
+    }
+  }
+  return best ? describeStray(best, fromX, fromZ) : null;
+}
+
+/** The nearest airstrip, described, or null if there is none for a long way. */
+export function airstripRumour(fromX: number, fromZ: number): Rumour | null {
+  let best: Landmark | null = null;
+  let bestD = Infinity;
+  for (const lm of landmarksNear(fromX, fromZ, 11)) {
+    if (lm.kind !== "airfield") continue;
+    const d = Math.hypot(lm.x - fromX, lm.z - fromZ);
+    if (d < bestD) {
+      bestD = d;
+      best = lm;
+    }
+  }
+  return best ? describe(best, fromX, fromZ) : null;
 }

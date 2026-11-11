@@ -117,11 +117,11 @@ export const SPECS: Record<VehicleClass, VehicleSpec> = {
   chopper: {
     cls: "chopper", label: "Helicopter",
     // Unhurried, and it can stop in mid-air, which nothing else can.
-    top: 42, accel: 19.5, brake: 18, drag: 0.42, reverse: 9,
+    top: 50, accel: 23, brake: 22, drag: 0.42, reverse: 9,
     jump: 0, gradePull: 0, turn: 2.0,
     bodyR: 1.1, bodyOffset: 1.3,
     seat: [-0.44, 1.46, 0.3], dogSeat: [0.58, 1.3, 0.0],
-    flies: true, lift: 11, sink: 6,
+    flies: true, lift: 19, sink: 6,
   },
   plane: {
     cls: "plane", label: "Aeroplane",
@@ -136,13 +136,13 @@ export const SPECS: Record<VehicleClass, VehicleSpec> = {
      * jumpier.
      */
     top: 150, accel: 44, brake: 16, drag: 0.24, reverse: 4,
-    jump: 0, gradePull: 2.4, turn: 2.2, turnFalloff: 0.01, pitchRate: 3.4,
+    jump: 0, gradePull: 2.4, turn: 2.2, turnFalloff: 0.01, pitchRate: 4.2,
     bodyR: 1.2, bodyOffset: 1.6,
     seat: [0, 1.5, 0.5], dogSeat: [0, 1.4, -0.3],
     // wing 0.84 rather than 0.9: hands off at cruise now settles at about
     // 2.4 m/s rather than 1.5, so letting go drifts down instead of holding
     // altitude, while speed still being what keeps you up stays true.
-    flies: true, lift: 26, sink: 15, wing: 0.84, dive: 46,
+    flies: true, lift: 44, sink: 15, wing: 0.84, dive: 46,
   },
   /**
    * Four more ways to get around, each filling a gap the others leave.

@@ -161,6 +161,24 @@ const BOAT_DRAFT = 0.35;
 const OVERSPEED = 0.55;
 /** Head-on closing speed above which a bump becomes a crash. */
 const CRASH_SPEED = 7;
+/**
+ * And above this one, the vehicle does not survive it.
+ *
+ * Clyde: "crashing should be a thing, but shouldn't hurt the player. just if
+ * you hit something fast your vehicle should probably explode - then the
+ * character can come rolling out of it, standing up unscathed."
+ *
+ * About ninety kilometres an hour of closing speed, measured INTO the thing —
+ * a graze at any pace is still a graze. It is a set piece, not a penalty:
+ * nothing is lost, there is no fail state, and another machine is one press
+ * away. What it buys is that speed finally has an edge to it.
+ */
+const WRECK_SPEED = 25;
+/** An aircraft meeting the ground harder than this is a crash, not a landing. */
+const WRECK_IMPACT = 30;
+/** How long you spend rolling before you are on your feet. */
+const TUMBLE = 1.15;
+const CHARRED = new THREE.MeshLambertMaterial({ color: 0x17120f, flatShading: true });
 /** Two circles along the spine. Radius and spacing come from the spec. */
 const FOOT_R = 0.42;
 
@@ -223,6 +241,15 @@ export class Player {
   onDismount?: () => void;
   /** Fired on a real impact. `force` is 0..1. */
   onCrash?: (force: number) => void;
+  /** The vehicle has been destroyed, at this place. */
+  onWreck?: (x: number, y: number, z: number) => void;
+  /** True from the explosion until another machine is called or found. */
+  wrecked = false;
+  /** Seconds of rolling left after being thrown clear. */
+  tumble = 0;
+  private tumbleX = 0;
+  private tumbleZ = 0;
+  private paint = 0x9a7f4e;
   onSummon?: () => void;
   onVehicleLand?: (force: number) => void;
 
@@ -336,7 +363,11 @@ export class Player {
    * under a driver would leave them sitting on a seat that no longer exists.
    */
   switchTo(cls: VehicleClass, paint: number) {
-    if (this.mode !== "foot" || cls === this.spec.cls) return;
+    // A wreck is replaced even by another of the same kind: the one standing
+    // there is burnt out, whatever it used to be.
+    if (this.mode !== "foot" || (cls === this.spec.cls && !this.wrecked)) return;
+    this.wrecked = false;
+    this.paint = paint;
     this.group.remove(this.vehicle.root);
     this.baseSpec = SPECS[cls];
     this.spec = tuned(this.baseSpec, this.kitTune);
@@ -364,8 +395,9 @@ export class Player {
    */
   adopt(cls: VehicleClass, paint: number, x: number, z: number, rot: number) {
     if (this.mode !== "foot") return;
-    if (cls !== this.spec.cls) this.switchTo(cls, paint);
+    if (cls !== this.spec.cls || this.wrecked) this.switchTo(cls, paint);
     else this.vehicle.setPaint(paint);
+    this.paint = paint;
     // A floating craft belongs on the waterline, not on the bed beneath it.
     // Placing it at terrain height put it metres underwater at a mooring,
     // which also made the 3D proximity test fail — so it was invisible AND
@@ -391,6 +423,7 @@ export class Player {
   /** 0 at the door, 1 at the edge of reach, Infinity if out of reach. */
   get vehicleProximity(): number {
     if (this.mode !== "foot") return Infinity;
+    if (this.wrecked) return Infinity;
     const d = this.position.distanceTo(this.vehPos);
     return d <= MOUNT_RANGE ? d / MOUNT_RANGE : Infinity;
   }
@@ -399,6 +432,9 @@ export class Player {
   get canSummon(): boolean {
     // Not while swimming. Calling a truck to you in the middle of a lake would
     // drop it somewhere it cannot move, and you cannot get into it anyway.
+    // A wreck can be replaced from where you stand: there is nothing to walk
+    // back to. Not while you are still rolling away from it, though.
+    if (this.wrecked) return this.mode === "foot" && !this.swimming && this.tumble <= 0;
     return (
       this.mode === "foot" && !this.swimming && this.position.distanceTo(this.vehPos) > SUMMON_MIN
     );
@@ -410,7 +446,42 @@ export class Player {
   }
 
   get nearVehicle(): boolean {
-    return this.mode === "foot" && this.position.distanceTo(this.vehPos) < MOUNT_RANGE;
+    return this.mode === "foot" && !this.wrecked && this.position.distanceTo(this.vehPos) < MOUNT_RANGE;
+  }
+
+  /**
+   * The vehicle is destroyed and you are thrown clear of it.
+   *
+   * You come out rolling along the line it was travelling, lose that speed
+   * over about a second, and stand up. The machine stays where it stopped,
+   * burnt black, until you call for another — which you can do from right
+   * there, because the wreck is not something you could get back into.
+   */
+  private wreck(dirX: number, dirZ: number, speed: number) {
+    if (this.mode !== "drive") return;
+    const at = this.vehPos.clone();
+    this.mode = "foot";
+    // Out of the side, so you are not rolling through your own wreckage.
+    this.position.set(at.x + dirZ * 1.6, at.y, at.z - dirX * 1.6);
+    this.heading = Math.atan2(dirX, dirZ);
+    this.velY = 0;
+    this.grounded = true;
+    this.skyState = 0;
+    this.footSpeed = 0;
+    const out = THREE.MathUtils.clamp(Math.abs(speed) * 0.32, 5, 15);
+    this.tumbleX = dirX * out;
+    this.tumbleZ = dirZ * out;
+    this.tumble = TUMBLE;
+    this.releaseVehicle();
+    this.vehPos.y = Math.max(this.vehPos.y, heightAt(this.vehPos.x, this.vehPos.z));
+    this.wrecked = true;
+    this.shake = 1;
+    // Burnt out. The next machine is built fresh, so nothing has to undo this.
+    this.vehicle.root.traverse((o) => {
+      const m = o as THREE.Mesh;
+      if (m.isMesh) m.material = CHARRED;
+    });
+    this.onWreck?.(at.x, at.y, at.z);
   }
 
   /** Binoculars up. Slows the look, narrows the lens, moves to the eye. */
@@ -627,6 +698,44 @@ export class Player {
       this.footSpeed = 0;
       this.character.root.rotation.x = 0;
       this.character.animate(dt, 0, false);
+      this.placeVehicle(dt, 0, true);
+      return;
+    }
+
+    if (this.tumble > 0) {
+      /**
+       * Thrown clear, and rolling.
+       *
+       * Nothing to steer and nothing to press: a second or so of going over
+       * and over along the line the vehicle was on, slowing, and then up.
+       */
+      this.tumble -= dt;
+      const k = Math.max(0, this.tumble / TUMBLE);
+      this.position.x += this.tumbleX * k * dt;
+      this.position.z += this.tumbleZ * k * dt;
+      const g = standingOn(
+        this.position.x, this.position.z,
+        Math.max(heightAt(this.position.x, this.position.z), SEA_LEVEL - FLOAT),
+        this.decks, this.position.y + 1
+      );
+      this.position.y += (g - this.position.y) * Math.min(1, dt * 14);
+      this.pushOutOfProps(this.position, FOOT_R);
+      this.speed = Math.hypot(this.tumbleX, this.tumbleZ) * k;
+      this.footSpeed = 0;
+      this.lean = 0;
+      // Two and a bit turns, fastest at the start. Lifted while it turns, so
+      // the roll is about the middle of the body and not about the boots.
+      const turned = (1 - k * k) * Math.PI * 4;
+      const done = this.tumble <= 0;
+      this.character.root.position.copy(this.position);
+      this.character.root.position.y += done ? 0 : 0.55 * Math.abs(Math.sin(turned));
+      this.character.root.rotation.order = "YXZ";
+      this.character.root.rotation.y = this.heading;
+      this.character.root.rotation.z = 0;
+      this.character.root.rotation.x = done ? 0 : turned;
+      this.character.setSky(0);
+      this.character.animate(dt, 0, !done);
+      if (done) this.onLand?.();
       this.placeVehicle(dt, 0, true);
       return;
     }
@@ -1264,6 +1373,12 @@ export class Player {
       }
     }
 
+    if (worst > WRECK_SPEED) {
+      const dir = Math.sign(this.vehSpeed || 1);
+      this.onCrash?.(1);
+      this.wreck(fwdX * dir, fwdZ * dir, worst);
+      return;
+    }
     if (worst > CRASH_SPEED) {
       const force = Math.min((worst - CRASH_SPEED) / 18, 1);
       this.vehSpeed = -worst * 0.07; // a short bounce back off the trunk
@@ -1376,7 +1491,16 @@ export class Player {
       }
     }
 
-    this.vehPos.set(bestX, heightAt(bestX, bestZ) + 9, bestZ);
+    // Onto whatever you are standing on, so calling a helicopter from the
+    // roof of a tower puts it on the roof and not a hundred and seventy
+    // metres below you.
+    const floor = standingOn(bestX, bestZ, heightAt(bestX, bestZ), this.decks, this.position.y + 0.5);
+    this.vehPos.set(bestX, floor + 9, bestZ);
+    if (this.wrecked) {
+      // A new one, not the old one moved: same kind, same paint, unburnt.
+      const cls = this.spec.cls;
+      this.switchTo(cls, this.paint);
+    }
     this.vehHeading = this.heading + Math.PI * 0.5;
     this.vehSpeed = 0;
     this.vehVelY = 0;
@@ -1404,7 +1528,8 @@ export class Player {
       const wz = this.vehPos.z + hz * f + sz * s;
       sum += standingOn(wx, wz, heightAt(wx, wz), this.decks, this.vehPos.y);
     }
-    const groundY = sum / 4;
+    // An aircraft comes down on the water, not on the sea bed under it.
+    const groundY = this.spec.flies ? Math.max(sum / 4, SEA_LEVEL) : sum / 4;
 
     if (this.spec.flies) {
       /**
@@ -1425,11 +1550,68 @@ export class Player {
       // Up, down, or let it find its own level. Having an explicit descent
       // matters as much as the climb — sinking only when you stop asking to
       // climb is one control pretending to be two.
+      /**
+       * Climbing like you mean it.
+       *
+       * Clyde: "climbing in a plane is particularly bad esp when you can't
+       * even make it over a mountain." He was right, and the arithmetic says
+       * why: 26 m/s of climb at 150 m/s forward is a ten degree slope, and a
+       * mountain face is thirty.
+       *
+       * Three changes. The climb rate is higher and rises with airspeed, so
+       * speed is something you can spend going up. While you hold the climb,
+       * the aircraft looks at the ground it is flying toward and, if that
+       * ground is winning, pulls harder — trading speed for height the way a
+       * pilot hauling back would. And with your hands off entirely, it will
+       * not fly itself into a rising hillside: it eases up to skim it.
+       *
+       * What it will NOT do is save you from pointing the nose at the ground.
+       * That is a crash now, and it should be.
+       */
+      const pace = Math.min(1, Math.abs(this.vehSpeed) / Math.max(this.spec.top, 1));
+      let climb = this.spec.lift! * (this.spec.wing ? 0.7 + 0.55 * pace : 1);
+      let assist = 0;
+      // In the air, or rolling fast enough that the ground ahead is about to
+      // matter: a plane that touched down at speed and is running at a
+      // hillside lifts off it again rather than driving up the face.
+      if (!this.vehDescend && this.mode === "drive" && (this.vehAir || Math.abs(this.vehSpeed) > 45)) {
+        // Where the ground will be a few seconds on, at this heading.
+        const here = Math.max(heightAt(this.vehPos.x, this.vehPos.z), SEA_LEVEL);
+        let need = -Infinity;
+        let rising = -Infinity;
+        for (const t of [0.7, 1.4, 2.4, 3.8, 5.5]) {
+          const d = Math.max(Math.abs(this.vehSpeed), 18) * t;
+          const gy = Math.max(heightAt(this.vehPos.x + hx * d, this.vehPos.z + hz * d), SEA_LEVEL);
+          // The rate needed to clear it with room to spare.
+          need = Math.max(need, (gy + 26 - this.vehPos.y) / t);
+          // And the same for a hillside only, with barely any room: over
+          // level ground this stays negative, so letting go still lands you.
+          // The steeper it is, the more room it is given: seven metres is
+          // plenty over a swell in the ground and nothing at all against a
+          // thirty degree face at a hundred and fifty metres a second.
+          const steep = (gy - here) / d;
+          if (steep > 0.06) {
+            const room = THREE.MathUtils.clamp(steep * 90, 5, 36);
+            rising = Math.max(rising, (gy + room - this.vehPos.y) / t);
+          }
+        }
+        if (this.vehClimb && need > climb) {
+          // Hauling back: up to three quarters as much again, paid for in airspeed.
+          assist = Math.min(need - climb, climb * 0.75);
+          climb += assist;
+        } else if (!this.vehClimb && rising > -this.spec.sink! * wing) {
+          // Hands off: whatever it takes to ride over it, up to a hard pull.
+          assist = -1;
+          climb = Math.min(rising, climb * 1.6);
+        }
+      }
       const want = this.vehClimb
-        ? this.spec.lift!
+        ? climb
         : this.vehDescend
           ? -(this.spec.dive ?? this.spec.lift! * 0.85)
-          : -this.spec.sink! * wing;
+          : assist < 0
+            ? climb
+            : -this.spec.sink! * wing;
 
       /**
        * Trading height for speed, and back.
@@ -1440,8 +1622,8 @@ export class Player {
        * ceiling still clamps a flyer at its top speed, and the commanded
        * descent rate is fixed rather than fed by speed, so there is no loop.
        */
-      if (this.vehDescend) this.vehSpeed += 11 * dt;
-      else if (this.vehClimb) this.vehSpeed -= 7 * dt;
+      if (this.vehDescend) this.vehSpeed += 14 * dt;
+      else if (this.vehClimb) this.vehSpeed -= (3.5 + Math.max(0, assist) * 0.5) * dt;
       // Eased, so the controls feel like a machine with mass rather than a
       // cursor being dragged up and down.
       this.vehVelY += (want - this.vehVelY) * Math.min(1, dt * (this.spec.pitchRate ?? 2.2));
@@ -1449,6 +1631,32 @@ export class Player {
 
       if (this.vehPos.y <= groundY) {
         const impact = Math.max(0, -this.vehVelY);
+        /**
+         * Landing or crash is decided by how hard you met the ground, along
+         * the ground's own normal. Flat out across a level field with a
+         * little sink is a landing at any speed, as it always was. Flying
+         * into a hillside, or diving into anything, is not.
+         */
+        const gn = normalAt(this.vehPos.x, this.vehPos.z, 4);
+        const closing = -(hx * this.vehSpeed * gn.x + hz * this.vehSpeed * gn.z + this.vehVelY * gn.y);
+        /**
+         * But only a real one. Measured: letting go of the controls over
+         * rolling country touches down seven times in four minutes, and at
+         * cruise an eleven degree rise is already thirty metres a second of
+         * closing speed — so a rule on closing speed alone blew you up for
+         * landing on a gentle slope. It has to be a dive, or ground steep
+         * enough that nobody would call it a place to land.
+         */
+        const grade = -(gn.x * hx + gn.z * hz) / Math.max(gn.y, 0.2);
+        const dived = -this.vehVelY > 24;
+        const wall = grade > 0.36;
+        if (this.vehAir && closing > WRECK_IMPACT && (dived || wall)) {
+          this.vehPos.y = groundY;
+          const dir = Math.sign(this.vehSpeed || 1);
+          this.onCrash?.(1);
+          this.wreck(hx * dir, hz * dir, Math.abs(this.vehSpeed) * 0.5);
+          return;
+        }
         this.vehPos.y = groundY;
         this.vehVelY = 0;
         this.vehAir = false;
@@ -1508,6 +1716,12 @@ export class Player {
         }
         this.airTime = 0;
         this.airSpin = 0;
+        // Off the roof of a tower, say. Nothing with wheels lands that.
+        if (impact > 40 && this.mode === "drive") {
+          this.onCrash?.(1);
+          this.wreck(hx, hz, Math.abs(this.vehSpeed) * 0.5);
+          return;
+        }
         if (impact > 4) {
           const force = Math.min(impact / 18, 1);
           this.shake = Math.max(this.shake, force * 0.5);

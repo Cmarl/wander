@@ -6,6 +6,8 @@ export interface HudState {
   clock: string;
   biome: string;
   elevation: number;
+  /** Height above the ground, when flying. Absent on the ground. */
+  agl?: number;
   region: string;
   x: number;
   z: number;
@@ -761,7 +763,11 @@ export class Hud {
   update(s: HudState) {
     this.clockEl.textContent = s.clock;
     this.biomeEl.textContent = s.biome;
-    this.elevEl.textContent = `${s.region} · ${Math.round(s.elevation)} m`;
+    // In the air the number that matters is how far down the ground is.
+    this.elevEl.textContent =
+      s.agl !== undefined && s.agl > 3
+        ? `${s.region} · ${Math.round(s.agl)} m up`
+        : `${s.region} · ${Math.round(s.elevation)} m`;
     // Shown from a walking pace upward. Standing still it fades out rather
     // than sitting there reading zero.
     const kmh = s.speed * 3.6;

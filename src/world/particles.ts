@@ -200,3 +200,124 @@ export class Birds {
     this.mesh.instanceMatrix.needsUpdate = true;
   }
 }
+
+/**
+ * A vehicle going up.
+ *
+ * Clyde: "if you hit something fast your vehicle should probably explode."
+ *
+ * A fireball is three things at three speeds: a flash that is over in a
+ * tenth of a second, fire that billows for most of one, and pieces that keep
+ * falling after both are gone. They are unlit and additive, so the lens does
+ * the rest — the bloom is most of why this reads as heat and not as orange
+ * spheres. One pool, reused: there is only ever one vehicle to lose.
+ */
+const FIRE = 16;
+const DEBRIS = 14;
+
+export class Explosion {
+  readonly group = new THREE.Group();
+  readonly light = new THREE.PointLight(0xffa040, 0, 160, 1.6);
+  private fire: { mesh: THREE.Mesh; mat: THREE.MeshBasicMaterial; vx: number; vy: number; vz: number; size: number; delay: number }[] = [];
+  private bits: { mesh: THREE.Mesh; vx: number; vy: number; vz: number; spin: number; floor: number }[] = [];
+  private age = Infinity;
+
+  constructor() {
+    const ball = new THREE.IcosahedronGeometry(1, 1);
+    for (let i = 0; i < FIRE; i++) {
+      const mat = new THREE.MeshBasicMaterial({
+        color: 0xffffff, transparent: true, opacity: 0, blending: THREE.AdditiveBlending, depthWrite: false, fog: false,
+      });
+      const mesh = new THREE.Mesh(ball, mat);
+      mesh.visible = false;
+      mesh.frustumCulled = false;
+      this.group.add(mesh);
+      this.fire.push({ mesh, mat, vx: 0, vy: 0, vz: 0, size: 1, delay: 0 });
+    }
+    const scrap = new THREE.MeshBasicMaterial({ color: 0x14100d });
+    for (let i = 0; i < DEBRIS; i++) {
+      const mesh = new THREE.Mesh(new THREE.BoxGeometry(0.5 + (i % 3) * 0.3, 0.14, 0.4 + (i % 2) * 0.5), scrap);
+      mesh.visible = false;
+      mesh.frustumCulled = false;
+      this.group.add(mesh);
+      this.bits.push({ mesh, vx: 0, vy: 0, vz: 0, spin: 0, floor: 0 });
+    }
+    this.group.add(this.light);
+  }
+
+  /** `dirX/dirZ` is the way the vehicle was going: the blast leans that way. */
+  burst(x: number, y: number, z: number, dirX: number, dirZ: number, floor: (x: number, z: number) => number) {
+    this.age = 0;
+    this.light.position.set(x, y + 3, z);
+    for (let i = 0; i < FIRE; i++) {
+      const f = this.fire[i];
+      const a = Math.random() * Math.PI * 2;
+      const out = 2 + Math.random() * 7;
+      f.mesh.position.set(x + Math.cos(a) * 0.8, y + 1 + Math.random() * 1.2, z + Math.sin(a) * 0.8);
+      f.vx = Math.cos(a) * out + dirX * 5;
+      f.vz = Math.sin(a) * out + dirZ * 5;
+      f.vy = 3 + Math.random() * 9;
+      f.size = 1.6 + Math.random() * 2.6;
+      // The middle goes first and the edges follow, so it rolls outward.
+      f.delay = i < 4 ? 0 : Math.random() * 0.16;
+      f.mesh.visible = true;
+    }
+    for (let i = 0; i < DEBRIS; i++) {
+      const b = this.bits[i];
+      const a = Math.random() * Math.PI * 2;
+      const out = 5 + Math.random() * 16;
+      b.mesh.position.set(x, y + 1.2, z);
+      b.vx = Math.cos(a) * out + dirX * 9;
+      b.vz = Math.sin(a) * out + dirZ * 9;
+      b.vy = 9 + Math.random() * 16;
+      b.spin = (Math.random() - 0.5) * 14;
+      b.floor = floor(x, z);
+      b.mesh.visible = true;
+    }
+  }
+
+  update(dt: number, floor: (x: number, z: number) => number) {
+    if (this.age > 5) return;
+    this.age += dt;
+    const t = this.age;
+    // The flash: enormous, and gone before you could say what colour it was.
+    this.light.intensity = t < 1.4 ? 2600 * Math.pow(Math.max(0, 1 - t / 1.4), 3) : 0;
+    for (const f of this.fire) {
+      const k = (t - f.delay) / 1.05;
+      if (k < 0) continue;
+      if (k >= 1) {
+        f.mesh.visible = false;
+        continue;
+      }
+      f.mesh.position.x += f.vx * dt;
+      f.mesh.position.y += f.vy * dt;
+      f.mesh.position.z += f.vz * dt;
+      // Fire slows as it rises and cools from white through orange to red.
+      f.vx *= 1 - Math.min(1, dt * 2.4);
+      f.vz *= 1 - Math.min(1, dt * 2.4);
+      f.vy *= 1 - Math.min(1, dt * 1.3);
+      f.mesh.scale.setScalar(f.size * (0.35 + 1.5 * Math.sqrt(k)));
+      // Orange from the first frame: sixteen white spheres added together
+      // are a white screen, and looked like the renderer failing.
+      f.mat.color.setRGB(1, 0.62 - 0.5 * k, Math.max(0, 0.2 - 1.2 * k));
+      f.mat.opacity = (1 - k) * (1 - k) * 0.5;
+    }
+    for (const b of this.bits) {
+      if (!b.mesh.visible) continue;
+      b.vy -= 22 * dt;
+      b.mesh.position.x += b.vx * dt;
+      b.mesh.position.y += b.vy * dt;
+      b.mesh.position.z += b.vz * dt;
+      b.mesh.rotation.x += b.spin * dt;
+      b.mesh.rotation.z += b.spin * 0.7 * dt;
+      const g = floor(b.mesh.position.x, b.mesh.position.z);
+      if (b.mesh.position.y < g + 0.08) {
+        // It lands, and stays where it landed for a few seconds.
+        b.mesh.position.y = g + 0.08;
+        b.vx = b.vz = b.vy = 0;
+        b.spin = 0;
+      }
+      if (t > 4.6) b.mesh.visible = false;
+    }
+  }
+}

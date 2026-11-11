@@ -343,6 +343,22 @@ export class Sfx {
     this.hornVoices.length = 0;
   }
 
+  /**
+   * A vehicle going up: the thud you feel, the roar after it, and metal
+   * coming down. Deliberately the loudest single sound in the game.
+   */
+  explosion() {
+    if (!this.e.ready) return;
+    const dest = this.e.vehicleBus;
+    this.e.tone({ dest, from: 96, to: 28, level: 0.3, decay: 1.1 });
+    this.e.tone({ dest, type: "triangle", from: 180, to: 40, level: 0.16, decay: 0.5 });
+    this.e.burst({ dest, type: "lowpass", freq: 520, level: 0.28, decay: 1.5 });
+    this.e.burst({ dest, freq: 2400, q: 0.8, level: 0.09, decay: 0.35 });
+    for (let i = 0; i < 5; i++) {
+      this.e.burst({ dest, freq: 1800 + i * 500, q: 3, level: 0.035, decay: 0.09, delay: 0.5 + i * 0.22 + Math.random() * 0.1 });
+    }
+  }
+
   /** Suspension hitting a rut. Level scales with how hard the hit was. */
   thump(force: number) {
     if (!this.e.ready) return;

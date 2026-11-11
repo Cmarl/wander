@@ -176,6 +176,10 @@ export class Soundscape {
     this.sfx.crash(force, this.ctx.treeCover > 0.12);
   }
 
+  explode() {
+    this.sfx.explosion();
+  }
+
   vehicleLand(force: number) {
     // Was a bare suspension thump, the same sound a rut makes. A landing and a
     // pothole should not be the same event — this one has the springs taking
