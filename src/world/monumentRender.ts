@@ -36,25 +36,33 @@ interface Loaded {
   group: THREE.Group;
   rotors: { mesh: THREE.Mesh; rate: number }[];
   beam: THREE.Object3D | null;
+  /** This one's own lights, so waking one does not light them all. */
+  lamp: THREE.MeshBasicMaterial;
+  beacon: THREE.MeshBasicMaterial;
+  eyes: THREE.MeshBasicMaterial;
+  beamMat: THREE.MeshBasicMaterial;
+  banner: THREE.Mesh | null;
+  /** 0 asleep, 1 fully awake. Eased, so a thing comes on rather than appearing. */
+  awake: number;
 }
 
 export class MonumentField {
   readonly group = new THREE.Group();
   loaded: Loaded[] = [];
 
-  /** Warm windows and lamps: dark by day, lit after dark. */
-  private lamp = new THREE.MeshBasicMaterial({ color: 0x23242a });
-  /** Red obstruction lights, which blink. */
-  private beacon = new THREE.MeshBasicMaterial({ color: 0x401512 });
-  private beamMat = new THREE.MeshBasicMaterial({
-    color: 0xfff0c2,
-    transparent: true,
-    opacity: 0,
-    blending: THREE.AdditiveBlending,
-    depthWrite: false,
-    side: THREE.DoubleSide,
-    fog: false,
-  });
+  /**
+   * The ones you have woken.
+   *
+   * Every monument is found dark and still: the lamp out, the flagpole bare,
+   * the turbines parked, the light on the crane dead. Getting to the heart of
+   * one changes that, for good — and since every one of those things is
+   * visible from a long way off, what you leave behind is a mark on your own
+   * horizon. The lighthouse you can see turning from thirty kilometres is the
+   * one YOU lit.
+   */
+  readonly woken = new Set<string>();
+  /** The colour a raised banner flies in: whatever your truck is painted. */
+  bannerColour = 0xa83a2c;
   private since = 99;
   private towerGeo: THREE.BufferGeometry | null = null;
   private rotorGeo: THREE.BufferGeometry | null = null;
@@ -76,15 +84,28 @@ export class MonumentField {
     }
 
     const night = THREE.MathUtils.smoothstep(-sunY, -0.06, 0.1);
-    this.lamp.color.setRGB(0.02 + night * 1.0, 0.02 + night * 0.78, 0.025 + night * 0.42);
     // On for a beat, off for two: the rhythm every mast light has.
     const blink = (elapsed % 2.4) < 0.9 ? 1 : 0.12;
-    this.beacon.color.setRGB((0.25 + night * 0.75) * blink + 0.05, 0.04 * blink, 0.03 * blink);
-    this.beamMat.opacity = night * 0.11;
     for (const l of this.loaded) {
-      for (const r of l.rotors) r.mesh.rotation.z += dt * r.rate;
+      const want = this.woken.has(l.m.id) ? 1 : 0;
+      // A few seconds to come on: a lamp catching, blades picking up.
+      l.awake += THREE.MathUtils.clamp(want - l.awake, -dt * 0.5, dt * 0.28);
+      const a = l.awake;
+      // Lit windows and the lamp itself: faint by day, full after dark.
+      const glow = a * (0.22 + night * 0.78);
+      l.lamp.color.setRGB(0.02 + glow * 1.0, 0.02 + glow * 0.78, 0.025 + glow * 0.42);
+      l.beacon.color.setRGB(0.07 + a * (0.3 + night * 0.7) * blink, 0.03, 0.03);
+      l.eyes.color.setRGB(0.02 + a * night * 0.5, 0.02 + a * night * 0.95, 0.03 + a * night * 1.0);
+      l.beamMat.opacity = a * night * 0.11;
+      for (const r of l.rotors) r.mesh.rotation.z += dt * r.rate * a;
+      if (l.banner) {
+        l.banner.visible = a > 0.02;
+        // Run up the pole rather than switched on.
+        l.banner.position.y = (a - 1) * 8;
+        (l.banner.material as THREE.MeshLambertMaterial).color.setHex(this.bannerColour);
+      }
       if (l.beam) {
-        l.beam.visible = night > 0.02;
+        l.beam.visible = a * night > 0.02;
         l.beam.rotation.y = elapsed * 0.42;
       }
     }
@@ -114,6 +135,19 @@ export class MonumentField {
     const group = new THREE.Group();
     const rotors: Loaded["rotors"] = [];
     let beam: THREE.Object3D | null = null;
+    let banner: THREE.Mesh | null = null;
+    const lamp = new THREE.MeshBasicMaterial({ color: 0x23242a });
+    const beaconMat = new THREE.MeshBasicMaterial({ color: 0x401512 });
+    const eyes = new THREE.MeshBasicMaterial({ color: 0x1d1e20 });
+    const beamMat = new THREE.MeshBasicMaterial({
+      color: 0xfff0c2,
+      transparent: true,
+      opacity: 0,
+      blending: THREE.AdditiveBlending,
+      depthWrite: false,
+      side: THREE.DoubleSide,
+      fog: false,
+    });
 
     if (m.kind === "windfarm") {
       this.towerGeo ??= turbineTower();
@@ -129,9 +163,9 @@ export class MonumentField {
         rotor.position.set(0, TURBINE.hub + 1.2, 7.4);
         rotor.rotation.z = t.phase;
         one.add(rotor);
-        const lamp = new THREE.Mesh(new THREE.BoxGeometry(0.8, 0.8, 0.8), this.beacon);
-        lamp.position.set(0, TURBINE.hub + 3.8, -2);
-        one.add(lamp);
+        const light = new THREE.Mesh(new THREE.BoxGeometry(0.8, 0.8, 0.8), beaconMat);
+        light.position.set(0, TURBINE.hub + 3.8, -2);
+        one.add(light);
         rotors.push({ mesh: rotor, rate: t.rate });
         group.add(one);
       }
@@ -139,7 +173,14 @@ export class MonumentField {
       group.position.set(m.x, m.y, m.z);
       group.rotation.y = m.rot;
       for (const part of monumentParts(m.kind)) {
-        const mat = part.glow === "lamp" ? this.lamp : part.glow === "beacon" ? this.beacon : lit(part.colour);
+        if (part.banner) {
+          // Its own material: every castle flies whatever colour you raise.
+          banner = new THREE.Mesh(part.geo, worldLit(new THREE.MeshLambertMaterial({ color: part.colour, flatShading: true }), 0, HAZE));
+          banner.visible = false;
+          group.add(banner);
+          continue;
+        }
+        const mat = part.glow === "lamp" ? lamp : part.glow === "beacon" ? beaconMat : part.glow === "eyes" ? eyes : lit(part.colour);
         group.add(new THREE.Mesh(part.geo, mat));
       }
       if (m.kind === "lighthouse") {
@@ -158,7 +199,7 @@ export class MonumentField {
           // Point of the cone at the lamp, opening outward along x.
           cone.translate(0, -len / 2, 0);
           cone.rotateZ(s * (Math.PI / 2));
-          const shaft = new THREE.Mesh(cone, this.beamMat);
+          const shaft = new THREE.Mesh(cone, beamMat);
           shaft.frustumCulled = false;
           beam.add(shaft);
         }
@@ -168,6 +209,7 @@ export class MonumentField {
       }
     }
     this.group.add(group);
-    return { m, group, rotors, beam };
+    // Already woken on an earlier visit: it is simply on, with no ceremony.
+    return { m, group, rotors, beam, lamp, beacon: beaconMat, eyes, beamMat, banner, awake: this.woken.has(m.id) ? 1 : 0 };
   }
 }

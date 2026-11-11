@@ -59,6 +59,30 @@ const CHUTE_DELAY = 0.4;
 const SWIM_DEPTH = 1.25;
 /** How much of you is under when swimming. */
 const FLOAT = 0.42;
+/**
+ * The glider.
+ *
+ * Clyde, offered a list: "Glider." You could already step off a tower, but
+ * the only thing to do on the way down was fall. A wing turns every high
+ * place in the world into somewhere to LEAVE from, and it is the cure for the
+ * weakest number the monuments have — from the air, the hills stop hiding
+ * things.
+ *
+ * It flies itself: about 24 m/s forward and under 4 down, a little better
+ * than six to one, so the tower's roof is a kilometre of flight. Push the
+ * stick forward to dive for speed, pull back to spend that speed on height.
+ * Ground rising in front of you pushes air up it, and that air carries you —
+ * so a ridge is something you can ride along rather than something in the way.
+ * There is no stall and no crash. Touching down is landing at a run.
+ */
+const GLIDE_CRUISE = 24;
+const GLIDE_DIVE = 46;
+const GLIDE_SLOW = 15;
+const GLIDE_SINK = 3.7;
+const GLIDE_DIVE_SINK = 16;
+const GLIDE_TURN = 1.25;
+/** How much room you need under you to open it. */
+const GLIDE_CLEAR = 3.5;
 const GRAVITY = 24;
 /** Further than this below your feet and the ground is a drop, not a step. */
 const DROP_FALL = 2.6;
@@ -103,6 +127,22 @@ const GLASS_FOV = 13;
 
 const VEH_GRAVITY = 26;
 /**
+ * Gravity once the wheels have left the ground.
+ *
+ * Clyde: "make it intense, not harder but faster, more wild fun. Epic jumps,
+ * drifting." A jump under full gravity is over before you have noticed it.
+ * Lighter in the air means the same launch hangs half as long again, and
+ * hang time is the whole of what makes a jump feel big. The launch TEST still
+ * uses the real figure, so nothing leaves the ground that did not before.
+ */
+const AIR_GRAVITY = 17.5;
+/** How fast a vehicle can be spun in the air, radians a second. */
+const AIR_SPIN = 3.4;
+/** How far the tail steps out in a slide. */
+const DRIFT_ANGLE = 0.52;
+/** Below this nothing slides: a drift is something that happens at speed. */
+const DRIFT_SPEED = 13;
+/**
  * How deep a wheeled vehicle will go before the water wins.
  *
  * About axle height on the truck. Below this you ford it; above it you stop.
@@ -118,7 +158,7 @@ const BOAT_DRAFT = 0.35;
  * giving you something, short of the point where steering stops being an
  * option.
  */
-const OVERSPEED = 0.38;
+const OVERSPEED = 0.55;
 /** Head-on closing speed above which a bump becomes a crash. */
 const CRASH_SPEED = 7;
 /** Two circles along the spine. Radius and spacing come from the spec. */
@@ -218,6 +258,25 @@ export class Player {
   private vehHeading = 0;
   private vehSpeed = 0;
   private vehSteer = 0;
+  /** Angle between where the vehicle points and where it is going. */
+  private vehSlip = 0;
+  /** How long this slide has been held, which is what it pays out. */
+  private driftCharge = 0;
+  /** Seconds of boost left. */
+  boost = 0;
+  /** Seconds since the wheels left the ground, and how far it has turned since. */
+  private airTime = 0;
+  private airSpin = 0;
+  /** Left the ground on purpose, with the jump button. */
+  private vehLeapt = false;
+  /** Sliding, 0..1. For dust, sound and the camera. */
+  drifting = 0;
+  onStunt?: (air: number, turns: number) => void;
+  onBoost?: (seconds: number) => void;
+  /** Gliding: airspeed, and how far over it is banked. */
+  private glideSpeed = 0;
+  private glideBank = 0;
+  private glidePitch = 0;
   private vehVelY = 0;
   private vehAir = false;
   /** Jump held while flying, i.e. "up". */
@@ -394,7 +453,7 @@ export class Player {
    * is out. It is a state rather than a flag because the three behave
    * completely differently and the transitions are the whole feature.
    */
-  skyState: 0 | 1 | 2 = 0;
+  skyState: 0 | 1 | 2 | 3 = 0;
   /**
    * How long you have been falling.
    *
@@ -406,7 +465,7 @@ export class Player {
    */
   private fallTime = 0;
   /** Fires on leaving, on the chute opening, and on landing. */
-  onSkydive?: (what: "jump" | "leap" | "chute" | "land") => void;
+  onSkydive?: (what: "jump" | "leap" | "chute" | "glide" | "fold" | "land") => void;
   /** In water past your chest, floating. */
   swimming = false;
   /** In water, but still on the bottom. */
@@ -544,7 +603,7 @@ export class Player {
 
   /** Pull the handle. Only while falling, and only once. */
   deployChute() {
-    if (this.skyState !== 1 || this.fallTime < CHUTE_DELAY) return false;
+    if ((this.skyState !== 1 && this.skyState !== 3) || this.fallTime < CHUTE_DELAY) return false;
     this.skyState = 2;
     this.onSkydive?.("chute");
     return true;
@@ -576,7 +635,8 @@ export class Player {
 
     let dx = rx * input.move.x + fx * input.move.y;
     let dz = rz * input.move.x + fz * input.move.y;
-    const len = Math.hypot(dx, dz);
+    // Under the wing the stick flies it; it must not also walk you sideways.
+    const len = this.skyState === 3 ? 0 : Math.hypot(dx, dz);
 
     let want = 0;
     let moveDirX = 0;
@@ -710,6 +770,31 @@ export class Player {
       this.onJump?.(false);
       this.velY = JUMP;
       this.grounded = false;
+    } else if (input.jump && !this.grounded && !this.swimming && !this.platform) {
+      /**
+       * The same button, in the air.
+       *
+       * Jump opens the wing if there is room under you, and folds it again if
+       * it is already open. One control, because it is one idea — leave the
+       * ground — and because a phone has no spare thumb for a second one.
+       */
+      if (this.skyState === 3) {
+        this.skyState = 1;
+        this.fallX = Math.sin(this.heading) * this.glideSpeed * 0.6;
+        this.fallZ = Math.cos(this.heading) * this.glideSpeed * 0.6;
+        this.onSkydive?.("fold");
+      } else if (this.skyState !== 2 && this.position.y - ground > GLIDE_CLEAR) {
+        // Carry in whatever you were already doing, so opening it out of a
+        // long fall is a swoop and opening it off a kerb is a float.
+        const carried = Math.hypot(this.fallX, this.fallZ) + this.footSpeed;
+        this.glideSpeed = THREE.MathUtils.clamp(carried + Math.max(0, -this.velY) * 0.55, GLIDE_SLOW, GLIDE_DIVE);
+        this.glideBank = 0;
+        this.glidePitch = 0;
+        this.velY = Math.max(this.velY, -GLIDE_DIVE_SINK);
+        if (this.skyState === 0) this.fallTime = 0;
+        this.skyState = 3;
+        this.onSkydive?.("glide");
+      }
     }
     /**
      * Falling out of the sky.
@@ -722,7 +807,61 @@ export class Player {
      * You cannot die of it. This game has no fail states, so a chute you
      * never pulled is a hard landing and a story, not a death.
      */
-    if (this.skyState > 0) {
+    if (this.skyState === 3) {
+      this.fallTime += dt;
+      // Stick across turns, stick along trades height for speed.
+      this.glideBank += (input.move.x - this.glideBank) * Math.min(1, dt * 3.5);
+      this.glidePitch += (input.move.y - this.glidePitch) * Math.min(1, dt * 3);
+      this.heading -= this.glideBank * GLIDE_TURN * dt;
+      const pitch = this.glidePitch;
+      const wantSpeed = pitch >= 0
+        ? GLIDE_CRUISE + (GLIDE_DIVE - GLIDE_CRUISE) * pitch
+        : GLIDE_CRUISE + (GLIDE_CRUISE - GLIDE_SLOW) * pitch;
+      // Speed arrives quickly in a dive and leaves slowly when you level out,
+      // and that lag is what there is to spend.
+      const gain = wantSpeed > this.glideSpeed ? 1.1 : 0.42;
+      const spare = Math.max(0, this.glideSpeed - wantSpeed);
+      this.glideSpeed += (wantSpeed - this.glideSpeed) * Math.min(1, dt * gain);
+      let sink = pitch >= 0
+        ? GLIDE_SINK + (GLIDE_DIVE_SINK - GLIDE_SINK) * pitch * pitch
+        : GLIDE_SINK + 0.9 * pitch;
+      // Speed you are carrying above what this attitude holds becomes height.
+      sink -= spare * 0.62;
+      // Turning costs a little, or a spiral would be free.
+      sink += Math.abs(this.glideBank) * 1.3;
+
+      const hx = Math.sin(this.heading);
+      const hz = Math.cos(this.heading);
+      /**
+       * Ridge lift. Ground rising ahead of you is air being pushed upward,
+       * and close to a slope that air is stronger than your sink — so you can
+       * work along a hillside and come out higher than you went in. It fades
+       * with height, which is what stops it being a lift to the moon.
+       */
+      const clear = this.position.y - ground;
+      const ahead = heightAt(this.position.x + hx * 45, this.position.z + hz * 45);
+      const rise = THREE.MathUtils.clamp((ahead - heightAt(this.position.x, this.position.z)) / 45, 0, 0.55);
+      const near = 1 - THREE.MathUtils.smoothstep(clear, 25, 150);
+      sink -= rise * 17 * near;
+
+      this.velY += (-sink - this.velY) * Math.min(1, dt * 2.6);
+      this.position.x += hx * this.glideSpeed * dt;
+      this.position.z += hz * this.glideSpeed * dt;
+      this.position.y += this.velY * dt;
+      this.distanceTravelled += this.glideSpeed * dt;
+      this.speed = this.glideSpeed;
+      if (this.position.y <= ground) {
+        // Down, and already running.
+        this.position.y = ground;
+        this.velY = 0;
+        this.grounded = true;
+        this.skyState = 0;
+        this.footSpeed = Math.min(this.glideSpeed, RUN);
+        this.glideBank = 0;
+        this.onSkydive?.("land");
+        this.onLand?.();
+      }
+    } else if (this.skyState > 0) {
       this.fallTime += dt;
       const chute = this.skyState === 2;
       const terminal = chute ? CHUTE_FALL : FREE_FALL;
@@ -797,7 +936,11 @@ export class Player {
     // The running lean must not reach the canopy: a parachute hangs from the
     // sky, not off the shoulders of whoever is steering it. In the air the
     // body's attitude is the pose's business instead.
-    this.character.root.rotation.x = this.skyState > 0 ? 0 : this.lean;
+    this.character.root.rotation.x = this.skyState === 3 ? this.glidePitch * 0.3 : this.skyState > 0 ? 0 : this.lean;
+    // Banked into the turn. Order matters: yaw first, then roll about the
+    // direction of flight, or a banked glider would also nose sideways.
+    this.character.root.rotation.order = "YXZ";
+    this.character.root.rotation.z = this.skyState === 3 ? this.glideBank * 0.6 : 0;
     this.character.setSky(this.skyState);
     this.character.animate(dt, moveSpeed, !this.grounded);
 
@@ -815,6 +958,14 @@ export class Player {
    */
   private followOnFoot(dt: number, input: Controls, speed: number, faceX: number, faceZ: number) {
     this.lookIdle = input.look.x !== 0 ? 0 : this.lookIdle + dt;
+    if (this.skyState === 3) {
+      // In the air the view sits behind the wing, the way it sits behind the
+      // truck — you are steering a thing now, not walking toward the lens.
+      if (this.lookIdle > 0.5 && !this.glassing) {
+        this.camYaw = this.approachAngle(this.camYaw, this.heading + Math.PI, dt * 2.4);
+      }
+      return;
+    }
     if (this.freeCamera || this.glassing || this.campAnchor) return;
     if (this.lookIdle < FOLLOW_GRACE || speed < 0.4) return;
 
@@ -837,7 +988,13 @@ export class Player {
     const steerInput = input.move.x;
     this.throttle = throttle;
 
-    if (throttle > 0.02) {
+    const wheeled = !this.spec.flies && !this.spec.floats;
+    if (this.boost > 0) this.boost = Math.max(0, this.boost - dt);
+    // A boost is a shove whether or not your thumb is on the throttle.
+    const push = this.boost > 0 ? 1.5 : 1;
+    if (this.boost > 0 && throttle > -0.02) {
+      this.vehSpeed += this.spec.accel * Math.max(throttle, 0.6) * push * dt;
+    } else if (throttle > 0.02) {
       this.vehSpeed += this.spec.accel * throttle * dt;
     } else if (throttle < -0.02) {
       // Pulling back brakes while rolling forward, then backs up.
@@ -852,8 +1009,12 @@ export class Player {
     this.vehClimb = input.jumpHeld;
     this.vehDescend = input.down;
     if (input.jump && !this.vehAir && !this.spec.flies) {
-      this.vehVelY = this.spec.jump;
+      // Bigger, and bigger still the faster you are going: a jump at a
+      // hundred and eighty should not be the same hop as one from a standstill.
+      const run = Math.min(1, Math.abs(this.vehSpeed) / Math.max(this.spec.top, 1));
+      this.vehVelY = this.spec.jump * (1.25 + run * 0.45);
       this.vehAir = true;
+      this.vehLeapt = true;
       this.onJump?.(true);
     }
 
@@ -883,7 +1044,7 @@ export class Player {
      * own business and it has no wheels on the hill.
      */
     const descent = this.spec.flies ? 0 : Math.max(0, -grade);
-    const ceiling = this.spec.top * (1 + Math.min(descent, 1.1) * OVERSPEED);
+    const ceiling = this.spec.top * (1 + Math.min(descent, 1.1) * OVERSPEED) * (this.boost > 0 ? 1.32 : 1);
     if (this.vehSpeed > ceiling) {
       // Bled off rather than snapped. Cresting out of a descent should coast
       // back to normal, and a hard clamp there reads as the brakes coming on
@@ -896,11 +1057,73 @@ export class Player {
     const authority =
       this.spec.turn / (1 + Math.abs(this.vehSpeed) * (this.spec.turnFalloff ?? 0.075));
     this.vehSteer = THREE.MathUtils.lerp(this.vehSteer, steerInput, Math.min(1, dt * 7));
+
+    /**
+     * Sliding.
+     *
+     * Hold the stick hard over at speed and the back steps out: the vehicle
+     * points further into the corner than it is travelling, turns tighter for
+     * it, and throws dirt. It costs almost no speed, because this is meant to
+     * be the fun way round a bend and not a mistake to be punished.
+     *
+     * And it pays. The longer a slide is held, the bigger the shove when it
+     * straightens — so the fastest way through open country is sideways, which
+     * is exactly as it should be.
+     */
+    let grip = 1;
+    if (wheeled) {
+      const pace = THREE.MathUtils.clamp((Math.abs(this.vehSpeed) - DRIFT_SPEED) / 18, 0, 1);
+      const hard = THREE.MathUtils.clamp((Math.abs(steerInput) - 0.55) / 0.35, 0, 1);
+      if (this.vehAir) this.airTime += dt;
+      /**
+       * A hop is not a jump.
+       *
+       * At two hundred kilometres an hour the truck leaves the ground over
+       * every ripple for a few frames at a time. Treating each of those as
+       * flight meant a slide was cancelled several times a second and the
+       * stick spun the truck on bumps. Only air that lasts — or that you
+       * asked for with the jump button — is air.
+       */
+      if (this.vehAir && (this.airTime > 0.28 || this.vehLeapt)) {
+        /**
+         * In the air the stick spins you.
+         *
+         * Nothing is holding the vehicle to its line, so it turns as far as
+         * you like while it keeps going the way it left. Where it is pointing
+         * when it lands is where it goes — land a half turn and you drive off
+         * the other way, with everything you had.
+         */
+        const turn = steerInput * AIR_SPIN * dt;
+        this.vehHeading -= turn;
+        this.vehSlip += turn;
+        this.airSpin += Math.abs(turn);
+      } else {
+        const want = steerInput * DRIFT_ANGLE * pace * hard * Math.sign(this.vehSpeed || 1);
+        const rate = Math.abs(want) > Math.abs(this.vehSlip) ? 3.2 : 2.4;
+        this.vehSlip += (want - this.vehSlip) * Math.min(1, dt * rate);
+        this.drifting = Math.min(1, Math.abs(this.vehSlip) / (DRIFT_ANGLE * 0.6));
+        if (Math.abs(this.vehSlip) > 0.14) {
+          this.driftCharge += dt * this.drifting;
+          grip = 1 + this.drifting * 0.7;
+        } else if (this.driftCharge > 0) {
+          if (this.driftCharge > 0.55) {
+            this.boost = Math.max(this.boost, Math.min(2.6, 0.7 + this.driftCharge * 0.55));
+            this.onBoost?.(this.boost);
+          }
+          this.driftCharge = 0;
+        }
+      }
+    } else {
+      this.vehSlip = 0;
+      this.drifting = 0;
+    }
     // Heading SUBTRACTS steer. Forward is (sin h, 0, cos h), so from a chase
     // camera the viewer's right is -(cos h, 0, -sin h) — rising `h` swings the
     // truck to screen-left. Sign must match the front-wheel visual below.
     // Reversing flips it, as it does on a real car (bicycle model: dh ∝ v·tanδ).
-    this.vehHeading -= this.vehSteer * authority * Math.sign(this.vehSpeed) * Math.min(Math.abs(this.vehSpeed) / 5, 1) * dt;
+    if (!wheeled || !this.vehAir || !(this.airTime > 0.28 || this.vehLeapt)) {
+      this.vehHeading -= this.vehSteer * authority * grip * Math.sign(this.vehSpeed) * Math.min(Math.abs(this.vehSpeed) / 5, 1) * dt;
+    }
 
     // Swing the camera back behind the truck, but only once the player has
     // stopped looking around — otherwise it fights them for the stick.
@@ -924,8 +1147,10 @@ export class Player {
      * scrubbed hard rather than stopped dead, so arriving at a shore is a
      * halt rather than a wall. Aircraft are exempt, since they are above it.
      */
-    const nx = this.vehPos.x + Math.sin(this.vehHeading) * this.vehSpeed * dt;
-    const nz = this.vehPos.z + Math.cos(this.vehHeading) * this.vehSpeed * dt;
+    // Along the line of travel, which in a slide or a spin is not the nose.
+    const going = this.vehHeading + this.vehSlip;
+    const nx = this.vehPos.x + Math.sin(going) * this.vehSpeed * dt;
+    const nz = this.vehPos.z + Math.cos(going) * this.vehSpeed * dt;
     /**
      * Where the water actually stops you.
      *
@@ -1220,13 +1445,31 @@ export class Player {
         this.vehAir = true;
       }
     } else if (airborne && this.vehAir) {
-      this.vehVelY -= VEH_GRAVITY * dt;
+      // Full weight for the first instant, so a ripple settles as fast as it
+      // ever did; the float is for air you meant.
+      this.vehVelY -= (this.airTime > 0.28 || this.vehLeapt ? AIR_GRAVITY : VEH_GRAVITY) * dt;
       this.vehPos.y += this.vehVelY * dt;
       if (this.vehPos.y <= groundY) {
         const impact = -this.vehVelY;
         this.vehPos.y = groundY;
         this.vehVelY = 0;
         this.vehAir = false;
+        /**
+         * Landing pays, too.
+         *
+         * You go where you are pointing, with the speed you had, and real
+         * air time comes back as a shove — so a jump is never the slow way.
+         * Anything properly big is reported, turns and all.
+         */
+        const turns = Math.round(this.airSpin / Math.PI) / 2;
+        if (this.airTime > 0.28 || this.vehLeapt) this.vehSlip = 0;
+        this.vehLeapt = false;
+        if (this.airTime > 1.1) {
+          this.boost = Math.max(this.boost, Math.min(2.4, 0.5 + this.airTime * 0.45 + turns * 0.5));
+          this.onStunt?.(this.airTime, turns);
+        }
+        this.airTime = 0;
+        this.airSpin = 0;
         if (impact > 4) {
           const force = Math.min(impact / 18, 1);
           this.shake = Math.max(this.shake, force * 0.5);
@@ -1280,7 +1523,9 @@ export class Player {
         this.vehAir = true;
         // Keep what the ground gave us. Damped, because a raw terrain
         // derivative at 48 m/s is spikier than a real suspension would be.
-        this.vehVelY = THREE.MathUtils.clamp(rate * 0.55, -14, 9);
+        // More of what the ground gave, and a higher ceiling on it: this is
+        // the number that decides whether a crest at speed is a hop or a flight.
+        this.vehVelY = THREE.MathUtils.clamp(rate * 0.8, -14, 17);
         this.vehPos.y += this.vehVelY * dt;
       } else {
         this.vehPos.y = groundY;
@@ -1363,6 +1608,13 @@ export class Player {
     this.vehClimb = false;
     this.vehDescend = false;
     this.vehSteer = 0;
+    this.vehSlip = 0;
+    this.driftCharge = 0;
+    this.drifting = 0;
+    this.boost = 0;
+    this.airTime = 0;
+    this.airSpin = 0;
+    this.vehLeapt = false;
     this.onDismount?.();
   }
 
@@ -1402,7 +1654,18 @@ export class Player {
       this.camera.lookAt(this.campCamera.look);
       return;
     }
-    this.camera.fov += (this.baseFov - this.camera.fov) * Math.min(1, dt * 9);
+    /**
+     * Speed opens the lens.
+     *
+     * The oldest trick for making fast read as fast, and until now it was
+     * sitting in the camp-camera branch where it could never run. Up to
+     * fourteen degrees at full pace and more under boost, which is the
+     * difference between watching a truck go quickly and going quickly.
+     */
+    const rush = this.mode === "drive" || this.skyState === 3
+      ? Math.min(1, this.speed / 62) * 13 + (this.boost > 0 ? 7 : 0)
+      : 0;
+    this.camera.fov += (this.baseFov + rush - this.camera.fov) * Math.min(1, dt * (rush > 0 ? 3.5 : 9));
     this.camera.updateProjectionMatrix();
     const driving = this.mode === "drive";
     const dist = driving ? this.camDist * 1.25 : this.camDist;

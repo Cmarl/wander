@@ -17,8 +17,13 @@ import {
 export interface Part {
   geo: THREE.BufferGeometry;
   colour: number;
-  /** "lamp" glows warm after dark, "beacon" is a red light that blinks. */
-  glow?: "lamp" | "beacon";
+  /**
+   * "lamp" glows warm after dark, "beacon" is a red light that blinks, "eyes"
+   * are cold and steady. None of them is lit until you have woken the place.
+   */
+  glow?: "lamp" | "beacon" | "eyes";
+  /** The castle's flag: not flown until you raise it, and then in your colour. */
+  banner?: boolean;
 }
 
 /**
@@ -277,7 +282,7 @@ function castle(): Part[] {
   }
   parts.push({ geo: merge(win), colour: 0x23242a, glow: "lamp" });
   // The banner.
-  parts.push({ geo: at(box(3.6, 2.2, 0.08), K - 0.7, kt + 17.6, kz - K + 2.6), colour: 0xa83a2c });
+  parts.push({ geo: at(box(3.6, 2.2, 0.08), K - 0.7, kt + 17.6, kz - K + 2.6), colour: 0xa83a2c, banner: true });
   return parts;
 }
 
@@ -398,9 +403,10 @@ function colossus(): Part[] {
   stone.push(at(brow, 0.4, 45, 6.3));
   const nose = tilt(box(1.9, 4.2, 1.8), -0.16, 0.07);
   stone.push(at(nose, 0.4, 42.2, 6.9));
+  const eyes: THREE.BufferGeometry[] = [];
   for (const s of [-1, 1]) {
     const eye = tilt(box(2.3, 1.3, 0.8), -0.16, 0.07);
-    dark.push(at(eye, 0.4 + s * 2.6, 43.4, 6.4));
+    eyes.push(at(eye, 0.4 + s * 2.6, 43.4, 6.4));
   }
   const mouth = tilt(box(4.6, 0.7, 0.8), -0.16, 0.07);
   dark.push(at(mouth, 0.4, 39.2, 6.0));
@@ -439,6 +445,7 @@ function colossus(): Part[] {
     { geo: merge(stone), colour: 0x8c897f },
     { geo: merge(moss), colour: 0x5f7046 },
     { geo: merge(dark), colour: 0x34332f },
+    { geo: merge(eyes), colour: 0x1d1e20, glow: "eyes" },
   ];
 }
 

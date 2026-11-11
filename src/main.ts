@@ -37,7 +37,8 @@ import { regionAt } from "./world/regions";
 import { rumourAt, monumentRumour, survey, type Rumour } from "./world/rumours";
 import { MonumentField } from "./world/monumentRender";
 import {
-  FOUND_RANGE, MONUMENT_NOUN, monumentDecks, monumentSolids, onSummit, turbinesOf, type Monument,
+  FOUND_RANGE, MONUMENT_NOUN, monumentDecks, monumentSolids, monumentToLocal, onSummit, turbinesOf,
+  type Monument, type MonumentKind,
 } from "./world/monuments";
 import { Environment } from "./game/environment";
 import { Player } from "./game/player";
@@ -182,14 +183,33 @@ player.onJump = (inVehicle) => sound.jump(inVehicle);
 player.onSkydive = (what) => {
   if (what === "jump") {
     sound.jump(false);
-    hud.found("you step out", "into the air", "press to open the chute");
+    hud.found("you step out", "into the air", controls.isTouch ? "GLIDE to fly · tap to open the chute" : "SPACE to glide · E for the chute");
     haptics.discover();
   } else if (what === "leap") {
     // Off the edge of something tall, which is the same fall with a
     // different beginning.
     sound.jump(false);
-    hud.found("you step off", "the edge", "press to open the chute");
+    hud.found("you step off", "the edge", controls.isTouch ? "GLIDE to fly · tap to open the chute" : "SPACE to glide · E for the chute");
     haptics.discover();
+  } else if (what === "glide") {
+    sound.action("orchard"); // sailcloth taking the air
+    haptics.land(0.4);
+    if (
+      found.add({
+        id: "glide",
+        kind: "badge",
+        name: "Flew without an engine",
+        x: Math.round(player.position.x),
+        z: Math.round(player.position.z),
+        at: Date.now(),
+        tod: env.timeOfDay,
+        region: regionAt(player.position.x, player.position.z).name,
+      })
+    ) {
+      hud.found("the wing opens", "you are flying", "forward to dive · back to climb · ridges carry you");
+    }
+  } else if (what === "fold") {
+    hud.announce("wing folded", "");
   } else if (what === "chute") {
     sound.action("orchard"); // canopy snapping open: cloth and a crack
     hud.announce("canopy out", "");
@@ -257,6 +277,41 @@ player.onCrash = (f) => {
 player.onVehicleLand = (f) => {
   sound.vehicleLand(f);
   haptics.land(f);
+};
+/**
+ * Big air gets said out loud.
+ *
+ * Not a score and not a combo meter — there is nothing to beat. But two and a
+ * half seconds off the ground with a full turn in it is a thing that happened,
+ * and a game that does not notice is a game that was not watching.
+ */
+let bestAir = Number(localStorage.getItem("wander.bestAir") || 0);
+player.onStunt = (air, turns) => {
+  const spin = turns >= 0.5 ? ` · ${Math.round(turns * 360)}°` : "";
+  const record = air > bestAir + 0.05;
+  if (record) {
+    bestAir = air;
+    localStorage.setItem("wander.bestAir", air.toFixed(2));
+  }
+  if (air > 1.6 || turns >= 0.5) {
+    hud.announce(`${air.toFixed(1)} s of air${spin}`, record && air > 2 ? "your longest yet" : "landed it");
+  }
+  if (air > 3) {
+    found.add({
+      id: "air:3",
+      kind: "feat",
+      name: "Three seconds off the ground",
+      x: Math.round(player.position.x),
+      z: Math.round(player.position.z),
+      at: Date.now(),
+      tod: env.timeOfDay,
+      region: regionAt(player.position.x, player.position.z).name,
+    });
+  }
+};
+player.onBoost = () => {
+  sound.jump(true);
+  haptics.land(0.5);
 };
 
 // --- multiplayer -----------------------------------------------------------
@@ -645,6 +700,20 @@ function wake(dt: number) {
       }
     }
 
+    // A slide throws dirt whatever it is on, and a boost leaves a trail.
+    if (driving && (player.drifting > 0.35 || player.boost > 0)) {
+      const ground = heightAt(px, pz);
+      driftDebt += dt * (player.drifting * 46 + (player.boost > 0 ? 22 : 0));
+      const h = player.heading;
+      while (driftDebt >= 1) {
+        driftDebt -= 1;
+        tintScratch.copy(DRIFT_TINT).offsetHSL(0, 0, (Math.random() - 0.5) * 0.12);
+        // From the back axle, either side.
+        const side = Math.random() < 0.5 ? -1 : 1;
+        dust.emit(px - Math.sin(h) * 1.5 + Math.cos(h) * side, ground, pz - Math.cos(h) * 1.5 - Math.sin(h) * side, speed, tintScratch, false);
+      }
+    }
+
     // Driving fast through thick cover puts birds up.
     if (driving && speed > 12 && birdCooldown <= 0) {
       const ground = heightAt(px, pz);
@@ -660,6 +729,9 @@ function wake(dt: number) {
   dust.update(dt, camera);
   birds.update(dt);
 }
+
+let driftDebt = 0;
+const DRIFT_TINT = new THREE.Color(0xb9a98a);
 
 // --- glassing: looking as a verb -------------------------------------------
 /** Deliberately few. Pins are intentions, not a to-do list. */
@@ -796,6 +868,66 @@ function arriving() {
 let radioDrive = 0;
 let radioNext = 40;
 
+/**
+ * What you do at the heart of each one, and what it does in return.
+ *
+ * Clyde picked this from a list: things that HAPPEN at monuments. Arriving
+ * was the whole payoff, and a place you only arrive at is a place you visit
+ * once. So each is found asleep, and each has one thing in it that wakes it
+ * — the lamp, the flag, the breaker, the brakes — which stays done. All five
+ * can be seen from far away, so the reward is not a line in a list. It is
+ * that the horizon is different afterwards, and you did it.
+ */
+const WAKE: Record<MonumentKind, { badge: (n: string) => string; kicker: string; sub: string }> = {
+  lighthouse: {
+    badge: (n) => `Lit the lamp at ${n}`,
+    kicker: "you light the lamp at",
+    sub: "it turns again — look for it after dark, from anywhere on this coast",
+  },
+  castle: {
+    badge: (n) => `Raised your colours over ${n}`,
+    kicker: "your colours go up over",
+    sub: "and tonight there will be light in the windows",
+  },
+  tower: {
+    badge: (n) => `Threw the breaker at ${n}`,
+    kicker: "you throw the breaker on",
+    sub: "the light on the crane comes on, for whoever is looking",
+  },
+  windfarm: {
+    badge: (n) => `Let the brakes off at ${n}`,
+    kicker: "the brakes come off at",
+    sub: "a dozen blades, starting to turn",
+  },
+  colossus: {
+    badge: (n) => `Stood in the hand of ${n}`,
+    kicker: "you stand in the hand of",
+    sub: "after dark, its eyes are open",
+  },
+};
+for (const f of found.all()) if (f.id.startsWith("woke:")) monuments.woken.add(f.id.slice(5));
+
+function wakeMonument(m: Monument): boolean {
+  const w = WAKE[m.kind];
+  const fresh = found.add({
+    id: `woke:${m.id}`,
+    kind: "badge",
+    name: w.badge(m.name),
+    x: Math.round(m.x),
+    z: Math.round(m.z),
+    at: Date.now(),
+    tod: env.timeOfDay,
+    region: regionAt(m.x, m.z).name,
+  });
+  monuments.woken.add(m.id);
+  if (fresh) {
+    hud.found(w.kicker, m.name, w.sub);
+    sound.discovery("monument");
+    haptics.discover();
+  }
+  return fresh;
+}
+
 function tellRumour(r: Rumour, from: string) {
   const fresh = found.add({
     id: r.id,
@@ -823,6 +955,7 @@ const untold = (m: Monument) => !found.has(m.id) && !found.has(`rumour:${m.id}`)
 function monumentsTick(dt: number) {
   const px = player.position.x;
   const pz = player.position.z;
+  monuments.bannerColour = garage.current(player.distanceTravelled / 1000).hex;
   for (const m of monuments.near(px, pz, 900)) {
     let d = Math.hypot(m.x - px, m.z - pz);
     // A wind farm has no middle. You have reached it when you are under one.
@@ -847,8 +980,18 @@ function monumentsTick(dt: number) {
       haptics.discover();
       dropPinQuietly(m.id);
       dropPinQuietly(`rumour:${m.id}`);
+      // A wind farm has no top to climb to. Being under it is being there.
+      if (m.kind === "windfarm") setTimeout(() => wakeMonument(m), 5200);
+    }
+    // The colossus is woken from its own open hand.
+    if (m.kind === "colossus" && player.mode === "foot" && !monuments.woken.has(m.id)) {
+      const l = monumentToLocal(m, px, pz);
+      if (Math.abs(l.lx - 30) < 5 && Math.abs(l.lz - 14) < 5.5 && player.position.y > m.y + 2.9) wakeMonument(m);
     }
     if (player.mode === "foot" && onSummit(m, px, player.position.y, pz)) {
+      // The thing you came up here to do. Checked on its own rather than with
+      // the summit badge, so a top reached before this existed still counts.
+      if (!monuments.woken.has(m.id)) wakeMonument(m);
       const fresh = found.add({
         id: `summit:${m.id}`,
         kind: "badge",
@@ -882,13 +1025,17 @@ function monumentsTick(dt: number) {
           });
         }
         const n = seen.length + (far ? 1 : 0);
-        hud.found(
-          "the top of",
-          m.name,
-          n ? `from up here you can make out ${n === 1 ? "one place" : `${n} places`} you have not been — they are in your journal` : "the whole country, laid out"
-        );
-        sound.discovery("monument");
-        haptics.discover();
+        if (n) {
+          setTimeout(
+            () =>
+              hud.announce(
+                `from up here you can make out ${n === 1 ? "one place" : `${n} places`} you have not been`,
+                "they are in your journal",
+                { big: true }
+              ),
+            5600
+          );
+        }
       }
     }
   }
@@ -2081,6 +2228,8 @@ function frame(now: number) {
     prompt:
       player.skyState === 1
         ? "open the chute"
+        : player.skyState === 3
+          ? "open the chute"
         : player.skyState === 2
           ? "steer with the stick"
           : player.ridingHost !== null
@@ -2132,7 +2281,13 @@ function frame(now: number) {
     driving: player.mode === "drive",
   });
   hud.setJumpLabel(
-    player.mode === "drive" && SPECS[player.spec.cls].flies ? "CLIMB" : "JUMP"
+    player.mode === "drive" && SPECS[player.spec.cls].flies
+      ? "CLIMB"
+      : player.skyState === 3
+        ? "FOLD"
+        : player.skyState === 1
+          ? "GLIDE"
+          : "JUMP"
   );
   hud.setPresence(net.status, net.peers.size);
 

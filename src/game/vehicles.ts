@@ -93,7 +93,7 @@ export interface VehicleSpec {
 export const SPECS: Record<VehicleClass, VehicleSpec> = {
   truck: {
     cls: "truck", label: "Truck",
-    top: 48, accel: 27, brake: 30, drag: 0.5, reverse: 13,
+    top: 58, accel: 34, brake: 34, drag: 0.5, reverse: 13,
     jump: 10.5, gradePull: 9.0, turn: 1.6,
     bodyR: 1.15, bodyOffset: 1.25,
     seat: [-0.42, 1.52, 0.25], dogSeat: [0.62, 0.82, -0.15],
@@ -101,7 +101,7 @@ export const SPECS: Record<VehicleClass, VehicleSpec> = {
   bike: {
     cls: "bike", label: "Motorcycle",
     // Quickest thing in the world and the worst at hills, which is the trade.
-    top: 62, accel: 40, brake: 26, drag: 0.58, reverse: 6,
+    top: 74, accel: 49, brake: 30, drag: 0.58, reverse: 6,
     jump: 12, gradePull: 11.5, turn: 2.3,
     bodyR: 0.5, bodyOffset: 0.7,
     seat: [0, 1.22, -0.1], dogSeat: [0, 1.0, -0.62],
@@ -109,7 +109,7 @@ export const SPECS: Record<VehicleClass, VehicleSpec> = {
   rover: {
     cls: "rover", label: "Rover",
     // Slow, but a slope barely notices it.
-    top: 33, accel: 24, brake: 34, drag: 0.62, reverse: 11,
+    top: 39, accel: 28, brake: 36, drag: 0.62, reverse: 11,
     jump: 9, gradePull: 5.2, turn: 1.9,
     bodyR: 0.95, bodyOffset: 1.0,
     seat: [-0.38, 1.44, 0.1], dogSeat: [0.52, 0.86, -0.3],
@@ -155,7 +155,7 @@ export const SPECS: Record<VehicleClass, VehicleSpec> = {
   van: {
     cls: "van", label: "Van",
     // Heavy and unhurried. Poor on a climb, steady everywhere else.
-    top: 40, accel: 22.5, brake: 26, drag: 0.5, reverse: 11,
+    top: 48, accel: 27, brake: 30, drag: 0.5, reverse: 11,
     jump: 8, gradePull: 10.5, turn: 1.35,
     bodyR: 1.3, bodyOffset: 1.6,
     seat: [-0.44, 1.72, 0.9], dogSeat: [0.6, 1.0, 0.2],
@@ -163,7 +163,7 @@ export const SPECS: Record<VehicleClass, VehicleSpec> = {
   quad: {
     cls: "quad", label: "Quad bike",
     // Small, light and happy on broken ground, with no speed to speak of.
-    top: 38, accel: 30, brake: 28, drag: 0.72, reverse: 9,
+    top: 46, accel: 38, brake: 30, drag: 0.72, reverse: 9,
     jump: 11, gradePull: 6.4, turn: 2.2,
     bodyR: 0.62, bodyOffset: 0.7,
     seat: [0, 1.18, -0.1], dogSeat: [0, 0.98, -0.66],

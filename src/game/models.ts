@@ -20,7 +20,7 @@ export interface Character {
    * the same three states Player keeps, because they are three completely
    * different pictures and not degrees of one.
    */
-  setSky(state: 0 | 1 | 2): void;
+  setSky(state: 0 | 1 | 2 | 3): void;
 }
 
 export interface CharacterPalette {
@@ -175,8 +175,59 @@ export function makeCharacter(palette: CharacterPalette = DEFAULT_PALETTE): Char
     chute.add(line);
   }
 
+  /**
+   * The wing.
+   *
+   * A delta: one swept sail on a keel and a crossbar, with a control frame
+   * hanging under it and the pilot prone below that. Eight metres tip to tip,
+   * which is about what one person flies, and in the same two colours as the
+   * canopy so it reads as part of the same kit rather than a different game.
+   */
+  const wing = new THREE.Group();
+  wing.visible = false;
+  wing.name = "wing";
+  root.add(wing);
+  {
+    const SPAN = 4.2, NOSE = 1.9, TAIL = -1.5;
+    const sail = (side: number, m: THREE.Material) => {
+      const g = new THREE.BufferGeometry();
+      // nose, tip (swept back and a little down), keel tail
+      const v = side > 0
+        ? [0, 0, NOSE, SPAN, -0.35, -0.9, 0, 0, TAIL]
+        : [0, 0, NOSE, 0, 0, TAIL, -SPAN, -0.35, -0.9];
+      g.setAttribute("position", new THREE.Float32BufferAttribute(v, 3));
+      g.computeVertexNormals();
+      const mesh = new THREE.Mesh(g, m);
+      mesh.position.y = 2.05;
+      wing.add(mesh);
+    };
+    const light = worldLit(new THREE.MeshLambertMaterial({ color: 0xd8d2c0, emissive: 0x565349, flatShading: true, side: THREE.DoubleSide }));
+    const bright = worldLit(new THREE.MeshLambertMaterial({ color: 0xc2563c, emissive: 0x4e241a, flatShading: true, side: THREE.DoubleSide }));
+    sail(1, light);
+    sail(-1, bright);
+    const tube = mat(0x2a2d31);
+    const keel = box(0.07, 0.07, NOSE - TAIL + 0.3, tube);
+    keel.position.set(0, 2.04, (NOSE + TAIL) / 2);
+    wing.add(keel);
+    for (const sx of [-1, 1]) {
+      // Leading edges, and the two legs of the control frame.
+      const edge = box(0.07, 0.07, 5.2, tube);
+      edge.position.set(sx * SPAN / 2, 1.88, (NOSE - 0.9) / 2);
+      // Along the line from the nose to the tip, which sweeps BACK.
+      edge.rotation.y = Math.atan2(sx * SPAN, -(NOSE + 0.9));
+      wing.add(edge);
+      const leg = box(0.05, 1.5, 0.05, tube);
+      leg.position.set(sx * 0.42, 1.32, 0.5);
+      leg.rotation.z = sx * 0.5;
+      wing.add(leg);
+    }
+    const bar = box(1.5, 0.05, 0.05, tube);
+    bar.position.set(0, 0.66, 0.5);
+    wing.add(bar);
+  }
+
   let phase = 0;
-  let sky: 0 | 1 | 2 = 0;
+  let sky: 0 | 1 | 2 | 3 = 0;
   /** Seconds since the canopy was pulled, which is what drives the snap open. */
   let opened = 0;
 
@@ -189,6 +240,7 @@ export function makeCharacter(palette: CharacterPalette = DEFAULT_PALETTE): Char
       if (state === 2) opened = 0;
       sky = state;
       chute.visible = state === 2;
+      wing.visible = state === 3;
     },
     animate(dt, speed, airborne) {
       const stride = Math.min(speed / 4.5, 1.4);
@@ -203,6 +255,20 @@ export function makeCharacter(palette: CharacterPalette = DEFAULT_PALETTE): Char
        * as falling off something. Under canopy you hang: arms up on the risers
        * and legs together underneath.
        */
+      if (sky === 3) {
+        // Prone under the wing: chest down, hands forward on the bar, legs
+        // out behind and together. A little weight shift so it is not a statue.
+        phase += dt * 0.9;
+        hips.position.y = 1.0;
+        hips.rotation.y = 0;
+        hips.rotation.z = Math.sin(phase) * 0.04;
+        torso.rotation.x = 1.3;
+        armL.rotation.x = -1.9; armL.rotation.z = -0.3;
+        armR.rotation.x = -1.9; armR.rotation.z = 0.3;
+        legL.rotation.x = 1.25; legL.rotation.z = -0.05;
+        legR.rotation.x = 1.25 + Math.sin(phase * 1.3) * 0.05; legR.rotation.z = 0.05;
+        return;
+      }
       if (sky > 0) {
         phase += dt * 1.1;
         hips.position.y = 0.86;
