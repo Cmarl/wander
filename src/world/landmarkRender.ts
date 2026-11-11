@@ -7,17 +7,12 @@ import { box, merge, strut, fitGeometry, type Layer } from "./geom";
 import { steadingLayers } from "./buildings";
 import { LANDMARK_CELL, geyserLevel, landmarksNear, type Landmark, type LandmarkKind } from "./landmarks";
 import { ACCRETION_KINDS, accretionsAt, type AccretionKind } from "./accretions";
-import {
-  adit,
-  airfield,
-  cave,
-  dock,
-  frozenLake as frozenlake,
-  orchard,
-  sinkhole,
-  windpump,
-} from "./landmarkKinds";
+import { adit, airfield, cave, dock } from "./landmarkKinds";
 import { arch, bonefield, shipwreck, stones, spring } from "./landmarkRebuilt";
+import {
+  mast, loneTree, wreck, windpump, sinkhole, orchard, frozenLake as frozenlake,
+  lookoutExtras, aditExtras, dockExtras, airfieldExtras, steadingExtras,
+} from "./landmarkRebuilt2";
 
 /**
  * Draws landmarks.
@@ -291,177 +286,6 @@ function lookout(): Layer[] {
   ];
 }
 
-/** Stone arch: eroded blocks with a darker stratum, and rubble at the feet. */
-/** Radio mast: lattice, guy wires to three anchors, dishes, a red lamp. */
-function mast(): Layer[] {
-  const steel: THREE.BufferGeometry[] = [];
-  const warn: THREE.BufferGeometry[] = [];
-  const lamp: THREE.BufferGeometry[] = [];
-  const H = 52;
-
-  const tower = new THREE.CylinderGeometry(0.5, 2.5, H, 4);
-  tower.translate(0, H / 2, 0);
-  steel.push(tower);
-  for (let i = 1; i <= 9; i++) {
-    const t = i / 10;
-    const r = 2.5 - t * 2.0;
-    const ring = box(r * 2.5, 0.26, r * 2.5);
-    ring.translate(0, t * H, 0);
-    // Aviation banding up the top third.
-    (t > 0.62 && i % 2 ? warn : steel).push(ring);
-  }
-  // Guy wires to three anchors — the thing that makes a mast read as a mast.
-  for (let i = 0; i < 3; i++) {
-    const a = (i / 3) * Math.PI * 2;
-    const ax = Math.cos(a) * 15;
-    const az = Math.sin(a) * 15;
-    steel.push(strut([0, H * 0.58, 0], [ax, 0.4, az], 0.075, 3));
-    steel.push(strut([0, H * 0.92, 0], [ax * 0.72, 0.4, az * 0.72], 0.06, 3));
-    const anchor = box(1.1, 0.7, 1.1);
-    anchor.translate(ax, 0.3, az);
-    steel.push(anchor);
-  }
-  for (const [y, r] of [[26, 1.5], [33, 1.1]] as [number, number][]) {
-    const dish = new THREE.CylinderGeometry(r, r * 0.3, 0.4, 10);
-    dish.rotateX(Math.PI / 2.2);
-    dish.translate(r + 0.6, y, 0);
-    steel.push(dish);
-  }
-  const bulb = new THREE.IcosahedronGeometry(0.62, 0);
-  bulb.translate(0, H + 0.7, 0);
-  lamp.push(bulb);
-
-  return [
-    { geo: merge(steel), colour: 0x9aa0a6 },
-    { geo: merge(warn), colour: 0xc4553a },
-    { geo: merge(lamp), colour: 0xff5a46, unlit: true },
-  ];
-}
-
-/** Hot spring: stepped travertine terraces round a bright pool. */
-/** One enormous old tree: leaning trunk, surface roots, a broad crown. */
-function loneTree(): Layer[] {
-  const bark: THREE.BufferGeometry[] = [];
-  const leaf: THREE.BufferGeometry[] = [];
-
-  const trunk = new THREE.CylinderGeometry(0.8, 1.9, 11.5, 7);
-  trunk.translate(0, 5.6, 0);
-  trunk.rotateZ(0.07);
-  bark.push(trunk);
-  for (let i = 0; i < 6; i++) {
-    const a = (i / 6) * Math.PI * 2;
-    bark.push(
-      strut([Math.cos(a) * 0.5, 0.9, Math.sin(a) * 0.5], [Math.cos(a) * 3.1, 0.05, Math.sin(a) * 3.1], 0.3, 5)
-    );
-  }
-  for (const [a, len, y] of [[0.6, 4.2, 9.2], [2.6, 3.6, 10.1], [4.5, 3.9, 8.6]] as [number, number, number][]) {
-    bark.push(strut([0, y, 0], [Math.cos(a) * len, y + 2.4, Math.sin(a) * len], 0.32, 5));
-  }
-  for (const [ox, oy, oz, r] of [
-    [0, 14.2, 0, 6.0], [4.6, 12.2, 1.5, 4.0], [-3.9, 12.9, -2.4, 3.6],
-    [1.6, 16.4, -2.8, 3.1], [-2.2, 15.4, 3.2, 2.9],
-  ] as [number, number, number, number][]) {
-    const crown = new THREE.IcosahedronGeometry(r, 0);
-    crown.scale(1, 0.76, 1);
-    crown.translate(ox, oy, oz);
-    leaf.push(crown);
-  }
-  // Variant 1 leans everything one way, as if the wind never stops.
-  const leaned = merge(leaf.map((g) => g.clone()));
-  leaned.translate(0, -14, 0);
-  leaned.scale(1.35, 0.72, 0.78);
-  leaned.rotateZ(-0.34);
-  leaned.translate(3.4, 13.4, 0);
-
-  return [
-    // 0 broad · 1 wind-sculpted · 2 dead and bleached
-    { geo: merge(bark), colour: 0x6b543c, on: [0, 1] },
-    { geo: merge(leaf), colour: 0x4a5b36, on: [0] },
-    { geo: leaned, colour: 0x55633c, on: [1] },
-    { geo: merge(bark.map((g) => g.clone())), colour: 0xa49a86, on: [2] },
-  ];
-}
-
-/** A peer that didn't make it: rusted, leaning, one wheel off in the grass. */
-function wreck(): Layer[] {
-  const rust: THREE.BufferGeometry[] = [];
-  const dark: THREE.BufferGeometry[] = [];
-  const glass: THREE.BufferGeometry[] = [];
-
-  const body = box(1.9, 0.62, 4.1);
-  body.translate(0, 0.92, 0);
-  rust.push(body);
-  const cab = box(1.72, 0.72, 1.9);
-  cab.translate(0, 1.56, -0.25);
-  rust.push(cab);
-  const pane = box(1.56, 0.46, 0.07);
-  pane.rotateX(-0.22);
-  pane.translate(0, 1.62, 0.66);
-  glass.push(pane);
-  const door = box(0.07, 0.66, 1.5);
-  door.rotateY(-0.7);
-  door.translate(-1.25, 1.2, -0.1);
-  rust.push(door);
-  const rack = box(1.74, 0.09, 1.9);
-  rack.translate(0, 1.97, -0.3);
-  dark.push(rack);
-  for (const [x, z] of [[-0.95, 1.35], [0.95, 1.35], [0.95, -1.35]] as [number, number][]) {
-    const w = new THREE.CylinderGeometry(0.52, 0.52, 0.38, 9);
-    w.rotateZ(Math.PI / 2);
-    w.translate(x, 0.56, z);
-    dark.push(w);
-  }
-  const loose = new THREE.CylinderGeometry(0.52, 0.52, 0.38, 9);
-  loose.rotateX(Math.PI / 2);
-  loose.translate(-2.3, 0.2, -1.9);
-  dark.push(loose);
-
-  /**
-   * A telegraph pole, leaning.
-   *
-   * The abandoned truck was 2.1 m — the shortest thing in the game, visible
-   * from under five hundred metres, which is to say findable only by walking
-   * into it. A pole explains the truck as well as revealing it: somebody ran
-   * a line out here and this did not make it. The lean says the same thing
-   * the wreck does.
-   *
-   * Added AFTER the tilt below, because the truck is rotated onto its springs
-   * and the pole should not be.
-   */
-  const out: Layer[] = [
-    { geo: merge(rust), colour: 0x8a5a3e },
-    { geo: merge(dark), colour: 0x3c3a36 },
-    { geo: merge(glass), colour: 0x7f8f88 },
-  ];
-  for (const l of out) l.geo.rotateZ(0.16); // settled onto its springs
-
-  const pole: THREE.BufferGeometry[] = [];
-  const shaft = new THREE.CylinderGeometry(0.17, 0.27, 13, 6);
-  shaft.translate(0, 6.5, 0);
-  shaft.rotateZ(0.13);
-  pole.push(shaft);
-  const crossarm = box(3.2, 0.16, 0.16);
-  crossarm.translate(-1.5, 11.3, 0);
-  pole.push(crossarm);
-  for (const dx of [-2.6, -1.5, -0.5]) {
-    const pin = new THREE.CylinderGeometry(0.075, 0.075, 0.5, 5);
-    pin.translate(dx, 11.6, 0);
-    pole.push(pin);
-  }
-  const timber = merge(pole);
-  timber.translate(7.2, 0, -4.6);
-  out.push({ geo: timber, colour: 0x6b5b48 });
-
-  return out;
-}
-
-/**
- * Weathering. Nothing out here is new, and a few things are wrecks.
- *
- * This is a per-instance multiplier on the layer colour, so it costs no extra
- * draw calls — the same lookout can be sun-bleached on one hill and charred on
- * the next without a second mesh.
- */
 const WEATHERED = new THREE.Color(0.7, 0.71, 0.65);
 
 function instanceTint(lm: Landmark, out: THREE.Color): void {
@@ -650,25 +474,29 @@ const ACCRETION_BUDGET = 220;
  * the model rather than from someone's estimate of it.
  */
 export const BUILDERS: Record<LandmarkKind, () => Layer[]> = {
-  lookout,
+  // Kinds that keep a structure something else depends on — a deck, a tunnel,
+  // a jetty, a runway, a room — keep their own layers IN ORDER, because the
+  // fit table goes by position, and gain their surroundings after them.
+  lookout: () => [...lookout(), ...lookoutExtras()],
   arch,
   mast,
   spring,
   lonetree: loneTree,
   wreck,
-  steading: steadingLayers,
+  steading: () => [...steadingLayers(), ...steadingExtras()],
   shipwreck,
   stones,
-  adit,
+  adit: () => [...adit(), ...aditExtras()],
   windpump,
   sinkhole,
   bonefield,
   orchard,
   frozenlake,
-  dock,
-  airfield,
+  dock: () => [...dock(), ...dockExtras()],
+  airfield: () => [...airfield(), ...airfieldExtras()],
   cave,
 };
+
 
 export class LandmarkField {
   readonly group = new THREE.Group();
@@ -823,7 +651,9 @@ export class LandmarkField {
     const out = new THREE.Matrix4();
     const touched = new Set<THREE.InstancedMesh>();
     for (const sp of this.spinners) {
-      local.makeRotationY(sp.phase + time * sp.rate * (1 + this.spinBoost * 5));
+      // About the AXLE. This was makeRotationY, which turned the wheel like a
+      // revolving door about the tower instead of spinning it in the wind.
+      local.makeRotationZ(sp.phase + time * sp.rate * (1 + this.spinBoost * 5));
       local.setPosition(0, SAIL_HUB[1], SAIL_HUB[2]);
       out.multiplyMatrices(sp.base, local);
       sp.mesh.setMatrixAt(sp.index, out);

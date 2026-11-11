@@ -45,6 +45,12 @@ function clearingsFor(lm: Landmark): Clearing[] {
   }
   // Nothing grows in scalding mineral water, or in the middle of a ring
   // people have been walking round for four thousand years.
+  // Nothing else grows under a tree that size, or on a lake, or in a yard.
+  if (lm.kind === "lonetree") return [{ x: lm.x, z: lm.z, rot: 0, halfW: 9 * lm.scale, halfL: 9 * lm.scale }];
+  if (lm.kind === "frozenlake") return [{ x: lm.x, z: lm.z, rot: lm.rot, halfW: 36 * lm.scale, halfL: 27 * lm.scale }];
+  if (lm.kind === "sinkhole") return [{ x: lm.x, z: lm.z, rot: 0, halfW: 15 * lm.scale, halfL: 15 * lm.scale }];
+  if (lm.kind === "orchard") return [{ x: lm.x, z: lm.z, rot: lm.rot, halfW: 20 * lm.scale, halfL: 18 * lm.scale }];
+  if (lm.kind === "steading") return [{ x: lm.x, z: lm.z, rot: lm.rot, halfW: 14 * lm.scale, halfL: 12 * lm.scale }];
   if (lm.kind === "spring") return [{ x: lm.x, z: lm.z, rot: 0, halfW: 15 * lm.scale, halfL: 15 * lm.scale }];
   if (lm.kind === "stones" && lm.variant !== 1) return [{ x: lm.x, z: lm.z, rot: 0, halfW: 11 * lm.scale, halfL: 11 * lm.scale }];
   return [];

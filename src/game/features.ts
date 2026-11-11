@@ -205,6 +205,9 @@ export class Features {
     for (const lm of landmarks) {
       const spec = ACTIONS[lm.kind];
       if (!spec.verb) continue;
+      // A collapsed lookout is a heap of timber. Clyde "climbed" one and was
+      // stood on a deck sixteen metres up that was lying on the ground.
+      if (lm.kind === "lookout" && lm.variant === 2) continue;
       const d = Math.hypot(lm.x - x, lm.z - z);
       if (d < spec.range * lm.scale && d < bestD) {
         bestD = d;

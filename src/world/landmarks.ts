@@ -214,6 +214,9 @@ export const LANDMARK_SOLIDS: Record<LandmarkKind, { dx: number; dz: number; r: 
     ...Array.from({ length: 5 }, (_, i) => ({ dx: 32.8, dz: -11 + i * 2.6, r: 1.35 })),
     // The windsock mast, which is thin but you should not walk through it.
     { dx: 12, dz: 12, r: 0.5 },
+    // The radio shack and the fuel bowser on the apron.
+    { dx: 35, dz: -11.5, r: 1.9 },
+    { dx: 35.5, dz: 0.2, r: 1.3 },
   ],
   // The boulders round the mouth are solid; the opening between them is not.
   cave: [

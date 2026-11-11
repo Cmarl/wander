@@ -16,7 +16,7 @@ import { snag } from "./beacons";
  */
 
 /** Nudge every vertex by a hash of where it is, so shared corners stay shared. */
-function knap(g: THREE.BufferGeometry, seed: number, amount: number): THREE.BufferGeometry {
+export function knap(g: THREE.BufferGeometry, seed: number, amount: number): THREE.BufferGeometry {
   const p = g.getAttribute("position");
   for (let i = 0; i < p.count; i++) {
     const x = p.getX(i), y = p.getY(i), z = p.getZ(i);
@@ -31,7 +31,7 @@ function knap(g: THREE.BufferGeometry, seed: number, amount: number): THREE.Buff
 }
 
 /** Triangles from a flat list of corner positions, with the attributes merge() expects. */
-function mesh(v: number[]): THREE.BufferGeometry {
+export function mesh(v: number[]): THREE.BufferGeometry {
   const g = new THREE.BufferGeometry();
   g.setAttribute("position", new THREE.Float32BufferAttribute(v, 3));
   g.computeVertexNormals();
@@ -228,6 +228,7 @@ export function stones(): Layer[] {
   const avenue: THREE.BufferGeometry[] = [];
   const fallen: THREE.BufferGeometry[] = [];
   const turf: THREE.BufferGeometry[] = [];
+  const path: THREE.BufferGeometry[] = [];
   const R = 9.5;
   // Tall enough that a slope cannot bury the uphill half of the ring.
   const hOf = (i: number) => 5.4 + ((i * 5) % 4) * 0.6;
@@ -247,15 +248,27 @@ export function stones(): Layer[] {
     const l = lintel(Math.hypot(x1 - x0, z1 - z0) + 1.1, i + 20);
     l.rotateY(-Math.atan2(z1 - z0, x1 - x0));
     const y = Math.min(hOf(i), hOf((i + 1) % 9)) + 0.05;
-    ring.push(at(l, (x0 + x1) / 2, y, (z0 + z1) / 2));
+    // Hung between the two stones it sits on, so each end goes where its
+    // own upright goes and it never floats off one of them.
+    const dx = x1 - x0, dz = z1 - z0, d2 = dx * dx + dz * dz;
+    ring.push(span(at(l, (x0 + x1) / 2, y, (z0 + z1) / 2), x0, z0, x1, z1, (x, _y, z) => ((x - x0) * dx + (z - z0) * dz) / d2));
   }
   // The altar, lying flat in the middle, and two low stones either side.
   const altar = knap(box(3.8, 0.7, 1.7).toNonIndexed(), 31, 0.1);
   altar.rotateY(0.3);
   ring.push(at(altar, 0, 0.3, 0));
-  const worn = new THREE.CircleGeometry(R - 1.8, 18);
+  /**
+   * The worn ground inside the ring, DRAPED.
+   *
+   * Clyde, standing waist-deep in it: "similar issue with landmark". It was
+   * one flat disc fifteen metres across, so on any slope the low side stood
+   * in the air as a grey plate you waded through. It is cut into rings now
+   * and every vertex is put on the real ground, so it is a colour on the
+   * hill and not a thing on top of it.
+   */
+  const worn = new THREE.RingGeometry(0.01, R - 1.8, 20, 5);
   worn.rotateX(-Math.PI / 2);
-  turf.push(at(worn, 0, 0.06, 0));
+  turf.push(at(worn, 0, 0.14, 0));
 
   // Variant 1: an avenue, two rows leading somewhere that is no longer there.
   for (let i = 0; i < 12; i++) {
@@ -268,8 +281,9 @@ export function stones(): Layer[] {
   }
   const end = megalith(7.2, 3.4, 77);
   avenue.push(at(end, 0, -0.3, 19.5));
-  const way = box(4.6, 0.1, 33);
-  turf.push(at(way, 0, 0.05, 0.4));
+  const way = new THREE.PlaneGeometry(4.6, 33, 3, 16);
+  way.rotateX(-Math.PI / 2);
+  path.push(at(way, 0, 0.14, 0.4));
 
   // Variant 2: the ring after a few thousand more years.
   for (let i = 0; i < 9; i++) {
@@ -306,7 +320,9 @@ export function stones(): Layer[] {
     { geo: merge(ring), colour: 0x928f86, on: [0] },
     { geo: merge(avenue), colour: 0x928f86, on: [1] },
     { geo: merge(fallen), colour: 0x87847b, on: [2] },
-    { geo: merge(turf), colour: 0x6f6a4c, on: [0, 1] },
+    // One each: merged, the ring showed the avenue's path and the avenue the ring's disc.
+    { geo: merge(turf), colour: 0x8a7c58, on: [0], fit: { foot: 1000 }, solid: false },
+    { geo: merge(path), colour: 0x8a7c58, on: [1], fit: { foot: 1000 }, solid: false },
   ];
 }
 
@@ -456,18 +472,42 @@ function rib(R: number, H: number, depth: number, cx: number, cz: number, yaw: n
       caps.push(skin);
     }
   }
-  // The feet: broad, buried, banded.
+  /**
+   * The feet. They were one box each with a stripe round it, and from close
+   * to — which is where you stand to look at an arch — a box is a box however
+   * you knap it. Each is now a pile: a broad base sunk well into the ground,
+   * a narrower block on it turned a little, a shoulder leaning into the span,
+   * and a buttress of fallen slabs against the outside. The strata are thin
+   * proud ledges at different heights, not a band.
+   */
   for (const sx of [-1, 1]) {
-    const foot = knap(new THREE.BoxGeometry(10.5, 9, depth + 3, 2, 2, 2).toNonIndexed(), seed + sx + 7, 0.7);
-    foot.translate(sx * (R + 0.6), 0.5, 0);
-    rocks.push(foot);
-    const band = knap(new THREE.BoxGeometry(10.9, 1.2, depth + 3.5, 1, 1, 1).toNonIndexed(), seed + sx + 9, 0.3);
-    band.translate(sx * (R + 0.6), 3.4, 0);
-    caps.push(band);
+    const x = sx * (R + 0.6);
+    const base = knap(new THREE.BoxGeometry(12.5, 7, depth + 4.5, 3, 2, 3).toNonIndexed(), seed + sx + 7, 0.8);
+    base.rotateY(sx * 0.12);
+    base.translate(x, -0.6, 0);
+    rocks.push(base);
+    const mid = knap(new THREE.BoxGeometry(9.6, 5, depth + 2.2, 3, 2, 3).toNonIndexed(), seed + sx + 8, 0.7);
+    mid.rotateY(sx * -0.2);
+    mid.rotateZ(sx * -0.08);
+    mid.translate(x - sx * 0.6, 4.6, 0.3);
+    rocks.push(mid);
     const shoulder = knap(new THREE.BoxGeometry(7.5, 7, depth + 1, 2, 2, 2).toNonIndexed(), seed + sx + 11, 0.6);
     shoulder.rotateZ(sx * -0.5);
-    shoulder.translate(sx * (R - 1.8), 6.4, 0);
+    shoulder.translate(sx * (R - 1.8), 7.4, 0);
     rocks.push(shoulder);
+    for (let k = 0; k < 3; k++) {
+      const slab = knap(new THREE.BoxGeometry(4.6 - k, 2.4, 5 - k * 0.8, 2, 1, 2).toNonIndexed(), seed + sx + 20 + k, 0.5);
+      slab.rotateZ(sx * (0.55 + k * 0.12));
+      slab.rotateY(k * 0.9);
+      slab.translate(x + sx * (6.2 + k * 1.1), 0.8 - k * 0.2, (k - 1) * 3.4);
+      rocks.push(slab);
+    }
+    for (const [y, w] of [[2.3, 12.9], [3.4, 12.2], [6.5, 9.9]] as [number, number][]) {
+      const ledge = knap(new THREE.BoxGeometry(w, 0.45, depth + (y > 5 ? 2.6 : 4.9), 3, 1, 3).toNonIndexed(), seed + sx + y, 0.3);
+      ledge.rotateY(sx * (y > 5 ? -0.2 : 0.12));
+      ledge.translate(x - (y > 5 ? sx * 0.6 : 0), y, y > 5 ? 0.3 : 0);
+      caps.push(ledge);
+    }
   }
   const place = (g: THREE.BufferGeometry) => {
     g.rotateY(yaw);
@@ -598,6 +638,31 @@ export function caveMouth(): { rock: THREE.BufferGeometry; dark: THREE.BufferGeo
     r.translate(sx * (3.6 + ((i * 5) % 7)), 0.3, 2.5 + ((i * 3) % 6));
     rocks.push(r);
   }
+  /**
+   * The body of the crag, over and either side of the chamber.
+   *
+   * The chamber runs thirty metres back from the mouth, and on anything short
+   * of a cliff its black walls stood out of the hillside behind the entrance
+   * like a shipping container. This is the rock it is supposed to be inside:
+   * two flanks and a roof, stepping down toward the back, with nothing
+   * crossing the void between them — a block's far face would be a wall
+   * across the passage from the inside.
+   */
+  for (let i = 0; i < 4; i++) {
+    const z = -8 - i * 7.2;
+    const drop = i * 1.7;
+    for (const sx of [-1, 1]) {
+      block(7.5 - i * 0.5, 13 - drop, 8.4, sx * (10.6 - i * 0.3), 1.5 - drop * 0.3, z, 40 + i * 2 + (sx > 0 ? 1 : 0), sx * -0.05);
+    }
+    block(16 - i, 5.5, 8.4, Math.sin(i * 1.9) * 1.2, 10.4 - drop, z, 50 + i, 0.03 * (i % 2 ? 1 : -1));
+  }
+  block(20, 11, 6, 0, 0.5, -38.5, 58);
+  // And a head on it, so from the valley it is a tor and not a doorway.
+  block(12, 6.5, 9, -2.2, 17.2, -7.5, 60, 0.07);
+  block(8, 5.5, 7, 2.8, 21.4, -9.5, 61, -0.09);
+  block(6.5, 9, 6, -12.8, 6.5, -6, 62, 0.2);
+  block(6, 8, 6, 14, 6, -7, 63, -0.18);
+
   // The dark itself, a little way in, so the opening is black from any angle.
   const dark = new THREE.BoxGeometry(7.4, 6, 0.4).toNonIndexed();
   dark.translate(0.2, 2.2, -1.6);

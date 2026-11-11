@@ -52,9 +52,6 @@ export function fitFor(kind: LandmarkKind, index: number, layer: Layer): Fit {
  */
 const NOT_SOLID: Partial<Record<LandmarkKind, number[]>> = {
   spring: [1, 2, 4, 5, 6, 7, 8],
-  sinkhole: [2],
-  // The ice, and the snow banked round it, which you walk over to reach it.
-  frozenlake: [2, 3],
   adit: [2, 5, 6],
   cave: [2, 3, 4],
   stones: [4],

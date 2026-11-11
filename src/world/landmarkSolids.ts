@@ -111,12 +111,25 @@ function circlesFor(kind: LandmarkKind, variant: number): Circle[] {
   return out;
 }
 
-/** Solid circles in world space, for collision. */
+/**
+ * Solid circles in world space, for collision.
+ *
+ * Remembered per landmark: this is asked every frame for everything nearby,
+ * and a cave is five hundred circles that never move.
+ */
+const placed = new Map<string, { x: number; z: number; r: number }[]>();
 export function solidsFor(lm: Landmark): { x: number; z: number; r: number }[] {
-  return circlesFor(lm.kind, lm.variant).map((o) => {
-    const w = toWorld(lm, o.dx, o.dz);
-    return { x: w.x, z: w.z, r: o.r * lm.scale };
-  });
+  const key = `${lm.kind}:${lm.id}`;
+  let out = placed.get(key);
+  if (!out) {
+    out = circlesFor(lm.kind, lm.variant).map((o) => {
+      const w = toWorld(lm, o.dx, o.dz);
+      return { x: w.x, z: w.z, r: o.r * lm.scale };
+    });
+    if (placed.size > 60) placed.clear();
+    placed.set(key, out);
+  }
+  return out;
 }
 
 /** For the probe: how many circles a kind and variant comes to. */
