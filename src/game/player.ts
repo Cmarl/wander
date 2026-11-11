@@ -265,8 +265,14 @@ export class Player {
   /** Seconds of boost left. */
   boost = 0;
   /** Seconds since the wheels left the ground, and how far it has turned since. */
-  private airTime = 0;
+  airTime = 0;
   private airSpin = 0;
+  /** Real air, for the counter: seconds up and half-turns made, or null on the ground. */
+  get air(): { time: number; turns: number } | null {
+    if (this.mode !== "drive" || this.spec.flies || !this.vehAir) return null;
+    if (!(this.airTime > 0.28 || this.vehLeapt)) return null;
+    return { time: this.airTime, turns: Math.round(this.airSpin / Math.PI) / 2 };
+  }
   /** Left the ground on purpose, with the jump button. */
   private vehLeapt = false;
   /** Sliding, 0..1. For dust, sound and the camera. */
@@ -1051,7 +1057,15 @@ export class Player {
       // by themselves.
       this.vehSpeed -= (this.vehSpeed - ceiling) * Math.min(1, dt * 1.5);
     }
-    this.vehSpeed = Math.max(this.vehSpeed, -this.spec.reverse);
+    /**
+     * Reverse is a cap on what the ENGINE will do backwards, not on what
+     * momentum can. Land a jump tail-first and you are rolling backwards at
+     * whatever you had; a hard clamp there would be the truck stopping dead
+     * in mid-slide. So it is bled off quickly instead of removed.
+     */
+    if (this.vehSpeed < -this.spec.reverse) {
+      this.vehSpeed += (-this.spec.reverse - this.vehSpeed) * Math.min(1, dt * 1.3);
+    }
 
     // Steering authority falls off with speed, so it isn't twitchy at pace.
     const authority =
@@ -1099,7 +1113,12 @@ export class Player {
         this.airSpin += Math.abs(turn);
       } else {
         const want = steerInput * DRIFT_ANGLE * pace * hard * Math.sign(this.vehSpeed || 1);
-        const rate = Math.abs(want) > Math.abs(this.vehSlip) ? 3.2 : 2.4;
+        // Past what a drift ever reaches, this is a landing coming back into
+        // line: the tyres are scrubbing sideways, which costs speed, and the
+        // further round you came down the longer it takes to bite.
+        const wild = Math.max(0, Math.abs(this.vehSlip) - DRIFT_ANGLE);
+        if (wild > 0) this.vehSpeed -= this.vehSpeed * Math.min(1, wild) * 1.5 * dt;
+        const rate = Math.abs(want) > Math.abs(this.vehSlip) ? 3.2 : wild > 0 ? 1.9 : 2.4;
         this.vehSlip += (want - this.vehSlip) * Math.min(1, dt * rate);
         this.drifting = Math.min(1, Math.abs(this.vehSlip) / (DRIFT_ANGLE * 0.6));
         if (Math.abs(this.vehSlip) > 0.14) {
@@ -1462,7 +1481,26 @@ export class Player {
          * Anything properly big is reported, turns and all.
          */
         const turns = Math.round(this.airSpin / Math.PI) / 2;
-        if (this.airTime > 0.28 || this.vehLeapt) this.vehSlip = 0;
+        /**
+         * You land going the way you were GOING, not the way you are facing.
+         *
+         * Clyde: "The landing on big jumps when you rotate is jarring... landing
+         * backwards you are suddenly at full speed the opposite direction."
+         * It used to throw the slip away on touchdown, which re-aimed all your
+         * momentum down the nose in one frame.
+         *
+         * Now the momentum is kept and the truck slides back into line under
+         * it. Come down sideways and you scrub round to straight in a spray of
+         * dirt. Come down tail-first and you are simply rolling backwards —
+         * the same travel, read as reverse — until the wheels pull you up and
+         * away again. Nothing is taken off you that friction would not take.
+         */
+        let slip = ((this.vehSlip + Math.PI) % (Math.PI * 2) + Math.PI * 2) % (Math.PI * 2) - Math.PI;
+        if (Math.abs(slip) > Math.PI / 2) {
+          this.vehSpeed = -this.vehSpeed;
+          slip -= Math.sign(slip) * Math.PI;
+        }
+        this.vehSlip = slip;
         this.vehLeapt = false;
         if (this.airTime > 1.1) {
           this.boost = Math.max(this.boost, Math.min(2.4, 0.5 + this.airTime * 0.45 + turns * 0.5));

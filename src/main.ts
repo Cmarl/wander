@@ -287,14 +287,15 @@ player.onVehicleLand = (f) => {
  */
 let bestAir = Number(localStorage.getItem("wander.bestAir") || 0);
 player.onStunt = (air, turns) => {
-  const spin = turns >= 0.5 ? ` · ${Math.round(turns * 360)}°` : "";
   const record = air > bestAir + 0.05;
   if (record) {
     bestAir = air;
     localStorage.setItem("wander.bestAir", air.toFixed(2));
-  }
-  if (air > 1.6 || turns >= 0.5) {
-    hud.announce(`${air.toFixed(1)} s of air${spin}`, record && air > 2 ? "your longest yet" : "landed it");
+    // Only a record takes the middle of the screen. Every other jump was
+    // already counted, small and to one side, while it was happening.
+    if (air > 2) {
+      hud.found("your longest air yet", `${air.toFixed(1)} seconds`, turns >= 0.5 ? `with ${Math.round(turns * 360)}° in it` : "");
+    }
   }
   if (air > 3) {
     found.add({
@@ -2290,6 +2291,7 @@ function frame(now: number) {
           : "JUMP"
   );
   hud.setPresence(net.status, net.peers.size);
+  hud.setAir(player.air);
 
   post.render(scene, camera);
   // Must read the buffer in the same frame as the draw, or it's already cleared.

@@ -151,5 +151,40 @@ const drive = () => {
   check(after > SPECS.truck.top * 0.85, "and landing does not cost the speed", `${(after * 3.6).toFixed(0)} km/h`);
 }
 
+// Land it half way round: the truck must keep going the way it was going.
+for (const [label, spinFor] of [["tail-first", 0.92], ["sideways", 0.46]] as [string, number][]) {
+  const { p, c } = drive();
+  c.move.y = 1;
+  for (let k = 0; k < 60 * 9; k++) p.update(DT, c);
+  const before = Math.abs(p.vehicleState.speed);
+  let landed = false;
+  p.onStunt = () => { landed = true; };
+  tap(p, c, "jump");
+  let t = 0, prev = p.vehicle.root.position.clone(), dirBefore = new THREE.Vector3();
+  for (let k = 0; k < 60 * 6 && !landed; k++) {
+    c.move.x = t < spinFor ? 1 : 0;
+    prev = p.vehicle.root.position.clone();
+    p.update(DT, c);
+    t += DT;
+    if (!landed) dirBefore.copy(p.vehicle.root.position).sub(prev).setY(0).normalize();
+  }
+  c.move.x = 0;
+  // The very next step on the ground.
+  prev = p.vehicle.root.position.clone();
+  p.update(DT, c);
+  const step = p.vehicle.root.position.clone().sub(prev).setY(0);
+  const kept = step.length() / DT;
+  const turned = (Math.acos(THREE.MathUtils.clamp(step.clone().normalize().dot(dirBefore), -1, 1)) * 180) / Math.PI;
+  const signed = p.vehicleState.speed;
+  console.log(`landed ${label}: still travelling ${turned.toFixed(0)}° off the line it was on, at ${(kept * 3.6).toFixed(0)} km/h (was ${(before * 3.6).toFixed(0)}); the speedometer reads ${(signed * 3.6).toFixed(0)}`);
+  check(landed, `${label}: the jump landed`, "");
+  check(turned < 12, `${label}: momentum carries straight on through the landing`, `${turned.toFixed(0)}° change of direction`);
+  check(kept > before * 0.8, `${label}: and is not thrown away on touchdown`, `${(kept / before * 100).toFixed(0)}% kept`);
+  if (label === "tail-first") check(signed < -20, "tail-first is rolling backwards, not racing forwards", `${(signed * 3.6).toFixed(0)} km/h`);
+  // And it comes back into line by itself within a couple of seconds.
+  for (let k = 0; k < 60 * 2.5; k++) p.update(DT, c);
+  check(p.drifting < 0.2, `${label}: then it straightens out on its own`, `drifting ${p.drifting.toFixed(2)}`);
+}
+
 console.log(bad ? `\n${bad} FAILED` : "\nall assertions passed");
 process.exit(bad ? 1 : 0);

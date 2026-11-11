@@ -93,6 +93,12 @@ export class Hud {
   toggleHelp: (show?: boolean) => void = () => {};
   private onlineEl!: HTMLElement;
   private foundEl!: HTMLElement;
+  private airEl!: HTMLElement;
+  private airTimeEl!: HTMLElement;
+  private airSpinEl!: HTMLElement;
+  private airShown = false;
+  private airTimer = 0;
+  private airText = "";
   private foundKickEl!: HTMLElement;
   private foundNameEl!: HTMLElement;
   private foundSubEl!: HTMLElement;
@@ -196,6 +202,7 @@ export class Hud {
       </div>
       <div class="glass" id="h-glass"><div class="glass-recticle"></div></div>
       <div class="marks" id="h-marks"></div>
+      <div class="air" id="h-air"><b id="h-air-time"></b><i id="h-air-spin"></i></div>
       <div class="found" id="h-found">
         <span class="found-kick" id="h-found-kick"></span>
         <span class="found-name" id="h-found-name"></span>
@@ -396,6 +403,9 @@ export class Hud {
     this.glassEl = document.getElementById("h-glass")!;
     this.marksEl = document.getElementById("h-marks")!;
     this.foundEl = document.getElementById("h-found")!;
+    this.airEl = document.getElementById("h-air")!;
+    this.airTimeEl = document.getElementById("h-air-time")!;
+    this.airSpinEl = document.getElementById("h-air-spin")!;
     this.foundKickEl = document.getElementById("h-found-kick")!;
     this.foundNameEl = document.getElementById("h-found-name")!;
     this.foundSubEl = document.getElementById("h-found-sub")!;
@@ -706,6 +716,41 @@ export class Hud {
     this.foundEl.classList.add("on");
     clearTimeout(this.foundTimer);
     this.foundTimer = window.setTimeout(() => this.foundEl.classList.remove("on"), 4600);
+  }
+
+  /**
+   * Air time, counted where you can see it and not in your way.
+   *
+   * Clyde: "The air toast or notice is intrusive... the rest should just be
+   * smaller to the side, maybe you watch it quickly tic up while you're in
+   * the air, linger for 250ms or so and fade out before the next takes its
+   * place."
+   *
+   * So it is a small figure at the edge that runs while the wheels are off
+   * the ground, holds for a quarter of a second after they touch, and fades.
+   * A new jump simply takes it over. Pass null on the ground.
+   */
+  setAir(air: { time: number; turns: number } | null) {
+    // Under half a second is a hop, and a counter flickering on every crest
+    // would be the same intrusion in a smaller font.
+    if (air && air.time > 0.45) {
+      const text = air.time.toFixed(1);
+      if (text !== this.airText) {
+        this.airText = text;
+        this.airTimeEl.textContent = `${text} s`;
+      }
+      const spin = air.turns >= 0.5 ? `${Math.round(air.turns * 360)}°` : "";
+      if (this.airSpinEl.textContent !== spin) this.airSpinEl.textContent = spin;
+      if (!this.airShown) {
+        this.airShown = true;
+        clearTimeout(this.airTimer);
+        this.airEl.classList.add("on");
+      }
+    } else if (this.airShown) {
+      this.airShown = false;
+      this.airText = "";
+      this.airTimer = window.setTimeout(() => this.airEl.classList.remove("on"), 250);
+    }
   }
 
   setMuted(muted: boolean) {
