@@ -1,4 +1,4 @@
-import { heightAt, slopeAt, moistureAt, temperatureAt, slotRandom, SEA_LEVEL } from "./field";
+import { heightAt, normalAt, slopeAt, moistureAt, temperatureAt, slotRandom, SEA_LEVEL } from "./field";
 import { toWorld } from "./frame";
 
 /**
@@ -17,7 +17,7 @@ import { toWorld } from "./frame";
 
 /** ~2.2 km grid at 54% occupancy, measured at ~2.2 km mean spacing. */
 export const LANDMARK_CELL = 2200;
-const OCCUPANCY = 0.54;
+const OCCUPANCY = 0.8;
 
 export type LandmarkKind =
   | "lookout"
@@ -244,6 +244,13 @@ export interface Landmark {
   gz: number;
 }
 
+/** How far the ground may fall across 24 m under each kind, in metres. */
+const MAX_FALL: Record<LandmarkKind, number> = {
+  lookout: 6, arch: 6.5, mast: 9, spring: 4, lonetree: 6, wreck: 5.5, steading: 3,
+  shipwreck: 4, stones: 5, adit: 10, windpump: 4.5, sinkhole: 5, bonefield: 5,
+  orchard: 4.5, frozenlake: 2, dock: 5, airfield: 10, cave: 30,
+};
+
 /**
  * A landmark placed on its own merits, ignoring its neighbours.
  *
@@ -324,7 +331,7 @@ function baseInCell(gx: number, gz: number): Landmark | null {
   // 0.26 left almost no band at all: the shared check already rejects
   // anything above 0.3, so the window was four hundredths wide and caves came
   // out at one every 47 km. 0.17 still means hilly and nothing like farmland.
-  if (slopeAt(x, z, 20) > 0.17 && y > 120 && y < 2600) options.push("cave");
+  if (slopeAt(x, z, 20) > 0.17 && y > 120 && y < 2600 && slotRandom(gx, gz, 1669) > 0.45) options.push("cave");
   if (moist < 0.5 && y > 30 && y < 800) options.push("windpump");
   if (moist < 0.35 && y > 60 && y < 1400) options.push("sinkhole");
   // Somebody farmed here. Needs the good ground, same as the steadings.
@@ -361,7 +368,9 @@ function baseInCell(gx: number, gz: number): Landmark | null {
   // place in the world being an airstrip.
   if (y > 25 && y < 900 && stripDrop(x, z) < 4.0 && slotRandom(gx, gz, 1619) > 0.08)
     options.push("airfield");
-  if (moist < 0.70 && y > 80 && y < 1500) options.push("lonetree");
+  // Gated, because a lone tree will stand almost anywhere: once the steeper
+  // sites stopped taking towers and springs it became a fifth of everything.
+  if (moist < 0.70 && y > 80 && y < 1500 && slotRandom(gx, gz, 1663) > 0.45) options.push("lonetree");
   // Rarer than the rest, or every other cell would be a dead truck.
   if (slotRandom(gx, gz, 967) > 0.82) options.push("wreck");
   // Somebody chose to live here, so the ground has to be worth living on:
@@ -380,9 +389,26 @@ function baseInCell(gx: number, gz: number): Landmark | null {
     slotRandom(gx, gz, 1013) > 0.72
   )
     options.push("steading");
-  if (!options.length) return null;
+  /**
+   * And the ground has to be ground that kind of thing could stand on.
+   *
+   * The only slope test used to be the one near the top of this function,
+   * which rejects anything over forty-five degrees — so everything UNDER
+   * forty-five degrees was fair game for everything. Measured over 2,000
+   * landmarks: the ground under a typical fire lookout fell 6.3 m across its
+   * own footprint, under a mast 9.2 m, and the worst arch stood on 23 m of
+   * fall in 24 m of width. That is the arch in Clyde's screenshot.
+   *
+   * Models now reach down to meet uneven ground (see world/geom `Fit`), but
+   * reaching is for a slope, not a cliff. Each kind gets the fall it can
+   * plausibly sit on: a frozen lake almost none, a mine or a cave a great
+   * deal, because those are IN hillsides.
+   */
+  const fall = footprintDrop(x, z, 12);
+  const fits = options.filter((k) => fall <= MAX_FALL[k]);
+  if (!fits.length) return null;
 
-  const kind = options[Math.min(options.length - 1, Math.floor(pick * options.length))];
+  const kind = fits[Math.min(fits.length - 1, Math.floor(pick * fits.length))];
   return build(gx, gz, x, z, y, spin, size, kind, temp, moist);
 }
 
@@ -435,6 +461,19 @@ function build(
    */
   let spin2 = spin * Math.PI * 2;
   if (kind === "dock") spin2 = seaward(x, z).angle;
+  /**
+   * A hole in a hillside opens DOWNHILL.
+   *
+   * Caves and mine mouths were turned at random like everything else, so
+   * half of them had their entrance pointing into the slope they were
+   * supposed to be cut into, and the tunnel behind it running out into thin
+   * air. The model's mouth faces +z and its tunnel runs back along -z; +z is
+   * turned to face down the fall line, which puts the tunnel in the hill.
+   */
+  if (kind === "cave" || kind === "adit") {
+    const n = normalAt(x, z, 10);
+    if (Math.hypot(n.x, n.z) > 0.02) spin2 = Math.atan2(n.x, n.z);
+  }
   // A runway is sited by measuring one axis, so it has to lie along it.
   if (kind === "airfield") spin2 = 0;
 
@@ -464,10 +503,42 @@ function build(
     let sum = 0;
     for (let i = -5; i <= 5; i++) sum += heightAt(x, z + (i / 5) * STRIP_HALF_L);
     base = sum / 11;
+  } else if (kind === "frozenlake") {
+    /**
+     * Water finds the lowest place and lies level in it.
+     *
+     * The ice was set at the height of the lake's middle, so on any fall of
+     * ground the downhill edge hung in the air with its underside showing —
+     * a table, not a lake. It is only placed on nearly level ground now, and
+     * set at the average height of its own shore, so it lies in the ground
+     * with a bank on the high side and a lip on the low one.
+     */
+    let sum = 0;
+    for (let i = 0; i < 12; i++) {
+      const a = (i / 12) * Math.PI * 2;
+      sum += heightAt(x + Math.cos(a) * 26, z + Math.sin(a) * 26);
+    }
+    // The mean of its shore, not the lowest point: at the lowest the whole
+    // lake was under the turf with a sliver showing on the downhill side.
+    base = sum / 12 - 0.15;
   } else if (kindNeedsFlatGround(kind)) {
     const r = kind === "steading" ? 6 : 4;
+    /**
+     * A building goes on the HIGHEST ground under it; everything else here
+     * on the lowest.
+     *
+     * Lowest was right when it was the only tool: nothing hovered, and a
+     * plinth hid the gap. But it also meant the uphill half of every cabin
+     * was dug into the slope with turf coming up through the floor. Towers
+     * and masts now stretch their own feet to the ground (see world/geom
+     * `Fit`), so they still want the lowest point to stretch UP from. A
+     * building cannot stretch — its floor has to be level — so it is set on
+     * the high side, the way a real one is, and its foundation shows on the
+     * low side.
+     */
+    const pick = kind === "steading" ? Math.max : Math.min;
     for (const [dx, dz] of [[-r, -r], [r, -r], [-r, r], [r, r]] as [number, number][]) {
-      base = Math.min(base, heightAt(x + dx, z + dz));
+      base = pick(base, heightAt(x + dx, z + dz));
     }
   }
 

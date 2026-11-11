@@ -2,6 +2,7 @@ import * as THREE from "three";
 import { NOISE_GLSL } from "./glsl/noise";
 import { SKY_GLSL } from "./glsl/sky";
 import { SHADOW_GLSL, SHADOW_UNIFORMS } from "./sunShadow";
+import { TERRAIN_GLSL } from "./glsl/terrain";
 
 /**
  * Everything solid, standing in the same air as the ground.
@@ -123,6 +124,57 @@ export const WORLD_UNIFORMS = {
 };
 
 /**
+ * Standing on the real ground. See world/geom `Fit` for what the anchors mean.
+ *
+ * The vertex asks the same terrain function the landscape is drawn with how
+ * high the ground is under its anchor, and moves by the difference from the
+ * height the instance was placed at. Because it is the SAME function, a foot
+ * lands on the hill that is actually drawn there rather than on a CPU
+ * estimate of it.
+ *
+ * Never below the waterline: a wreck on a beach has parts over the sea, and
+ * those should lie at the surface, not on the bed.
+ */
+const FIT_PARS = `
+attribute vec3 aAnchor;
+attribute vec3 aAnchorB;
+${NOISE_GLSL}
+${TERRAIN_GLSL}
+`;
+const FIT_VERTEX = `
+#ifdef USE_INSTANCING
+  if (aAnchor.z > 0.0) {
+    mat4 fitM = modelMatrix * instanceMatrix;
+    float fitScale = length(fitM[1].xyz);
+    if (fitScale > 0.0001) {
+      float fitH = terrainHeight((fitM * vec4(aAnchor.x, 0.0, aAnchor.y, 1.0)).xz);
+      if (aAnchorB.z > 0.0) {
+        fitH = mix(fitH, terrainHeight((fitM * vec4(aAnchorB.x, 0.0, aAnchorB.y, 1.0)).xz), aAnchorB.z);
+      }
+      transformed.y += (max(fitH, -0.6) - fitM[3].y) / fitScale * aAnchor.z;
+    }
+  }
+#endif
+`;
+
+/**
+ * The same move for the shadow pass, or a stone standing two metres lower on
+ * a slope would still throw its shadow from where it was modelled.
+ */
+let fitDepth: THREE.MeshDepthMaterial | null = null;
+export function fitDepthMaterial(): THREE.MeshDepthMaterial {
+  if (fitDepth) return fitDepth;
+  fitDepth = new THREE.MeshDepthMaterial({ depthPacking: THREE.RGBADepthPacking });
+  fitDepth.onBeforeCompile = (shader) => {
+    shader.vertexShader = shader.vertexShader
+      .replace("#include <common>", "#include <common>" + FIT_PARS)
+      .replace("#include <begin_vertex>", "#include <begin_vertex>" + FIT_VERTEX);
+  };
+  fitDepth.customProgramCacheKey = () => "fit-depth";
+  return fitDepth;
+}
+
+/**
  * Patch a material to use the world's haze and cloud shadow.
  *
  * Returns the material, so it can be wrapped around a constructor call.
@@ -135,7 +187,7 @@ export const WORLD_UNIFORMS = {
  * instead of dissolving at fifteen kilometres with the hills round it. It is
  * a uniform, not a variant, so it costs no extra program.
  */
-export function worldLit<T extends THREE.Material>(mat: T, gloss = 0, haze = 1): T {
+export function worldLit<T extends THREE.Material>(mat: T, gloss = 0, haze = 1, fit = false): T {
   if ((mat as unknown as { __worldLit?: boolean }).__worldLit) return mat;
   (mat as unknown as { __worldLit?: boolean }).__worldLit = true;
   const uGloss = { value: gloss };
@@ -150,8 +202,9 @@ export function worldLit<T extends THREE.Material>(mat: T, gloss = 0, haze = 1):
     shader.vertexShader = shader.vertexShader
       .replace(
         "#include <common>",
-        "#include <common>\nvarying vec3 vWorldPos;\nvarying vec3 vWorldRel;"
+        "#include <common>\nvarying vec3 vWorldPos;\nvarying vec3 vWorldRel;" + (fit ? FIT_PARS : "")
       )
+      .replace("#include <begin_vertex>", "#include <begin_vertex>" + (fit ? FIT_VERTEX : ""))
       /**
        * After project_vertex, and doing the instancing by hand.
        *
@@ -319,7 +372,7 @@ ${gloss > 0 ? GLOSS_GLSL : ""}
   // handed back and none of the above happens.
   // The injected source DIFFERS between glossy and matte, so they cannot share
   // a cache key — three would hand the second one the first one's program.
-  mat.customProgramCacheKey = () => (gloss > 0 ? "worldLit-gloss" : "worldLit");
+  mat.customProgramCacheKey = () => (gloss > 0 ? "worldLit-gloss" : "worldLit") + (fit ? "-fit" : "");
   mat.needsUpdate = true;
   return mat;
 }

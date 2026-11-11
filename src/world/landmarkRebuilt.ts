@@ -1,5 +1,5 @@
 import * as THREE from "three";
-import { box, merge, rock, strut, type Layer } from "./geom";
+import { box, merge, rock, span, strut, type Layer } from "./geom";
 import { snag } from "./beacons";
 
 /**
@@ -403,5 +403,298 @@ export function spring(): Layer[] {
     { geo: yellow, colour: 0xe2c24a },
     { geo: orange, colour: 0xd9742c },
     { geo: merge(stains), colour: 0xc9762f },
+  ];
+}
+
+// --- the stone arch ----------------------------------------------------------
+
+/**
+ * One arch of rock between two feet, hung between them.
+ *
+ * The old arch was thirteen boxes on a semicircle standing on two box feet,
+ * and it was placed as one rigid thing — so on any slope one foot was in the
+ * air. This is a rib of lumpy blocks, thick where it springs from the ground
+ * and thin at the crown, and every vertex of it is anchored between its two
+ * feet: each foot follows its own ground and the span is the straight line
+ * joining them, whatever the hill does underneath.
+ *
+ * `R` is half the opening, `H` the height of the crown, both in metres at
+ * scale one. The feet are at (cx ± R·cos, cz ± R·sin) for a turn of `yaw`.
+ */
+function rib(R: number, H: number, depth: number, cx: number, cz: number, yaw: number, seed: number): {
+  rock: THREE.BufferGeometry;
+  cap: THREE.BufferGeometry;
+} {
+  const rocks: THREE.BufferGeometry[] = [];
+  const caps: THREE.BufferGeometry[] = [];
+  const N = 15;
+  const at2 = (t: number) => {
+    const a = Math.PI * t;
+    return { x: Math.cos(a) * R, y: Math.sin(a) * H };
+  };
+  for (let i = 0; i < N; i++) {
+    const t0 = i / N, t1 = (i + 1) / N, tm = (t0 + t1) / 2;
+    const p0 = at2(t0), p1 = at2(t1), pm = at2(tm);
+    const len = Math.hypot(p1.x - p0.x, p1.y - p0.y) + 1.6;
+    // Thick at the springing, thin at the crown, and never quite regular.
+    const crown = Math.sin(Math.PI * tm);
+    const wob = 0.8 + 0.4 * Math.abs(Math.sin(i * 2.3 + seed));
+    const thick = (7.2 - 4.0 * crown) * wob;
+    const deep = (depth - depth * 0.42 * crown) * (0.85 + 0.3 * Math.abs(Math.sin(i * 1.7 + seed * 2)));
+    const seg = knap(new THREE.BoxGeometry(len, thick, deep, 2, 2, 2).toNonIndexed(), seed + i, 0.5);
+    seg.rotateZ(Math.atan2(p1.y - p0.y, p1.x - p0.x));
+    seg.rotateY(Math.sin(i * 1.7 + seed) * 0.1);
+    seg.translate(pm.x, pm.y, Math.sin(i * 3.1 + seed) * 0.6);
+    rocks.push(seg);
+    // A darker skin on the weather side of every third block: desert
+    // varnish, which is most of why real arches are two colours.
+    if (i % 3 === 1) {
+      const skin = knap(new THREE.BoxGeometry(len * 0.8, thick * 0.34, deep * 1.04, 1, 1, 1).toNonIndexed(), seed + i + 40, 0.25);
+      skin.rotateZ(Math.atan2(p1.y - p0.y, p1.x - p0.x));
+      const out = { x: Math.cos(Math.PI * tm), y: Math.sin(Math.PI * tm) };
+      skin.translate(pm.x + out.x * thick * 0.4, pm.y + out.y * thick * 0.4, 0);
+      caps.push(skin);
+    }
+  }
+  // The feet: broad, buried, banded.
+  for (const sx of [-1, 1]) {
+    const foot = knap(new THREE.BoxGeometry(10.5, 9, depth + 3, 2, 2, 2).toNonIndexed(), seed + sx + 7, 0.7);
+    foot.translate(sx * (R + 0.6), 0.5, 0);
+    rocks.push(foot);
+    const band = knap(new THREE.BoxGeometry(10.9, 1.2, depth + 3.5, 1, 1, 1).toNonIndexed(), seed + sx + 9, 0.3);
+    band.translate(sx * (R + 0.6), 3.4, 0);
+    caps.push(band);
+    const shoulder = knap(new THREE.BoxGeometry(7.5, 7, depth + 1, 2, 2, 2).toNonIndexed(), seed + sx + 11, 0.6);
+    shoulder.rotateZ(sx * -0.5);
+    shoulder.translate(sx * (R - 1.8), 6.4, 0);
+    rocks.push(shoulder);
+  }
+  const place = (g: THREE.BufferGeometry) => {
+    g.rotateY(yaw);
+    g.translate(cx, 0, cz);
+    // Hung between its own two feet: 0 at one, 1 at the other.
+    const c = Math.cos(yaw), s = Math.sin(yaw);
+    const ax = cx + R * c, az = cz - R * s, bx = cx - R * c, bz = cz + R * s;
+    const dx = bx - ax, dz = bz - az, d2 = dx * dx + dz * dz;
+    return span(g, ax, az, bx, bz, (x, _y, z) => ((x - ax) * dx + (z - az) * dz) / d2);
+  };
+  return { rock: place(merge(rocks)), cap: place(merge(caps)) };
+}
+
+/**
+ * The stone arch, in three states.
+ *
+ *   0  one great span, wide enough to drive through
+ *   1  a double arch: the great span and a lower one beside it
+ *   2  one that has fallen — a pier with the stump of its span, the stub of
+ *      the other, and the blocks of the crown lying between them
+ */
+export function arch(): Layer[] {
+  const R = 17, H = 15.5;
+  const main = rib(R, H, 7.2, 0, 0, 0, 1);
+  const second = rib(9.5, 8.6, 4.6, 6, -12.5, 0.34, 5);
+
+  // Fallen: build the same rib and keep only what would still be standing.
+  const whole = rib(R, H, 7.2, 0, 0, 0, 1);
+  const keep = (g: THREE.BufferGeometry, want: (x: number, y: number) => boolean) => {
+    const pos = g.getAttribute("position");
+    const names = ["position", "normal", "uv", "aAnchor", "aAnchorB"];
+    const out: Record<string, number[]> = {};
+    for (const n of names) out[n] = [];
+    for (let t = 0; t < pos.count; t += 3) {
+      const mx = (pos.getX(t) + pos.getX(t + 1) + pos.getX(t + 2)) / 3;
+      const my = (pos.getY(t) + pos.getY(t + 1) + pos.getY(t + 2)) / 3;
+      if (!want(mx, my)) continue;
+      for (const n of names) {
+        const a = g.getAttribute(n);
+        for (let k = 0; k < 3; k++) for (let c = 0; c < a.itemSize; c++) out[n].push(a.getComponent(t + k, c));
+      }
+    }
+    const r = new THREE.BufferGeometry();
+    for (const n of names) r.setAttribute(n, new THREE.Float32BufferAttribute(out[n], g.getAttribute(n).itemSize));
+    return r;
+  };
+  // The +x pier keeps its span as far as the shoulder; the -x one is a stub.
+  const standing = (x: number, y: number) => x > 8.5 || (x < -11.5 && y < 9);
+  const ruin = keep(whole.rock, standing);
+  const ruinCap = keep(whole.cap, standing);
+  const fallen: THREE.BufferGeometry[] = [];
+  for (let i = 0; i < 9; i++) {
+    const b = knap(new THREE.BoxGeometry(4.5 + (i % 3) * 1.6, 2.6 + (i % 2) * 1.4, 4 + (i % 4), 2, 2, 2).toNonIndexed(), 60 + i, 0.6);
+    b.rotateY(i * 1.3);
+    b.rotateZ((i % 3 - 1) * 0.35);
+    b.translate(-8 + i * 2.1 + Math.sin(i * 2.2) * 2.5, 0.9, Math.sin(i * 1.9) * 7);
+    fallen.push(b);
+  }
+
+  // Boulders shed at the foot of everything, each on its own ground.
+  const scree: THREE.BufferGeometry[] = [];
+  for (let i = 0; i < 14; i++) {
+    const sx = i % 2 ? 1 : -1;
+    const r = rock(0.9 + (i % 4) * 0.6, 0.7, i);
+    r.translate(sx * (R + ((i * 7) % 9) - 3), 0.4, ((i * 5) % 11) - 5 + (i % 2 ? 6 : -6) * 0.8);
+    scree.push(r);
+  }
+
+  return [
+    { geo: main.rock, colour: 0xb89b74, on: [0, 1] },
+    { geo: main.cap, colour: 0x8c6f52, on: [0, 1] },
+    { geo: second.rock, colour: 0xb3946d, on: [1] },
+    { geo: second.cap, colour: 0x8c6f52, on: [1] },
+    { geo: ruin, colour: 0xb89b74, on: [2] },
+    { geo: ruinCap, colour: 0x8c6f52, on: [2] },
+    { geo: merge(fallen), colour: 0xa98d68, on: [2], fit: "scatter" },
+    { geo: merge(scree), colour: 0x9a8263, fit: "scatter" },
+  ];
+}
+
+// --- the cave mouth ----------------------------------------------------------
+
+/**
+ * A crag with a hole in it.
+ *
+ * The cave used to announce itself with a ring of eighteen boulders round a
+ * dead tree, which is a rockery. A cave is an opening in something much
+ * bigger than you: a face of rock eight or ten metres high, jambs either
+ * side, a slab across the top, and darkness under it. This is that face. It
+ * is built deep — its blocks go six metres below their own base — because it
+ * stands in a hillside, and the hill falls away in front of it.
+ *
+ * The mouth faces +z, which world/landmarks turns to point downhill.
+ */
+export function caveMouth(): { rock: THREE.BufferGeometry; dark: THREE.BufferGeometry } {
+  const rocks: THREE.BufferGeometry[] = [];
+  const block = (w: number, h: number, d: number, x: number, y: number, z: number, seed: number, lean = 0) => {
+    const g = knap(new THREE.BoxGeometry(w, h, d, 2, 2, 2).toNonIndexed(), seed, 0.55);
+    g.rotateZ(lean);
+    g.rotateY(Math.sin(seed * 1.7) * 0.18);
+    g.translate(x, y, z);
+    rocks.push(g);
+  };
+  // Jambs: two leaning masses with the opening between them.
+  block(6.5, 15, 7, -6.4, 1.6, -2.2, 1, 0.07);
+  block(7.2, 17, 8, 6.9, 2.4, -2.8, 2, -0.05);
+  block(5, 11, 6, -11, -0.6, -3.4, 3, 0.16);
+  block(5.5, 12, 6, 12, 0.2, -4, 4, -0.14);
+  // The lintel, and what is piled on it.
+  block(15, 4.6, 7.5, 0.3, 7.3, -2.6, 5, 0.03);
+  block(11, 4.2, 7, -1.8, 11.2, -4.2, 6, -0.04);
+  block(7, 3.6, 6, 3.4, 14.2, -5.4, 7, 0.06);
+  // Behind, falling back into the hill so it has a body and not just a face.
+  block(22, 9, 9, 0, 2, -9.5, 8);
+  block(15, 7, 8, 1, 7.5, -12, 9);
+  // Teeth along the top of the opening.
+  for (let i = 0; i < 6; i++) {
+    const h = 0.9 + ((i * 7) % 4) * 0.45;
+    const c = new THREE.ConeGeometry(0.34 + (i % 3) * 0.1, h, 5).toNonIndexed();
+    c.rotateX(Math.PI);
+    c.translate(-2.4 + i * 0.95, 5.0 - h / 2, 0.4 + (i % 2) * 0.5);
+    rocks.push(c);
+  }
+  // What has come down in front of it.
+  for (let i = 0; i < 12; i++) {
+    const sx = i % 2 ? 1 : -1;
+    const r = rock(0.7 + (i % 4) * 0.55, 0.7, i + 30);
+    r.translate(sx * (3.6 + ((i * 5) % 7)), 0.3, 2.5 + ((i * 3) % 6));
+    rocks.push(r);
+  }
+  // The dark itself, a little way in, so the opening is black from any angle.
+  const dark = new THREE.BoxGeometry(7.4, 6, 0.4).toNonIndexed();
+  dark.translate(0.2, 2.2, -1.6);
+  return { rock: merge(rocks), dark };
+}
+
+// --- the bone field ----------------------------------------------------------
+
+/**
+ * Something enormous, a long time dead.
+ *
+ * It was two rows of straight sticks, a box for a skull and one loose arc.
+ * This is an animal: a spine thirty metres long that sags and curves, ribs
+ * that actually arch — out from the backbone, up and over — tallest at the
+ * chest and dwindling toward the tail, and a skull with a brow, sockets, a
+ * jaw fallen open beside it and teeth. Each bone is its own part, so on
+ * uneven ground every rib stands where it is.
+ */
+export function bonefield(): Layer[] {
+  const bone: THREE.BufferGeometry[] = [];
+  const pale: THREE.BufferGeometry[] = [];
+  const dark: THREE.BufferGeometry[] = [];
+  // The spine, bending a little, as it lies.
+  const spineX = (z: number) => Math.sin(z * 0.09) * 2.2;
+  for (let i = 0; i < 24; i++) {
+    const z = -16 + i * 1.45;
+    const size = 0.75 - Math.abs(i - 9) * 0.022;
+    const v = rock(size, 0.75, i);
+    v.translate(spineX(z), 0.55, z);
+    bone.push(v);
+    // The blade on top of each vertebra, which is what a backbone looks like.
+    if (i > 3 && i < 20) {
+      const spur = new THREE.ConeGeometry(0.2, 1.5 - Math.abs(i - 10) * 0.07, 4).toNonIndexed();
+      spur.rotateX(-0.3);
+      spur.translate(spineX(z), 1.5, z);
+      bone.push(spur);
+    }
+  }
+  // Ribs: a quarter-ring each side, rising from the spine and curling over.
+  for (let i = 0; i < 11; i++) {
+    const z = -6.5 + i * 1.75;
+    const r = 2.2 + 3.6 * Math.sin(Math.PI * ((i + 0.6) / 11.6));
+    // The far ones have fallen in or broken short.
+    const arc = Math.PI * (i % 4 === 3 ? 0.34 : 0.62);
+    for (const sx of [-1, 1]) {
+      const rib = new THREE.TorusGeometry(r, 0.2 + r * 0.022, 5, 9, arc).toNonIndexed();
+      // The arc starts flat on the +x axis; stand it up and mirror it.
+      if (sx < 0) rib.rotateY(Math.PI);
+      rib.rotateX(Math.sin(i * 2.1 + sx) * 0.12);
+      rib.translate(spineX(z) + sx * -r * 0.5, 0.4, z);
+      (i % 4 === 3 ? pale : bone).push(rib);
+    }
+  }
+  // The skull.
+  const sz = 20.5, sxk = spineX(19);
+  const part = (g: THREE.BufferGeometry, x: number, y: number, z: number, into = bone) => {
+    g.translate(sxk + x, y, sz + z);
+    into.push(g);
+  };
+  part(knap(new THREE.BoxGeometry(4.4, 3.2, 4.6, 2, 2, 2).toNonIndexed(), 71, 0.3), 0, 2.0, 0);
+  part(knap(new THREE.BoxGeometry(2.8, 2.0, 5.4, 2, 2, 2).toNonIndexed(), 72, 0.25), 0, 1.5, 4.6);
+  part(new THREE.BoxGeometry(4.8, 0.7, 1.4).toNonIndexed(), 0, 3.3, 1.9);
+  for (const sx of [-1, 1]) {
+    part(new THREE.BoxGeometry(0.5, 1.2, 1.3).toNonIndexed(), sx * 2.1, 2.3, 1.2, dark);
+    part(new THREE.BoxGeometry(0.4, 0.6, 0.7).toNonIndexed(), sx * 0.8, 1.9, 7.2, dark);
+    // Horn cores, sweeping back.
+    const horn = new THREE.ConeGeometry(0.42, 4.4, 5).toNonIndexed();
+    horn.rotateX(-1.15);
+    horn.rotateZ(sx * -0.5);
+    part(horn, sx * 2.4, 4.4, -1.6, pale);
+    for (let t = 0; t < 5; t++) {
+      const tooth = new THREE.ConeGeometry(0.16, 0.7, 4).toNonIndexed();
+      tooth.rotateX(Math.PI);
+      part(tooth, sx * 1.15, 0.45, 2.6 + t * 0.95, pale);
+    }
+  }
+  // The lower jaw, fallen away to one side.
+  const jaw = knap(new THREE.BoxGeometry(2.4, 0.7, 6.2, 2, 1, 2).toNonIndexed(), 73, 0.2);
+  jaw.rotateY(0.5);
+  part(jaw, 3.9, 0.35, 3.4);
+
+  /**
+   * One rib standing clear of the rest, far taller than it should be — which
+   * is what you see from a kilometre off, and what says the scale.
+   */
+  const tall: THREE.BufferGeometry[] = [];
+  for (const sx of [-1, 1]) {
+    const rib = new THREE.TorusGeometry(6.4, 0.44, 5, 12, Math.PI * 0.8).toNonIndexed();
+    rib.rotateZ(Math.PI * (sx > 0 ? 0.09 : 0.91));
+    rib.translate(sx * 1.1, 5.6, 1.5);
+    tall.push(rib);
+  }
+
+  return [
+    { geo: merge(tall), colour: 0xcfc6ad, fit: "block" },
+    { geo: merge(bone), colour: 0xd8d2c0, fit: "scatter" },
+    { geo: merge(pale), colour: 0xe6e0cf, fit: "scatter" },
+    { geo: merge(dark), colour: 0x2b2924, fit: "block", solid: false },
   ];
 }

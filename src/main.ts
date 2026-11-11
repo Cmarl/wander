@@ -8,7 +8,9 @@ import { Scatter } from "./world/scatter";
 import { Grass } from "./world/grass";
 import { LandmarkField } from "./world/landmarkRender";
 import { SettlementField } from "./world/settlementRender";
-import { geyserLevel, landmarkSolids } from "./world/landmarks";
+import { geyserLevel } from "./world/landmarks";
+import { solidsFor, useBuilders } from "./world/landmarkSolids";
+import { BUILDERS } from "./world/landmarkRender";
 import { decksOf, type Deck } from "./world/decks";
 import { WORLD_UNIFORMS } from "./world/worldMaterial";
 import { SunShadows } from "./world/sunShadow";
@@ -112,6 +114,7 @@ const post = new Post(renderer, { msaa: !controls.isTouch });
  * disagree in the first place.
  */
 
+useBuilders(BUILDERS);
 const landmarks = new LandmarkField();
 scene.add(landmarks.group);
 const settlements = new SettlementField();
@@ -1875,7 +1878,7 @@ function frame(now: number) {
     const dz = lm.z - player.position.z;
     const d2 = dx * dx + dz * dz;
     if (d2 < 160 * 160) {
-      for (const c of landmarkSolids(lm)) solids.push({ x: c.x, z: c.z, radius: c.r });
+      for (const c of solidsFor(lm)) solids.push({ x: c.x, z: c.z, radius: c.r });
     }
     // Wider than the solids, because an airstrip is 224 m long and you want to
     // be standing on the far threshold, not falling through it.

@@ -3,6 +3,7 @@ import { box, merge, rock, strut, type Layer } from "./geom";
 import { AIRFIELD_PADS, PAD_THICK } from "./decks";
 import { STRIP_HALF_L, STRIP_TOP } from "./landmarks";
 import { flagMast, snag, headframe, poplar } from "./beacons";
+import { caveMouth } from "./landmarkRebuilt";
 
 /**
  * The eight kinds added in the world pass.
@@ -277,19 +278,9 @@ export function cave(): Layer[] {
   const glow: THREE.BufferGeometry[] = [];
   const bones: THREE.BufferGeometry[] = [];
 
-  // The mouth: a ring of boulders around an opening, irregular on purpose.
-  for (let i = 0; i < 18; i++) {
-    const a = (i / 18) * Math.PI * 2;
-    const r = 4.4 + ((i * 7) % 5) * 0.55;
-    const b = rock(1.1 + ((i * 3) % 4) * 0.45, 0.72, i);
-    b.translate(Math.cos(a) * r, 0.6 + ((i * 5) % 3) * 0.5, Math.sin(a) * r * 0.75 - 1.5);
-    rockOuter.push(b);
-  }
-  // A brow of rock over the entrance, so it reads as a hole rather than a gap.
-  const brow = rock(4.2, 0.5, 3);
-  brow.scale(1.5, 1, 0.9);
-  brow.translate(0, 4.0, -1.2);
-  rockOuter.push(brow);
+  // The mouth: a face of rock with an opening in it. See landmarkRebuilt.
+  const mouth = caveMouth();
+  rockOuter.push(mouth.rock);
 
   /**
    * The chamber. Wider than a mine drift and much less regular: the walls are
@@ -362,11 +353,13 @@ export function cave(): Layer[] {
   dead.translate(-5.2, 0, 3.4);
 
   return [
-    { geo: dead, colour: 0xa49a87 },
-    { geo: merge(rockOuter), colour: 0x7e7a72 },
-    { geo: merge(dark), colour: 0x1a1b1f },
-    { geo: merge(bones), colour: 0xcfc9b6 },
+    { geo: dead, colour: 0xa49a87, fit: "block" },
+    // One mass, moving as one: a cliff face does not drape over a hillside.
+    { geo: merge(rockOuter), colour: 0x7e7a72, fit: "rigid" },
+    { geo: merge(dark), colour: 0x1a1b1f, fit: "rigid", solid: false },
+    { geo: merge(bones), colour: 0xcfc9b6, fit: "rigid", solid: false },
     { geo: merge(glow), colour: 0x8fd8e8, unlit: true },
+    { geo: mouth.dark, colour: 0x08090b, unlit: true },
   ];
 }
 

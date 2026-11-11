@@ -101,9 +101,28 @@ export const AIRFIELD_PADS: Pad[] = [
  */
 export const DOCK_PADS: Pad[] = [{ lx: 0, lz: -30, halfW: 0.95, halfL: 30, top: 1.24 }];
 
+/**
+ * The hot spring's mound: five terraces you walk up, and the pool on top.
+ *
+ * The mound is not solid — you are meant to climb it and get in — so it has
+ * to be a surface, or you would wade through travertine to your waist. The
+ * terraces are round and a pad is a rectangle, so each is the square that
+ * fits inside its ring; the corners you cut are a few centimetres of step.
+ * Numbers match world/landmarkRebuilt: radius 9.2 + 1.7 per terrace, each
+ * 0.42 lower than the last, the top one 1.29 above the base.
+ */
+export const SPRING_PADS: Pad[] = Array.from({ length: 5 }, (_, i) => ({
+  lx: 0,
+  lz: 0,
+  halfW: (9.2 + i * 1.7) * 0.78,
+  halfL: (9.2 + i * 1.7) * 0.78,
+  top: 1.29 - i * 0.42,
+}));
+
 function padsFor(kind: Landmark["kind"]): Pad[] {
   if (kind === "airfield") return AIRFIELD_PADS;
   if (kind === "dock") return DOCK_PADS;
+  if (kind === "spring") return SPRING_PADS;
   return [];
 }
 

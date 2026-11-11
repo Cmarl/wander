@@ -1,8 +1,9 @@
 import * as THREE from "three";
-import { worldLit } from "./worldMaterial";
+import { worldLit, fitDepthMaterial } from "./worldMaterial";
+import { fitFor } from "./landmarkFit";
 import { blobTexture } from "./shadows";
 import { slotRandom } from "./field";
-import { box, merge, strut, type Layer } from "./geom";
+import { box, merge, strut, fitGeometry, type Layer } from "./geom";
 import { steadingLayers } from "./buildings";
 import { LANDMARK_CELL, geyserLevel, landmarksNear, type Landmark, type LandmarkKind } from "./landmarks";
 import { ACCRETION_KINDS, accretionsAt, type AccretionKind } from "./accretions";
@@ -11,13 +12,12 @@ import {
   airfield,
   cave,
   dock,
-  bonefield,
   frozenLake as frozenlake,
   orchard,
   sinkhole,
   windpump,
 } from "./landmarkKinds";
-import { shipwreck, stones, spring } from "./landmarkRebuilt";
+import { arch, bonefield, shipwreck, stones, spring } from "./landmarkRebuilt";
 
 /**
  * Draws landmarks.
@@ -292,41 +292,6 @@ function lookout(): Layer[] {
 }
 
 /** Stone arch: eroded blocks with a darker stratum, and rubble at the feet. */
-function arch(): Layer[] {
-  const pale: THREE.BufferGeometry[] = [];
-  const dark: THREE.BufferGeometry[] = [];
-  const R = 17;
-  const N = 13;
-  for (let i = 0; i < N; i++) {
-    const a = ((i + 0.5) / N) * Math.PI;
-    // Uneven blocks read as weathered rock rather than masonry.
-    const wob = 0.72 + Math.abs(Math.sin(i * 2.3)) * 0.6;
-    const seg = box((Math.PI * R) / N + 1.9, 4.4 + wob * 1.7, 6.4 + wob * 2.2);
-    seg.rotateZ(a + Math.PI / 2);
-    seg.rotateY(Math.sin(i * 1.7) * 0.12);
-    seg.translate(Math.cos(a) * R, Math.sin(a) * R, Math.sin(i * 3.1) * 0.5);
-    (i % 4 === 1 ? dark : pale).push(seg);
-  }
-  for (const sx of [-1, 1]) {
-    const foot = box(9.4, 5.2, 10.2);
-    foot.translate(sx * R, 1.9, 0);
-    pale.push(foot);
-    const band = box(9.7, 1.1, 10.5);
-    band.translate(sx * R, 3.5, 0);
-    dark.push(band);
-    for (let i = 0; i < 5; i++) {
-      const r = new THREE.IcosahedronGeometry(0.8 + (i % 3) * 0.6, 0);
-      r.scale(1, 0.7, 1);
-      r.translate(sx * (R + (i - 2) * 2.6), 0.5, (i % 2 ? 1 : -1) * (5.4 + i * 0.7));
-      pale.push(r);
-    }
-  }
-  return [
-    { geo: merge(pale), colour: 0xb09672 },
-    { geo: merge(dark), colour: 0x8a7158 },
-  ];
-}
-
 /** Radio mast: lattice, guy wires to three anchors, dishes, a red lamp. */
 function mast(): Layer[] {
   const steel: THREE.BufferGeometry[] = [];
@@ -739,11 +704,15 @@ export class LandmarkField {
     for (const kind of Object.keys(BUILDERS) as LandmarkKind[]) {
       const built = BUILDERS[kind]();
       this.layers.set(kind, built);
-      const meshes = built.map((layer) => {
+      const meshes = built.map((layer, index) => {
+        // Unlit layers are lamps and glints: tiny, and level is fine.
+        const fitted = !layer.unlit;
+        if (fitted) fitGeometry(layer.geo, fitFor(kind, index, layer));
         const mat = layer.unlit
           ? new THREE.MeshBasicMaterial({ color: layer.colour })
-          : worldLit(new THREE.MeshLambertMaterial({ color: layer.colour, flatShading: true }));
+          : worldLit(new THREE.MeshLambertMaterial({ color: layer.colour, flatShading: true }), 0, 1, true);
         const mesh = new THREE.InstancedMesh(layer.geo, mat, BUDGET);
+        if (fitted) mesh.customDepthMaterial = fitDepthMaterial();
         mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
         mesh.frustumCulled = false;
         mesh.count = 0;
